@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct TableBounds {
+struct TableBounds: Sendable {
   var rowCount: Int {
     self.rows.count
   }

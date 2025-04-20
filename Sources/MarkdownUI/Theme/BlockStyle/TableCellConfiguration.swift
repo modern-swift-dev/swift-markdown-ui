@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// The theme ``Theme/tableCell`` block style receives a `TableCellConfiguration`
 /// input in its `body` closure.
-public struct TableCellConfiguration {
+public struct TableCellConfiguration: Sendable {
   /// A type-erased view of a Markdown table cell.
   public struct Label: View {
     init<L: View>(_ label: L) {

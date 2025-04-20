@@ -13,9 +13,10 @@ extension View {
   ///   - textStyle: A text style builder that returns the new text style to use for the given key path.
   public func markdownTextStyle<S: TextStyle>(
     _ keyPath: WritableKeyPath<Theme, TextStyle>,
-    @TextStyleBuilder textStyle: () -> S
+    @TextStyleBuilder textStyle: @MainActor @Sendable () -> S
   ) -> some View {
-    self.environment((\EnvironmentValues.theme).appending(path: keyPath), textStyle())
+
+    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), textStyle())
   }
 
   /// Replaces a specific block style on the current ``Theme`` with a block style initialized with the given body closure.
@@ -24,9 +25,9 @@ extension View {
   ///   - body: A view builder that returns the customized block.
   public func markdownBlockStyle<Body: View>(
     _ keyPath: WritableKeyPath<Theme, BlockStyle<Void>>,
-    @ViewBuilder body: @escaping () -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable() -> Body
   ) -> some View {
-    self.environment((\EnvironmentValues.theme).appending(path: keyPath), .init(body: body))
+    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), .init(body: body))
   }
 
   /// Replaces a specific block style on the current ``Theme`` with a block style initialized with the given body closure.
@@ -35,9 +36,9 @@ extension View {
   ///   - body: A view builder that receives the block configuration and returns the customized block.
   public func markdownBlockStyle<Configuration, Body: View>(
     _ keyPath: WritableKeyPath<Theme, BlockStyle<Configuration>>,
-    @ViewBuilder body: @escaping (_ configuration: Configuration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: Configuration) -> Body
   ) -> some View {
-    self.environment((\EnvironmentValues.theme).appending(path: keyPath), .init(body: body))
+    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), .init(body: body))
   }
 
   /// Replaces the current ``Theme`` task list marker with the given list marker.

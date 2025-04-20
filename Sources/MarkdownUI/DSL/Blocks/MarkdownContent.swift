@@ -1,7 +1,7 @@
 import Foundation
 
 /// A protocol that represents any Markdown content.
-public protocol MarkdownContentProtocol {
+public protocol MarkdownContentProtocol: Sendable {
   var _markdownContent: MarkdownContent { get }
 }
 

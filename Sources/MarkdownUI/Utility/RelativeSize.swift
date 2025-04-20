@@ -21,7 +21,7 @@ import SwiftUI
 ///     FontSize(.em(2))
 ///   }
 /// ```
-public struct RelativeSize: Hashable {
+public struct RelativeSize: Hashable, Sendable {
   enum Unit: Hashable {
     case em
     case rem

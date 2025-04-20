@@ -20,7 +20,7 @@ import Foundation
 ///
 /// ![](Heading)
 public struct Heading: MarkdownContentProtocol {
-  public enum Level: Int {
+  public enum Level: Int, Sendable {
     case level1 = 1
     case level2 = 2
     case level3 = 3

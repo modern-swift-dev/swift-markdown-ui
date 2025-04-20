@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// The theme ``Theme/taskListMarker`` block style receives a `TaskListMarkerConfiguration`
 /// input in its `body` closure.
-public struct TaskListMarkerConfiguration {
+public struct TaskListMarkerConfiguration: Sendable {
   /// Determines whether the item to which the marker applies is completed or not.
   public let isCompleted: Bool
 }

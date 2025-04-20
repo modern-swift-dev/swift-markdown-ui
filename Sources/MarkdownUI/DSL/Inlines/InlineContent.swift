@@ -1,7 +1,7 @@
 import Foundation
 
 /// A protocol that represents any Markdown inline content.
-public protocol InlineContentProtocol {
+public protocol InlineContentProtocol: Sendable {
   var _inlineContent: InlineContent { get }
 }
 
@@ -32,7 +32,7 @@ public protocol InlineContentProtocol {
 ///   }
 /// }
 /// ```
-public struct InlineContent: Equatable, InlineContentProtocol {
+public struct InlineContent: Equatable, InlineContentProtocol, Sendable {
   public var _inlineContent: InlineContent { self }
   let inlines: [InlineNode]
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// Most theme ``BlockStyle`` instances receive a `BlockConfiguration` input in their
 /// `body` closure. The configuration ``BlockConfiguration/label-swift.property``
 /// property reflects the block's content.
-public struct BlockConfiguration {
+public struct BlockConfiguration: Sendable {
   /// A type-erased view of a Markdown block.
   public struct Label: View {
     init<L: View>(_ label: L) {

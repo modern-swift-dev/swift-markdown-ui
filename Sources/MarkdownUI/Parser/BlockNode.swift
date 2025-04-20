@@ -1,6 +1,6 @@
 import Foundation
 
-enum BlockNode: Hashable {
+enum BlockNode: Hashable, Sendable {
   case blockquote(children: [BlockNode])
   case bulletedList(isTight: Bool, items: [RawListItem])
   case numberedList(isTight: Bool, start: Int, items: [RawListItem])
@@ -35,11 +35,11 @@ extension BlockNode {
   }
 }
 
-struct RawListItem: Hashable {
+struct RawListItem: Hashable, Sendable {
   let children: [BlockNode]
 }
 
-struct RawTaskListItem: Hashable {
+struct RawTaskListItem: Hashable, Sendable {
   let isCompleted: Bool
   let children: [BlockNode]
 }
@@ -51,10 +51,10 @@ enum RawTableColumnAlignment: Character {
   case right = "r"
 }
 
-struct RawTableRow: Hashable {
+struct RawTableRow: Hashable, Sendable {
   let cells: [RawTableCell]
 }
 
-struct RawTableCell: Hashable {
+struct RawTableCell: Hashable, Sendable {
   let content: [InlineNode]
 }
