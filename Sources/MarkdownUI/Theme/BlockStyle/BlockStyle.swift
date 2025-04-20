@@ -9,7 +9,7 @@ import SwiftUI
 /// a ``Markdown`` view:
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///

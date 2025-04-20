@@ -71,7 +71,7 @@ let markdownString = """
   """
 
 var body: some View {
-  Markdown(markdownString)
+  MarkdownView(markdownString)
 }
 ```
 
@@ -85,7 +85,7 @@ using an expressive domain-specific language.
 
 ```swift
 var body: some View {
-  Markdown {
+  MarkdownView {
     """
     ## Using a Markdown Content Builder
     Use Markdown strings or an expressive domain-specific language
@@ -121,7 +121,7 @@ let content = MarkdownContent("You can try **CommonMark** [here](https://spec.co
 
 // Later in the view layer
 var body: some View {
-  Markdown(self.model.content)
+  MarkdownView(self.model.content)
 }
 ```
 
@@ -131,7 +131,7 @@ Markdown views use a basic default theme to display the contents. For more infor
 the `basic` theme.
 
 ```swift
-Markdown {
+MarkdownView {
   """
   You can quote text with a `>`.
 
@@ -151,7 +151,7 @@ You can customize the appearance of Markdown content by applying different theme
 `gitHub`, to either a Markdown view or a view hierarchy that contains Markdown views.
 
 ```swift
-Markdown {
+MarkdownView {
   """
   You can quote text with a `>`.
 
@@ -171,7 +171,7 @@ To override a specific text style from the current theme, use the `markdownTextS
 modifier. The following example shows how to override the `code` text style.
 
 ```swift
-Markdown {
+MarkdownView {
   """
   Use `git status` to list all new or modified files
   that haven't yet been committed.
@@ -192,7 +192,7 @@ You can also use the `markdownBlockStyle(_:body:)` modifier to override a specif
 example, you can override only the `blockquote` block style, leaving other block styles untouched.
 
 ```swift
-Markdown {
+MarkdownView {
   """
   You can quote text with a `>`.
 

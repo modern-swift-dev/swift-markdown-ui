@@ -56,7 +56,7 @@ The following example shows how to configure the asset image provider to load im
 main bundle.
 
 ```swift
-Markdown {
+MarkdownView {
   "![A dog](dog)"
   "― Photo by André Spieker"
 }

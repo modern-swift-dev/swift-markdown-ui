@@ -17,7 +17,7 @@ struct ImageProvidersView: View {
     to load images from image assets.
 
     ```swift
-    Markdown {
+    MarkdownView {
       "![A dog](dog)"
       "A ![dog](smallDog) within a line of text."
       "― Photo by André Spieker"
@@ -35,11 +35,11 @@ struct ImageProvidersView: View {
 
   var body: some View {
     DemoView {
-      Markdown(self.content)
+      MarkdownView(self.content)
         .markdownImageProvider(.webImage)
 
       Section("Image Assets") {
-        Markdown(self.otherContent)
+        MarkdownView(self.otherContent)
           .markdownImageProvider(.asset)
           .markdownInlineImageProvider(.asset)
       }

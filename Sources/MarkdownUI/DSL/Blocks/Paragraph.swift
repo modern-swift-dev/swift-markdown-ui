@@ -5,7 +5,7 @@ import Foundation
 /// A paragraph is one structural unit of text. It can contain styled text, links, and images.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "You can try "
 ///     Strong("CommonMark")

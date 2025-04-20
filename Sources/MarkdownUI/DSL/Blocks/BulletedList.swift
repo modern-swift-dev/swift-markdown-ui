@@ -8,7 +8,7 @@ import Foundation
 /// let headgear = ["Hats", "Caps", "Bonnets"]
 ///
 /// var body: some View {
-///   Markdown {
+///   MarkdownView {
 ///     Paragraph {
 ///       "This is an incomplete list of headgear:"
 ///     }
@@ -22,7 +22,7 @@ import Foundation
 /// To create a bulleted list from static items, you provide the items directly rather than the contents of a collection.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "This is an incomplete list of headgear:"
 ///   }
@@ -37,7 +37,7 @@ import Foundation
 /// Use a ``ListItem`` element to nest a list inside a list item or have multi-paragraph list items.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "List of unusual units of measurement:"
 ///   }

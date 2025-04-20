@@ -46,7 +46,7 @@ struct CodeSyntaxHighlightView: View {
 
     ```swift
     var body: some View {
-      Markdown(self.content)
+      MarkdownView(self.content)
         .markdownCodeSyntaxHighlighter(.splash(theme: .sunset(withFont: .init(size: 16))))
     }
     ```
@@ -90,7 +90,7 @@ struct CodeSyntaxHighlightView: View {
 
   var body: some View {
     DemoView {
-      Markdown(self.content)
+      MarkdownView(self.content)
         .markdownBlockStyle(\.codeBlock) {
           codeBlock($0)
         }

@@ -8,7 +8,7 @@ import SwiftUI
 /// The following example customizes the table style to display only the outside borders with a dashed stroke style.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   | First Header  | Second Header |
 ///   | ------------- | ------------- |

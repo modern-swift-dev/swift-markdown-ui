@@ -9,7 +9,7 @@ import SwiftUI
 /// The following example customizes the background of the odd rows in a table.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   | First Header  | Second Header |
 ///   | ------------- | ------------- |

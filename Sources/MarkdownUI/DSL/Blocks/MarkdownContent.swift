@@ -35,7 +35,7 @@ public protocol MarkdownContentProtocol: Sendable {
 ///
 /// ```swift
 /// var body: some View {
-///   Markdown(self.content)
+///   MarkdownView(self.content)
 /// }
 /// ```
 ///
@@ -46,8 +46,8 @@ public protocol MarkdownContentProtocol: Sendable {
 /// ```swift
 /// var body: some View {
 ///   VStack {
-///     Markdown("You can try **CommonMark** [here](https://spec.commonmark.org/dingus/).")
-///     Markdown {
+///     MarkdownView("You can try **CommonMark** [here](https://spec.commonmark.org/dingus/).")
+///     MarkdownView {
 ///       Paragraph {
 ///         "You can try "
 ///         Strong("CommonMark")

@@ -5,7 +5,7 @@ import Foundation
 /// Blockquote elements are typically used to quote text from another source.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Blockquote {
 ///     Paragraph {
 ///       "Outside of a dog, a book is man's best friend."

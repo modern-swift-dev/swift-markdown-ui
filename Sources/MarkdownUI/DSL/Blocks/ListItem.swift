@@ -5,7 +5,7 @@ import Foundation
 /// You can use list items to compose bulleted and numbered lists.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   NumberedList {
 ///     ListItem {
 ///       "Item one"

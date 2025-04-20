@@ -6,7 +6,7 @@ import SwiftUI
 /// from the main bundle.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   "![A dog](dog)"
 ///   "― Photo by André Spieker"
 /// }

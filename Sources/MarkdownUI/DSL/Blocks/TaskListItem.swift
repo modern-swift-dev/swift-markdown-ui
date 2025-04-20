@@ -5,7 +5,7 @@ import Foundation
 /// You can use task list items to compose task lists.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "Things to do:"
 ///   }

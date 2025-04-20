@@ -7,7 +7,7 @@ import SwiftUI
 /// You can set the current Markdown theme in a view hierarchy by using the `markdownTheme(_:)` modifier.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///
@@ -26,7 +26,7 @@ import SwiftUI
 /// modifier.  The following example shows how to override the ``Theme/code`` text style.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   Use `git status` to list all new or modified files
 ///   that haven't yet been committed.
@@ -46,7 +46,7 @@ import SwiftUI
 /// override only the ``Theme/blockquote`` block style, leaving other block styles untouched.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///

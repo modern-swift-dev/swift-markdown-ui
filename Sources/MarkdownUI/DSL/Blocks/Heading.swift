@@ -5,7 +5,7 @@ import Foundation
 /// You can use heading elements to display titles and subtitles or mark different sections in the content.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Heading {
 ///     "The largest heading"
 ///   }

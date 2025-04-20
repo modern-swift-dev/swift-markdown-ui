@@ -20,7 +20,7 @@ import SwiftUI
 ///   """
 ///
 /// var body: some View {
-///   Markdown(markdownString)
+///   MarkdownView(markdownString)
 /// }
 /// ```
 ///
@@ -32,7 +32,7 @@ import SwiftUI
 ///
 /// ```swift
 /// var body: some View {
-///   Markdown {
+///   MarkdownView {
 ///     """
 ///     ## Using a Markdown Content Builder
 ///     Use Markdown strings or an expressive domain-specific language
@@ -67,7 +67,7 @@ import SwiftUI
 ///
 /// // Later in the view layer
 /// var body: some View {
-///   Markdown(self.model.content)
+///   MarkdownView(self.model.content)
 /// }
 /// ```
 ///
@@ -76,7 +76,7 @@ import SwiftUI
 /// Markdown views use a basic default theme to display the contents. For more information, read about the ``Theme/basic`` theme.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///
@@ -95,7 +95,7 @@ import SwiftUI
 /// contains Markdown views.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///
@@ -114,7 +114,7 @@ import SwiftUI
 /// modifier.  The following example shows how to override the ``Theme/code`` text style.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   Use `git status` to list all new or modified files
 ///   that haven't yet been committed.
@@ -134,7 +134,7 @@ import SwiftUI
 /// override only the ``Theme/blockquote`` block style, leaving other block styles untouched.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///
@@ -172,7 +172,7 @@ import SwiftUI
 /// by setting the `openURL` environment value with a custom `OpenURLAction`.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   ## Try MarkdownUI
 ///   **MarkdownUI** is a native Markdown renderer for SwiftUI
@@ -188,7 +188,7 @@ import SwiftUI
 ///   }
 /// )
 /// ```
-public struct Markdown: View {
+public struct MarkdownView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.theme.text) private var text
 
@@ -226,7 +226,7 @@ public struct Markdown: View {
   }
 }
 
-extension Markdown {
+extension MarkdownView {
   /// Creates a Markdown view from a Markdown-formatted string.
   /// - Parameters:
   ///   - markdown: The string that contains the Markdown formatting.
@@ -245,7 +245,7 @@ extension Markdown {
   ///
   /// ```swift
   /// var body: some View {
-  ///   Markdown {
+  ///   MarkdownView {
   ///     """
   ///     ## Using a Markdown Content Builder
   ///

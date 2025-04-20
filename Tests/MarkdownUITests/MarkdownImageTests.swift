@@ -13,7 +13,7 @@
     }
 
     func testFailingImage() {
-      let view = Markdown {
+      let view = MarkdownView {
         #"""
         An image that fails to load:
 
@@ -29,7 +29,7 @@
     }
 
     func testRelativeImage() {
-      let view = Markdown(baseURL: URL(string: "https://example.com/picsum/")) {
+      let view = MarkdownView(baseURL: URL(string: "https://example.com/picsum/")) {
         #"""
         500x300 image:
 
@@ -57,7 +57,7 @@
     }
 
     func testImageLink() {
-      let view = Markdown {
+      let view = MarkdownView {
         #"""
         A link that contains an image instead of text:
 
@@ -78,7 +78,7 @@
         throw XCTSkip("Required API is not available for this test")
       }
 
-      let view = Markdown {
+      let view = MarkdownView {
         #"""
         [![](https://example.com/picsum/237-100x150)](https://example.com)
         ![](https://example.com/picsum/237-125x75)
@@ -101,7 +101,7 @@
         throw XCTSkip("Required API is not available for this test")
       }
 
-      let view = Markdown {
+      let view = MarkdownView {
         #"""
         ![](https://example.com/picsum/237-100x150)
         ![](https://example.com/picsum/237-125x75)
@@ -127,12 +127,12 @@
         """
 
       let view = VStack {
-        Markdown(content)
+        MarkdownView(content)
           .background()
           .colorScheme(.light)
           .border(Color.accentColor)
           .padding()
-        Markdown(content)
+        MarkdownView(content)
           .background()
           .colorScheme(.dark)
           .border(Color.accentColor)

@@ -5,7 +5,7 @@ import Foundation
 /// Use a thematic break element to define thematic changes in the content.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "This is an example of a thematic break."
 ///   }

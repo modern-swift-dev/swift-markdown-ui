@@ -5,7 +5,7 @@ import Foundation
 /// You can use an image inline to embed an image in a paragraph.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "A picture of a black lab puppy:"
 ///   }

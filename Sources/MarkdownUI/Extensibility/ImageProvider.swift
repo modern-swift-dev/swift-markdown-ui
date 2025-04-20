@@ -7,7 +7,7 @@ import SwiftUI
 /// The following example shows how to configure the ``AssetImageProvider`` to load images from the main bundle.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   "![A dog](dog)"
 ///   "― Photo by André Spieker"
 /// }

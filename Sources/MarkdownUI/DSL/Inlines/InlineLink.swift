@@ -6,7 +6,7 @@ import Foundation
 /// can be any inline content, including an image.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "A picture of a black lab puppy:"
 ///   }
@@ -21,7 +21,7 @@ import Foundation
 /// You can directly provide the title text for links with an unstyled title.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "Visit "
 ///     InlineLink("our site.", destination: URL(string: "https://www.example.com")!)

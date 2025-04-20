@@ -9,7 +9,7 @@ import SwiftUI
 /// The following example applies a custom text style to each ``Theme/code`` inline in a ``Markdown`` view.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   Use `git status` to list all new or modified files
 ///   that haven't yet been committed.
@@ -29,7 +29,7 @@ import SwiftUI
 /// modifier. For example, you can define a ``Theme/blockquote`` style that uses a semibold lowercase small-caps text style:
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   """
 ///   You can quote text with a `>`.
 ///

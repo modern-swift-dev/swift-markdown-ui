@@ -21,7 +21,7 @@ import Foundation
 /// ]
 ///
 /// var body: some View {
-///   Markdown {
+///   MarkdownView {
 ///     TextTable(superheroes) {
 ///       TextTableColumn(title: "Name", value: \.name)
 ///       TextTableColumn(title: "Real Name", value: \.realName)
@@ -42,7 +42,7 @@ import Foundation
 /// }
 ///
 /// var body: some View {
-///   Markdown {
+///   MarkdownView {
 ///     TextTable {
 ///       TextTableColumn(title: "Month", value: \.month)
 ///       TextTableColumn(alignment: .trailing, title: "Savings") { row in

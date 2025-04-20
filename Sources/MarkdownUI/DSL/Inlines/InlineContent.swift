@@ -22,7 +22,7 @@ public protocol InlineContentProtocol: Sendable {
 /// content.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "You can try "
 ///     Strong("CommonMark")

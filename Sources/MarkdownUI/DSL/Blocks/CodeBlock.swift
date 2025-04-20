@@ -6,7 +6,7 @@ import Foundation
 /// Rather than forming normal paragraphs, the lines of a code block are interpreted literally.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "Use a group to collect multiple views into a single instance, "
 ///     "without affecting the layout of those views."

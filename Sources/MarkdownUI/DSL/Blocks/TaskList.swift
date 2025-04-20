@@ -19,7 +19,7 @@ import Foundation
 /// ]
 ///
 /// var body: some View {
-///   Markdown {
+///   MarkdownView {
 ///     Paragraph {
 ///       "Things to do:"
 ///     }
@@ -43,7 +43,7 @@ import Foundation
 /// To create a task list from static items, you provide the items directly rather than a collection of data.
 ///
 /// ```swift
-/// Markdown {
+/// MarkdownView {
 ///   Paragraph {
 ///     "Things to do:"
 ///   }
