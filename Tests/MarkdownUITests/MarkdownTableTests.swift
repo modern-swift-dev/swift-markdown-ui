@@ -9,6 +9,10 @@
     private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
     private let perceptualPrecision: Float = 0.98
 
+    override func setUp() async throws {
+      try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on Mac Catalyst")
+    }
+
     func testTable() throws {
       guard #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) else {
         throw XCTSkip("Table rendering is not available")

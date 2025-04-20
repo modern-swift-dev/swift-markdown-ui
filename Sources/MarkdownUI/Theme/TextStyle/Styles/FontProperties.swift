@@ -96,7 +96,6 @@ public struct FontProperties: Hashable, Sendable {
   public var weight: Font.Weight = Self.defaultWeight
 
   /// The font width.
-  @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
   public var width: Font.Width = .standard
 
   /// The font size.
