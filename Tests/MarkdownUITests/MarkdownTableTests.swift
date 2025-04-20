@@ -5,7 +5,7 @@
 
   import MarkdownUI
 
-  final class MarkdownTableTests: XCTestCase {
+  @MainActor final class MarkdownTableTests: XCTestCase {
     private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
     private let perceptualPrecision: Float = 0.98
 

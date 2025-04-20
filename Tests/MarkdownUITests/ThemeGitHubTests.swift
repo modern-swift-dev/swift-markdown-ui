@@ -5,11 +5,11 @@
 
   import MarkdownUI
 
-  final class ThemeGitHubTests: XCTestCase {
+  @MainActor final class ThemeGitHubTests: XCTestCase {
     private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
     private let perceptualPrecision: Float = 0.97
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
       try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on Mac Catalyst")
     }
 
