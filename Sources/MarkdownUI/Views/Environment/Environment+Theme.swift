@@ -16,7 +16,9 @@ extension View {
     @TextStyleBuilder textStyle: @MainActor @Sendable () -> S
   ) -> some View {
 
-    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), textStyle())
+    self.environment(
+      (\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(
+        path: keyPath), textStyle())
   }
 
   /// Replaces a specific block style on the current ``Theme`` with a block style initialized with the given body closure.
@@ -25,9 +27,11 @@ extension View {
   ///   - body: A view builder that returns the customized block.
   public func markdownBlockStyle<Body: View>(
     _ keyPath: WritableKeyPath<Theme, BlockStyle<Void>>,
-    @ViewBuilder body: @escaping @MainActor @Sendable() -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable () -> Body
   ) -> some View {
-    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), .init(body: body))
+    self.environment(
+      (\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(
+        path: keyPath), .init(body: body))
   }
 
   /// Replaces a specific block style on the current ``Theme`` with a block style initialized with the given body closure.
@@ -38,7 +42,9 @@ extension View {
     _ keyPath: WritableKeyPath<Theme, BlockStyle<Configuration>>,
     @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: Configuration) -> Body
   ) -> some View {
-    self.environment((\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(path: keyPath), .init(body: body))
+    self.environment(
+      (\EnvironmentValues.theme as WritableKeyPath<EnvironmentValues, Theme>).appending(
+        path: keyPath), .init(body: body))
   }
 
   /// Replaces the current ``Theme`` task list marker with the given list marker.

@@ -42,7 +42,9 @@ public struct BlockStyle<Configuration: Sendable>: Sendable {
 
   /// Creates a block style that customizes a block by applying the given body.
   /// - Parameter body: A view builder that returns the customized block.
-  public init<Body: View>(@ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: Configuration) -> Body) {
+  public init<Body: View>(
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: Configuration) -> Body
+  ) {
     self.body = { AnyView(body($0)) }
   }
 

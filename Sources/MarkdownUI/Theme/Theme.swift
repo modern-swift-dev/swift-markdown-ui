@@ -333,7 +333,8 @@ extension Theme {
   /// Adds a code block style to the theme.
   /// - Parameter body: A view builder that returns a customized code block.
   public func codeBlock<Body: View>(
-    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: CodeBlockConfiguration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: CodeBlockConfiguration) ->
+      Body
   ) -> Theme {
     var theme = self
     theme.codeBlock = .init(body: body)
@@ -381,7 +382,8 @@ extension Theme {
   /// Adds a task list marker style to the theme.
   /// - Parameter body: A view builder that returns a customized task list marker.
   public func taskListMarker<Body: View>(
-    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: TaskListMarkerConfiguration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: TaskListMarkerConfiguration)
+      -> Body
   ) -> Theme {
     var theme = self
     theme.taskListMarker = .init(body: body)
@@ -401,7 +403,8 @@ extension Theme {
   /// Adds a bulleted list marker style to the theme.
   /// - Parameter body: A view builder that returns a customized bulleted list marker.
   public func bulletedListMarker<Body: View>(
-    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: ListMarkerConfiguration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: ListMarkerConfiguration) ->
+      Body
   ) -> Theme {
     var theme = self
     theme.bulletedListMarker = .init(body: body)
@@ -421,7 +424,8 @@ extension Theme {
   /// Adds a numbered list marker style to the theme.
   /// - Parameter body: A view builder that returns a customized numbered list marker.
   public func numberedListMarker<Body: View>(
-    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: ListMarkerConfiguration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: ListMarkerConfiguration) ->
+      Body
   ) -> Theme {
     var theme = self
     theme.numberedListMarker = .init(body: body)
@@ -441,7 +445,8 @@ extension Theme {
   /// Adds a table cell style to the theme.
   /// - Parameter body: A view builder that returns a customized table cell.
   public func tableCell<Body: View>(
-    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: TableCellConfiguration) -> Body
+    @ViewBuilder body: @escaping @MainActor @Sendable (_ configuration: TableCellConfiguration) ->
+      Body
   ) -> Theme {
     var theme = self
     theme.tableCell = .init(body: body)
@@ -450,7 +455,9 @@ extension Theme {
 
   /// Adds a thematic break style to the theme.
   /// - Parameter body: A view builder that returns a customized thematic break.
-  public func thematicBreak<Body: View>(@ViewBuilder body: @escaping @MainActor @Sendable () -> Body) -> Theme {
+  public func thematicBreak<Body: View>(
+    @ViewBuilder body: @escaping @MainActor @Sendable () -> Body
+  ) -> Theme {
     var theme = self
     theme.thematicBreak = .init(body: body)
     return theme

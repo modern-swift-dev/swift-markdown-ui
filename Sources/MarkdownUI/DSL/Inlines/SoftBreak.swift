@@ -13,7 +13,7 @@ public struct SoftBreak: InlineContentProtocol {
 }
 
 extension SoftBreak {
-    public enum Mode: Sendable {
+  public enum Mode: Sendable {
     /// Treat a soft break as a space
     case space
 
