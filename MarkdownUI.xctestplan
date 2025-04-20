@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "36928165-A02A-4C0F-88C9-E08CA1F79C3B",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "MarkdownUITests",
+        "name" : "MarkdownUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
