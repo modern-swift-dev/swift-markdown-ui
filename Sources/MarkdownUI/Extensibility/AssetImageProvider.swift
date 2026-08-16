@@ -30,7 +30,7 @@ public struct AssetImageProvider: ImageProvider {
 
     @MainActor public func makeImage(url: URL?) -> some View {
         if let url, let image = self.image(url: url) {
-            ResizeToFit(idealSize: image.size) {
+            ResizeToFit {
                 Image(platformImage: image)
                     .resizable()
             }

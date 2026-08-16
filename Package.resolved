@@ -1,15 +1,6 @@
 {
-  "originHash" : "b5ee509db49a134cf617d4d6f7e6b6ae76760ec04d81deb8f01f0b890a8bcb32",
+  "originHash" : "5554fbe013c01d45f64138515d0cf6b5a63ba45603d3853104960382730c314e",
   "pins" : [
-    {
-      "identity" : "networkimage",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/NetworkImage",
-      "state" : {
-        "revision" : "7aff8d1b31148d32c5933d75557d42f6323ee3d1",
-        "version" : "6.0.0"
-      }
-    },
     {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",

@@ -1,6 +1,6 @@
-@_implementationOnly import cmark_gfm
-@_implementationOnly import cmark_gfm_extensions
 import Foundation
+internal import cmark_gfm
+internal import cmark_gfm_extensions
 
 extension [BlockNode] {
     init(markdown: String) {
