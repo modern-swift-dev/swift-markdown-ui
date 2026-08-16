@@ -2,144 +2,135 @@
 import MarkdownUI
 import SnapshotTesting
 import SwiftUI
-import XCTest
+import Testing
 
-@MainActor final class MarkdownImageTests: XCTestCase {
-    private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
+extension SnapshotTests {
+    @MainActor
+    @Suite(.enabled(if: SnapshotTestSupport.supportsPhoneSnapshots, "Skipping on iPad")) struct MarkdownImageTests {
+        private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
 
-    override func setUp() async throws {
-        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on Mac Catalyst")
-    }
+        @Test func failingImage() {
+            let view = MarkdownView {
+                #"""
+                An image that fails to load:
 
-    func testFailingImage() {
-        let view = MarkdownView {
-            #"""
-            An image that fails to load:
+                ![Unavailable image](http://[)
 
-            ![Unavailable image](http://[)
+                ― Photo by André Spieker
+                """#
+            }
+            .border(Color.accentColor)
+            .padding()
 
-            ― Photo by André Spieker
-            """#
+            assertSnapshot(of: view, as: .image(layout: layout))
         }
-        .border(Color.accentColor)
-        .padding()
 
-        assertSnapshot(of: view, as: .image(layout: layout))
-    }
+        @Test func relativeImage() {
+            let view = MarkdownView(baseURL: URL(string: "https://example.com/picsum/")) {
+                #"""
+                500x300 image:
 
-    func testRelativeImage() {
-        let view = MarkdownView(baseURL: URL(string: "https://example.com/picsum/")) {
-            #"""
-            500x300 image:
+                ![](237-500x300)
 
-            ![](237-500x300)
-
-            ― Photo by André Spieker
-            """#
-        }
-        .border(Color.accentColor)
-        .padding()
-        .markdownImageProvider(
-            AssetImageProvider(
-                name: { url in
-                    XCTAssertEqual(
-                        URL(string: "237-500x300", relativeTo: URL(string: "https://example.com/picsum/")),
-                        url
-                    )
-                    return url.lastPathComponent
-                },
-                bundle: .module
+                ― Photo by André Spieker
+                """#
+            }
+            .border(Color.accentColor)
+            .padding()
+            .markdownImageProvider(
+                AssetImageProvider(
+                    name: { url in
+                        #expect(
+                            URL(string: "237-500x300", relativeTo: URL(string: "https://example.com/picsum/"))
+                                == url
+                        )
+                        return url.lastPathComponent
+                    },
+                    bundle: .module
+                )
             )
-        )
 
-        assertSnapshot(of: view, as: .image(layout: layout))
-    }
+            assertSnapshot(of: view, as: .image(layout: layout))
+        }
 
-    func testImageLink() {
-        let view = MarkdownView {
-            #"""
-            A link that contains an image instead of text:
+        @Test func imageLink() {
+            let view = MarkdownView {
+                #"""
+                A link that contains an image instead of text:
 
-            [![](https://example.com/picsum/237-100x150)](https://example.com)
+                [![](https://example.com/picsum/237-100x150)](https://example.com)
+
+                ― Photo by André Spieker
+                """#
+            }
+            .border(Color.accentColor)
+            .padding()
+            .markdownImageProvider(AssetImageProvider(bundle: .module))
+
+            assertSnapshot(of: view, as: .image(layout: layout))
+        }
+
+        @Test func multipleImages() {
+            let view = MarkdownView {
+                #"""
+                [![](https://example.com/picsum/237-100x150)](https://example.com)
+                ![](https://example.com/picsum/237-125x75)
+                ![](https://example.com/picsum/237-500x300)
+                ![](https://example.com/picsum/237-100x150)\#u{20}\#u{20}
+                ![](https://example.com/picsum/237-125x75)
+
+                ― Photo by André Spieker
+                """#
+            }
+            .border(Color.accentColor)
+            .padding()
+            .markdownImageProvider(AssetImageProvider(bundle: .module))
+
+            assertSnapshot(of: view, as: .image(layout: layout))
+        }
+
+        @Test func multipleImagesSize() {
+            let view = MarkdownView {
+                #"""
+                ![](https://example.com/picsum/237-100x150)
+                ![](https://example.com/picsum/237-125x75)
+
+                ― Photo by André Spieker
+                """#
+            }
+            .border(Color.accentColor)
+            .padding()
+            .markdownImageProvider(AssetImageProvider(bundle: .module))
+
+            assertSnapshot(of: view, as: .image(layout: layout))
+        }
+
+        @Test func colorScheme() {
+            let content = """
+            This image is contextualized for either dark or light mode:
+
+            ![](https://example.com/picsum/237-100x150#gh-dark-mode-only)
+            ![](https://example.com/picsum/237-125x75#gh-light-mode-only)
 
             ― Photo by André Spieker
-            """#
+            """
+
+            let view = VStack {
+                MarkdownView(content)
+                    .background()
+                    .colorScheme(.light)
+                    .border(Color.accentColor)
+                    .padding()
+                MarkdownView(content)
+                    .background()
+                    .colorScheme(.dark)
+                    .border(Color.accentColor)
+                    .padding()
+            }
+            .markdownImageProvider(AssetImageProvider(bundle: .module))
+
+            assertSnapshot(of: view, as: .image(layout: layout))
         }
-        .border(Color.accentColor)
-        .padding()
-        .markdownImageProvider(AssetImageProvider(bundle: .module))
-
-        assertSnapshot(of: view, as: .image(layout: layout))
-    }
-
-    func testMultipleImages() throws {
-        guard #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) else {
-            throw XCTSkip("Required API is not available for this test")
-        }
-
-        let view = MarkdownView {
-            #"""
-            [![](https://example.com/picsum/237-100x150)](https://example.com)
-            ![](https://example.com/picsum/237-125x75)
-            ![](https://example.com/picsum/237-500x300)
-            ![](https://example.com/picsum/237-100x150)\#u{20}\#u{20}
-            ![](https://example.com/picsum/237-125x75)
-
-            ― Photo by André Spieker
-            """#
-        }
-        .border(Color.accentColor)
-        .padding()
-        .markdownImageProvider(AssetImageProvider(bundle: .module))
-
-        assertSnapshot(of: view, as: .image(layout: layout))
-    }
-
-    func testMultipleImagesSize() throws {
-        guard #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) else {
-            throw XCTSkip("Required API is not available for this test")
-        }
-
-        let view = MarkdownView {
-            #"""
-            ![](https://example.com/picsum/237-100x150)
-            ![](https://example.com/picsum/237-125x75)
-
-            ― Photo by André Spieker
-            """#
-        }
-        .border(Color.accentColor)
-        .padding()
-        .markdownImageProvider(AssetImageProvider(bundle: .module))
-
-        assertSnapshot(of: view, as: .image(layout: layout))
-    }
-
-    func testColorScheme() {
-        let content = """
-        This image is contextualized for either dark or light mode:
-
-        ![](https://example.com/picsum/237-100x150#gh-dark-mode-only)
-        ![](https://example.com/picsum/237-125x75#gh-light-mode-only)
-
-        ― Photo by André Spieker
-        """
-
-        let view = VStack {
-            MarkdownView(content)
-                .background()
-                .colorScheme(.light)
-                .border(Color.accentColor)
-                .padding()
-            MarkdownView(content)
-                .background()
-                .colorScheme(.dark)
-                .border(Color.accentColor)
-                .padding()
-        }
-        .markdownImageProvider(AssetImageProvider(bundle: .module))
-
-        assertSnapshot(of: view, as: .image(layout: layout))
     }
 }
 #endif

@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+import Foundation
 import MarkdownUI
 import SnapshotTesting
 import SwiftUI
@@ -7,7 +8,7 @@ import XCTest
 @MainActor final class RenderingScenarioTests: XCTestCase {
     func testRiskBasedRenderingMatrix() throws {
         #if os(iOS)
-        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on Mac Catalyst")
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on iPad")
         let platform = "iOS"
         #else
         let platform = "macOS"
@@ -30,28 +31,26 @@ import XCTest
             assertSnapshot(
                 of: view,
                 as: .image(
-                    options: .init(perceptualPrecision: 0.98),
+                    options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
                     layout: .fixed(width: scenario.width, height: scenario.height),
                     settlingDelay: 0.2,
                     isOpaque: true
                 ),
                 named: "\(scenario.name)-\(platform)",
-                options: .init(
-                    record: ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1" ? .all : nil
-                )
+                options: .init(record: SnapshotTestSupport.configuration.record),
+                testName: "riskBasedRenderingMatrix"
             )
             #else
             assertSnapshot(
                 of: view,
                 as: .image(
-                    options: .init(perceptualPrecision: 0.98),
+                    options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
                     layout: .fixed(width: scenario.width, height: scenario.height),
                     isOpaque: true
                 ),
                 named: "\(scenario.name)-\(platform)",
-                options: .init(
-                    record: ProcessInfo.processInfo.environment["RECORD_SNAPSHOTS"] == "1" ? .all : nil
-                )
+                options: .init(record: SnapshotTestSupport.configuration.record),
+                testName: "riskBasedRenderingMatrix"
             )
             #endif
         }
@@ -130,53 +129,53 @@ private struct RenderingScenario: Sendable {
             colorScheme: .dark,
             dynamicTypeSize: .accessibility1,
             layoutDirection: .rightToLeft,
-            width: 1_024,
+            width: 1024,
             height: 820,
             markdown: stressFixture
-        ),
+        )
     ]
 
     private static let representativeFixture = """
-        # Rendering audit
+    # Rendering audit
 
-        Text with **strong**, *emphasis*, ~~strike~~, `code`, and a [relative link](guide).
+    Text with **strong**, *emphasis*, ~~strike~~, `code`, and a [relative link](guide).
 
-        > A block quote with a nested list:
-        > 1. First item
-        > 2. Second item
+    > A block quote with a nested list:
+    > 1. First item
+    > 2. Second item
 
-        - [x] Completed
-        - [ ] Incomplete
+    - [x] Completed
+    - [ ] Incomplete
 
-        ![Deterministic block image](block-image)
+    ![Deterministic block image](block-image)
 
-        Text before *![Nested inline image](inline-image)* text after.
+    Text before *![Nested inline image](inline-image)* text after.
 
-        | Left | Center | Right |
-        | :--- | :---: | ---: |
-        | Alpha | Bravo | Charlie |
-        """
+    | Left | Center | Right |
+    | :--- | :---: | ---: |
+    | Alpha | Bravo | Charlie |
+    """
 
     private static let stressFixture = """
-        ## Long and mixed content
+    ## Long and mixed content
 
-        A deliberately long unbreakable value tests narrow layout behavior:
-        `0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz`.
+    A deliberately long unbreakable value tests narrow layout behavior:
+    `0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz`.
 
-        1. Outer item
-           - Nested item with **strong *emphasis***
-             > Nested quotation with a 文字化け-resistant Unicode value: مرحبا 👩🏽‍💻
+    1. Outer item
+       - Nested item with **strong *emphasis***
+         > Nested quotation with a 文字化け-resistant Unicode value: مرحبا 👩🏽‍💻
 
-        ```swift
-        let longValue = "The code block remains horizontally reachable without clipping."
-        ```
+    ```swift
+    let longValue = "The code block remains horizontally reachable without clipping."
+    ```
 
-        | Very wide first column | Very wide second column | Very wide third column |
-        | --- | --- | --- |
-        | One value that should remain reachable | Another value that should remain reachable | Final value |
+    | Very wide first column | Very wide second column | Very wide third column |
+    | --- | --- | --- |
+    | One value that should remain reachable | Another value that should remain reachable | Final value |
 
-        Missing inline image keeps its alt text: ![Missing illustration](missing-image).
-        """
+    Missing inline image keeps its alt text: ![Missing illustration](missing-image).
+    """
 }
 
 private struct MatrixImageProvider: ImageProvider {
