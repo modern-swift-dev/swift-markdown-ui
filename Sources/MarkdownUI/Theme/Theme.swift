@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A type that applies a custom appearance to blocks and text inlines in a Markdown view.
 ///
-/// A theme combines the different text and block styles you can customize in a ``Markdown`` view.
+/// A theme combines the different text and block styles you can customize in a ``MarkdownView``.
 ///
 /// You can set the current Markdown theme in a view hierarchy by using the `markdownTheme(_:)` modifier.
 ///
@@ -372,7 +372,7 @@ public extension Theme {
     }
 
     /// Adds a task list marker style to the theme.
-    /// - Parameter body: A view builder that returns a customized task list marker.
+    /// - Parameter taskListMarker: The task list marker style.
     func taskListMarker(_ taskListMarker: BlockStyle<TaskListMarkerConfiguration>) -> Theme {
         var theme = self
         theme.taskListMarker = taskListMarker
@@ -391,7 +391,7 @@ public extension Theme {
     }
 
     /// Adds a bulleted list marker style to the theme.
-    /// - Parameter body: A view builder that returns a customized bulleted list marker.
+    /// - Parameter bulletedListMarker: The bulleted list marker style.
     func bulletedListMarker(
         _ bulletedListMarker: BlockStyle<ListMarkerConfiguration>
     ) -> Theme {
@@ -412,7 +412,7 @@ public extension Theme {
     }
 
     /// Adds a numbered list marker style to the theme.
-    /// - Parameter body: A view builder that returns a customized numbered list marker.
+    /// - Parameter numberedListMarker: The numbered list marker style.
     func numberedListMarker(
         _ numberedListMarker: BlockStyle<ListMarkerConfiguration>
     ) -> Theme {

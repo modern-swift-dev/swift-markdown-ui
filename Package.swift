@@ -36,7 +36,8 @@ let package = Package(
                 "MarkdownUI",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
-            exclude: ["__Snapshots__"]
+            exclude: ["__Snapshots__"],
+            resources: [.process("Resources")]
         )
     ],
     swiftLanguageModes: [.v6]

@@ -32,13 +32,12 @@ You can use the built-in themes, create your own or override specific text and b
 
 You can use MarkdownUI on the following platforms:
 
-- macOS 12.0+
-- iOS 15.0+
-- tvOS 15.0+
-- watchOS 8.0+
-
-Some features, like displaying tables or multi-image paragraphs, require macOS 13.0+, iOS 16.0+,
-tvOS 16.0+, and watchOS 9.0+.
+- macOS 15.0+
+- iOS 17.0+
+- tvOS 17.0+
+- Mac Catalyst 17.0+
+- watchOS 10.0+
+- visionOS 2.0+
 
 ## Getting started
 

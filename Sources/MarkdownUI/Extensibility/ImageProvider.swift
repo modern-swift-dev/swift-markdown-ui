@@ -19,7 +19,7 @@ public protocol ImageProvider: Sendable {
 
     /// Creates a view that asynchronously loads and displays the image on a given URL.
     ///
-    /// The ``Markdown`` views in a view hierarchy where this provider is the current image provider
+    /// The ``MarkdownView`` instances in a view hierarchy where this provider is the current image provider
     /// will call this method for each image in their contents.
     ///
     /// - Parameter url: The URL of the image to display.

@@ -7,7 +7,7 @@ struct InlineText: View {
     @Environment(\.softBreakMode) private var softBreakMode
     @Environment(\.theme) private var theme
 
-    @State private var inlineImages: [String: Image] = [:]
+    @State private var inlineImages: [RawImageData: Image] = [:]
 
     private let inlines: [InlineNode]
 
@@ -32,31 +32,45 @@ struct InlineText: View {
             )
         }
         .task(id: self.inlines) {
-            self.inlineImages = (try? await self.loadInlineImages()) ?? [:]
+            self.inlineImages = await Self.loadInlineImages(
+                in: self.inlines,
+                baseURL: self.imageBaseURL,
+                imageProvider: self.inlineImageProvider
+            )
         }
     }
 
-    private func loadInlineImages() async throws -> [String: Image] {
-        let images = Set(self.inlines.compactMap(\.imageData))
+    static func loadInlineImages(
+        in inlines: [InlineNode],
+        baseURL: URL?,
+        imageProvider: any InlineImageProvider
+    ) async -> [RawImageData: Image] {
+        let images = Set(inlines.inlineImageData())
         guard !images.isEmpty else {
             return [:]
         }
 
-        return try await withThrowingTaskGroup(of: (String, Image).self) { taskGroup in
+        return await withTaskGroup(of: (RawImageData, Image?).self) { taskGroup in
             for image in images {
-                guard let url = URL(string: image.source, relativeTo: self.imageBaseURL) else {
+                guard let url = URL(string: image.source, relativeTo: baseURL) else {
                     continue
                 }
 
                 taskGroup.addTask {
-                    (image.source, try await self.inlineImageProvider.image(with: url, label: image.alt))
+                    do {
+                        return (image, try await imageProvider.image(with: url, label: image.alt))
+                    } catch {
+                        return (image, nil)
+                    }
                 }
             }
 
-            var inlineImages: [String: Image] = [:]
+            var inlineImages: [RawImageData: Image] = [:]
 
-            for try await result in taskGroup {
-                inlineImages[result.0] = result.1
+            for await (data, image) in taskGroup {
+                if let image {
+                    inlineImages[data] = image
+                }
             }
 
             return inlineImages

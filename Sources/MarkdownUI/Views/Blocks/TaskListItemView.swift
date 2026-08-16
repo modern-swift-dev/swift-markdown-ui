@@ -25,6 +25,8 @@ struct TaskListItemView: View {
         } icon: {
             self.taskListMarker.makeBody(configuration: .init(isCompleted: self.item.isCompleted))
                 .textStyleFont()
+                .accessibilityLabel(self.item.isCompleted ? "Completed task" : "Incomplete task")
         }
+        .accessibilityValue(self.item.isCompleted ? "Completed" : "Incomplete")
     }
 }

@@ -16,7 +16,7 @@ import XCTest
             #"""
             An image that fails to load:
 
-            ![](https://picsum.photos/500/300)
+            ![Unavailable image](http://[)
 
             ― Photo by André Spieker
             """#

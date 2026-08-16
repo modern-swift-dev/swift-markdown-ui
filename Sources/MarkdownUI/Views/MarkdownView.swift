@@ -8,7 +8,7 @@ import SwiftUI
 /// besides styled text and links.
 ///
 /// The simplest way of creating a `Markdown` view is to pass a Markdown string to the
-/// ``Markdown/init(_:baseURL:imageBaseURL:)-63py1`` initializer.
+/// ``MarkdownView/init(_:baseURL:imageBaseURL:)-(String,_,_)`` initializer.
 ///
 /// ```swift
 /// let markdownString = """
@@ -26,7 +26,7 @@ import SwiftUI
 ///
 /// ![](MarkdownString)
 ///
-/// A more convenient way to create a `Markdown` view is by using the ``Markdown/init(baseURL:imageBaseURL:content:)``
+/// A more convenient way to create a `Markdown` view is by using the ``MarkdownView/init(baseURL:imageBaseURL:content:)``
 /// initializer, which takes a Markdown content builder in which you can compose the view content, either by providing Markdown strings
 /// or by using an expressive domain-specific language.
 ///
@@ -58,7 +58,7 @@ import SwiftUI
 /// ![](MarkdownContentBuilder)
 ///
 /// You can also create a ``MarkdownContent`` value in your model layer and later create a `Markdown` view by passing
-/// the content value to the ``Markdown/init(_:baseURL:imageBaseURL:)-42bru`` initializer. The ``MarkdownContent``
+/// the content value to the ``MarkdownView/init(_:baseURL:imageBaseURL:)-(MarkdownContent,_,_)`` initializer. The ``MarkdownContent``
 /// value pre-parses the Markdown string preventing the view from doing this step.
 ///
 /// ```swift

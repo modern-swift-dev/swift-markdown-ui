@@ -31,7 +31,7 @@ import XCTest
         .border(Color.accentColor)
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -54,7 +54,7 @@ import XCTest
         .border(Color.accentColor)
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -80,7 +80,7 @@ import XCTest
         .markdownImageProvider(AssetImageProvider(bundle: .module))
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -101,7 +101,7 @@ import XCTest
         .border(Color.accentColor)
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -124,7 +124,7 @@ import XCTest
         .border(Color.accentColor)
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -154,7 +154,7 @@ import XCTest
         }
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 
@@ -188,7 +188,7 @@ import XCTest
         }
 
         assertSnapshot(
-            of: view, as: .image(perceptualPrecision: perceptualPrecision, layout: layout)
+            of: view, as: .image(options: .init(perceptualPrecision: perceptualPrecision), layout: layout)
         )
     }
 }

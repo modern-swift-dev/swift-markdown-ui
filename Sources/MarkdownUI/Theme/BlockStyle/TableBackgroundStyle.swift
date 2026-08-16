@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A type that applies a custom background to tables in a Markdown view.
 ///
-/// To customize the background of tables in a ``Markdown`` view, use the
+/// To customize the background of tables in a ``MarkdownView``, use the
 /// `markdownTableBackgroundStyle(_:)` modifier inside the body of
 /// the ``Theme/table`` block style.
 ///

@@ -4,7 +4,7 @@ extension Sequence<InlineNode> {
     func renderText(
         baseURL: URL?,
         textStyles: InlineTextStyles,
-        images: [String: Image],
+        images: [RawImageData: Image],
         softBreakMode: SoftBreak.Mode,
         attributes: AttributeContainer
     ) -> Text {
@@ -25,15 +25,15 @@ private struct TextInlineRenderer {
 
     private let baseURL: URL?
     private let textStyles: InlineTextStyles
-    private let images: [String: Image]
+    private let images: [RawImageData: Image]
     private let softBreakMode: SoftBreak.Mode
-    private let attributes: AttributeContainer
+    private var attributes: AttributeContainer
     private var shouldSkipNextWhitespace = false
 
     init(
         baseURL: URL?,
         textStyles: InlineTextStyles,
-        images: [String: Image],
+        images: [RawImageData: Image],
         softBreakMode: SoftBreak.Mode,
         attributes: AttributeContainer
     ) {
@@ -56,12 +56,22 @@ private struct TextInlineRenderer {
                 self.renderText(content)
             case .softBreak:
                 self.renderSoftBreak()
+            case .lineBreak:
+                self.renderLineBreak()
+            case let .code(content):
+                self.renderCode(content)
             case let .html(content):
                 self.renderHTML(content)
-            case let .image(source, _):
-                self.renderImage(source)
-            default:
-                self.defaultRender(inline)
+            case let .emphasis(children):
+                self.renderStyled(children, style: self.textStyles.emphasis)
+            case let .strong(children):
+                self.renderStyled(children, style: self.textStyles.strong)
+            case let .strikethrough(children):
+                self.renderStyled(children, style: self.textStyles.strikethrough)
+            case let .link(destination, children):
+                self.renderLink(destination: destination, children: children)
+            case let .image(source, children):
+                self.renderImage(source: source, children: children)
         }
     }
 
@@ -73,7 +83,7 @@ private struct TextInlineRenderer {
             text = text.replacingOccurrences(of: "^\\s+", with: "", options: .regularExpression)
         }
 
-        self.defaultRender(.text(text))
+        self.append(text)
     }
 
     private mutating func renderSoftBreak() {
@@ -81,11 +91,23 @@ private struct TextInlineRenderer {
             case .space where self.shouldSkipNextWhitespace:
                 self.shouldSkipNextWhitespace = false
             case .space:
-                self.defaultRender(.softBreak)
+                self.append(" ")
             case .lineBreak:
-                self.shouldSkipNextWhitespace = true
-                self.defaultRender(.lineBreak)
+                self.renderLineBreak()
         }
+    }
+
+    private mutating func renderLineBreak() {
+        self.append("\n")
+        self.shouldSkipNextWhitespace = true
+    }
+
+    private mutating func renderCode(_ code: String) {
+        self.shouldSkipNextWhitespace = false
+        let savedAttributes = self.attributes
+        self.attributes = self.textStyles.code.mergingAttributes(self.attributes)
+        self.append(code)
+        self.attributes = savedAttributes
     }
 
     private mutating func renderHTML(_ html: String) {
@@ -93,29 +115,48 @@ private struct TextInlineRenderer {
 
         switch tag?.name.lowercased() {
             case "br":
-                self.defaultRender(.lineBreak)
-                self.shouldSkipNextWhitespace = true
+                self.renderLineBreak()
             default:
-                self.defaultRender(.html(html))
+                self.renderText(html)
         }
     }
 
-    private mutating func renderImage(_ source: String) {
-        if let image = self.images[source] {
-            let result = self.result
-            self.result = result + Text(image)
+    private mutating func renderStyled(_ children: [InlineNode], style: TextStyle) {
+        let savedAttributes = self.attributes
+        self.attributes = style.mergingAttributes(self.attributes)
+        self.render(children)
+        self.attributes = savedAttributes
+    }
+
+    private mutating func renderLink(destination: String, children: [InlineNode]) {
+        let savedAttributes = self.attributes
+        self.attributes = self.textStyles.link.mergingAttributes(self.attributes)
+        self.attributes.link = URL(string: destination, relativeTo: self.baseURL)
+        self.render(children)
+        self.attributes = savedAttributes
+    }
+
+    private mutating func renderImage(source: String, children: [InlineNode]) {
+        let data = RawImageData(source: source, alt: children.renderPlainText())
+
+        if let image = self.images[data] {
+            self.shouldSkipNextWhitespace = false
+            self.result = self.result + Text(image)
+        } else {
+            self.renderText(data.alt)
         }
     }
 
-    private mutating func defaultRender(_ inline: InlineNode) {
-        let result = self.result
-        self.result = result + Text(
-            inline.renderAttributedString(
-                baseURL: self.baseURL,
-                textStyles: self.textStyles,
-                softBreakMode: self.softBreakMode,
-                attributes: self.attributes
-            )
-        )
+    private mutating func append(_ text: String) {
+        let attributedString = AttributedString(text, attributes: self.attributes).resolvingFonts()
+        self.result = self.result + Text(attributedString)
+    }
+}
+
+private extension TextStyle {
+    func mergingAttributes(_ attributes: AttributeContainer) -> AttributeContainer {
+        var newAttributes = attributes
+        self._collectAttributes(in: &newAttributes)
+        return newAttributes
     }
 }

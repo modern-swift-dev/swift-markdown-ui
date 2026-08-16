@@ -7,7 +7,7 @@ import SwiftUI
 public protocol InlineImageProvider: Sendable {
     /// Returns an image for the given URL.
     ///
-    /// ``Markdown`` views call this method to load images within a line of text.
+    /// ``MarkdownView`` calls this method to load images within a line of text.
     ///
     /// - Parameters:
     ///   - url: The URL of the image to display.

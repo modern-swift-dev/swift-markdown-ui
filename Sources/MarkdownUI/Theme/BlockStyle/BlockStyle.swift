@@ -6,7 +6,7 @@ import SwiftUI
 /// the style of a specific block type by using the `markdownBlockStyle(_:body:)` modifier.
 ///
 /// The following example applies a custom appearance to each ``Theme/blockquote`` in
-/// a ``Markdown`` view:
+/// a ``MarkdownView``:
 ///
 /// ```swift
 /// MarkdownView {

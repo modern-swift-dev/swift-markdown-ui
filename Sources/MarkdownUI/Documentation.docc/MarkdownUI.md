@@ -14,6 +14,17 @@ You can use the built-in themes, create your own or override specific text and b
 
 ![A MarkdownUI view that displays a heading, paragraph, code block, and table using different themes](MarkdownUI)
 
+## Minimum requirements
+
+MarkdownUI supports the following deployment targets:
+
+- macOS 15.0+
+- iOS 17.0+
+- tvOS 17.0+
+- Mac Catalyst 17.0+
+- watchOS 10.0+
+- visionOS 2.0+
+
 ## Topics
 
 ### Essentials
@@ -26,7 +37,7 @@ You can use the built-in themes, create your own or override specific text and b
 
 ### Displaying Markdown
 
-- ``Markdown``
+- ``MarkdownView``
 
 ### Customizing Appearance
 

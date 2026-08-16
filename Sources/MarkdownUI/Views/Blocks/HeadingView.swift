@@ -19,5 +19,6 @@ struct HeadingView: View {
             )
         )
         .id(content.renderPlainText().kebabCased())
+        .accessibilityAddTraits(.isHeader)
     }
 }

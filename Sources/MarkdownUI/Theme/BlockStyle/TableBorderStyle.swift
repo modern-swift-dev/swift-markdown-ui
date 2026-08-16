@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A type that represents the appearance of table borders.
 ///
-/// To customize the table borders in a ``Markdown`` view, use the `markdownTableBorderStyle(_:)`
+/// To customize the table borders in a ``MarkdownView``, use the `markdownTableBorderStyle(_:)`
 /// modifier inside the body of the ``Theme/table`` block style.
 ///
 /// The following example customizes the table style to display only the outside borders with a dashed stroke style.

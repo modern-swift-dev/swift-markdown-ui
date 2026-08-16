@@ -16,22 +16,30 @@ format:
 	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
 	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
 
+SCHEME := MarkdownUI
+IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5
+
 test-macos:
-	set -o pipefail && \
-	xcodebuild test \
-		-scheme swift-snapshot-testing-Package \
-		-destination platform="macOS" | mint run --no-install cpisciotta/xcbeautify -q
+	xcodebuild test -scheme $(SCHEME) -destination 'platform=macOS'
 
 test-ios:
-	set -o pipefail && \
-	xcodebuild test \
-		-scheme swift-snapshot-testing-Package \
-		-destination platform="iOS Simulator,name=iPhone 17 Pro,OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+	xcodebuild test -scheme $(SCHEME) -destination "$(IOS_SIMULATOR)"
 
-test-tvos:
-	set -o pipefail && \
-	xcodebuild test \
-		-scheme swift-snapshot-testing-Package \
-		-destination platform="tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+build-ios:
+	xcodebuild build -scheme $(SCHEME) -destination 'generic/platform=iOS'
 
-test-all: test-macos test-ios test-watchos
+build-tvos:
+	xcodebuild build -scheme $(SCHEME) -destination 'generic/platform=tvOS'
+
+build-watchos:
+	xcodebuild build -scheme $(SCHEME) -destination 'generic/platform=watchOS'
+
+build-visionos:
+	xcodebuild build -scheme $(SCHEME) -destination 'generic/platform=visionOS'
+
+build-maccatalyst:
+	xcodebuild build -scheme $(SCHEME) -destination 'generic/platform=macOS,variant=Mac Catalyst'
+
+test-all: test-macos test-ios
+
+build-all: build-ios build-tvos build-watchos build-visionos build-maccatalyst

@@ -6,7 +6,7 @@ import SwiftUI
 /// specific inline type by using the `markdownTextStyle(_:textStyle:)` modifier and combining one or more
 /// built-in text styles like ``ForegroundColor`` or ``FontWeight``.
 ///
-/// The following example applies a custom text style to each ``Theme/code`` inline in a ``Markdown`` view.
+/// The following example applies a custom text style to each ``Theme/code`` inline in a ``MarkdownView``.
 ///
 /// ```swift
 /// MarkdownView {

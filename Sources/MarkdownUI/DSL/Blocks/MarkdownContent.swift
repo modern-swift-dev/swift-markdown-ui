@@ -31,7 +31,7 @@ public protocol MarkdownContentProtocol: Sendable {
 /// }
 /// ```
 ///
-/// Once you have created a Markdown content value, you can display it using a ``Markdown`` view.
+/// Once you have created a Markdown content value, you can display it using a ``MarkdownView``.
 ///
 /// ```swift
 /// var body: some View {
@@ -39,8 +39,8 @@ public protocol MarkdownContentProtocol: Sendable {
 /// }
 /// ```
 ///
-/// A Markdown view also offers initializers that take a Markdown-formatted string ``Markdown/init(_:baseURL:imageBaseURL:)-63py1``,
-/// or a Markdown content builder ``Markdown/init(baseURL:imageBaseURL:content:)``, so you don't need to create a
+/// A Markdown view also offers initializers that take a Markdown-formatted string ``MarkdownView/init(_:baseURL:imageBaseURL:)-(String,_,_)``,
+/// or a Markdown content builder ``MarkdownView/init(baseURL:imageBaseURL:content:)``, so you don't need to create a
 /// Markdown content value before displaying it.
 ///
 /// ```swift

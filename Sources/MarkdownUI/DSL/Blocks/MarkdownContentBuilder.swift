@@ -5,7 +5,7 @@ import Foundation
 /// You don't call the methods of the result builder directly. Instead, Swift uses them to combine the elements
 /// you declare in any closure with the `@MarkdownContentBuilder` attribute. In particular, you rely on
 /// this behavior when you declare the `content` inside a Markdown view initializer such as
-/// ``Markdown/init(baseURL:imageBaseURL:content:)``.
+/// ``MarkdownView/init(baseURL:imageBaseURL:content:)``.
 @resultBuilder public enum MarkdownContentBuilder {
     public static func buildBlock(_ components: MarkdownContentProtocol...) -> MarkdownContent {
         .init(components)

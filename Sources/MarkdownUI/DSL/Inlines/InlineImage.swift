@@ -45,7 +45,7 @@ public struct InlineImage: InlineContentProtocol {
 
     /// Creates an inline image with an alternate text.
     /// - Parameters:
-    ///   - text: The alternate text for the image. A ``Markdown`` view uses this text
+    ///   - text: The alternate text for the image. A ``MarkdownView`` uses this text
     ///           as the accessibility label of the image.
     ///   - source: The absolute or relative path to the image.
     public init(_ text: String, source: URL) {

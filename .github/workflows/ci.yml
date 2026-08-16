@@ -8,10 +8,20 @@ on:
       - '*'
 jobs:
   tests:
-    runs-on: macos-12
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v2
-      - name: Select Xcode 14.2
-        run: sudo xcode-select -s /Applications/Xcode_14.2.app
-      - name: Run tests
-        run: make test
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: Run semantic tests on macOS
+        run: make test-macos
+      - name: Run semantic tests on iOS
+        run: make test-ios
+      - name: Build package for Apple platforms
+        run: make build-all
+      - name: Build Demo
+        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+      - name: Test Demo UI
+        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
+      - name: Build documentation
+        run: xcodebuild docbuild -scheme MarkdownUI -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'

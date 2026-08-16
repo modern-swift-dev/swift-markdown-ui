@@ -5,10 +5,10 @@ extension Sequence<BlockNode> {
         self.rewrite { inline in
             switch inline {
                 case let .image(source, _):
-                    guard let url = URL(string: source), url.matchesColorScheme(colorScheme) else {
-                        return []
+                    guard let url = URL(string: source) else {
+                        return [inline]
                     }
-                    return [inline]
+                    return url.matchesColorScheme(colorScheme) ? [inline] : []
                 default:
                     return [inline]
             }
