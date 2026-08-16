@@ -4,20 +4,20 @@ import Foundation
 ///
 /// A ``Markdown`` view will display a soft break as a space.
 public struct SoftBreak: InlineContentProtocol {
-  /// Creates a soft break inline element.
-  public init() {}
+    /// Creates a soft break inline element.
+    public init() {}
 
-  public var _inlineContent: InlineContent {
-    .init(inlines: [.softBreak])
-  }
+    public var _inlineContent: InlineContent {
+        .init(inlines: [.softBreak])
+    }
 }
 
-extension SoftBreak {
-  public enum Mode: Sendable {
-    /// Treat a soft break as a space
-    case space
+public extension SoftBreak {
+    enum Mode: Sendable {
+        /// Treat a soft break as a space
+        case space
 
-    /// Treat a soft break as a line break
-    case lineBreak
-  }
+        /// Treat a soft break as a line break
+        case lineBreak
+    }
 }

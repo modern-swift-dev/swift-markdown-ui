@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct QuotesView: View {
-  let content = """
+    let content = """
     You can quote text with a `>`.
 
     > Outside of a dog, a book is man's best friend. Inside of a
@@ -11,34 +11,34 @@ struct QuotesView: View {
     – Groucho Marx
     """
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
 
-      Section("Customization Example") {
-        MarkdownView(self.content)
-      }
-      .markdownBlockStyle(\.blockquote) { configuration in
-        configuration.label
-          .padding()
-          .markdownTextStyle {
-            FontCapsVariant(.lowercaseSmallCaps)
-            FontWeight(.semibold)
-            BackgroundColor(nil)
-          }
-          .overlay(alignment: .leading) {
-            Rectangle()
-              .fill(Color.teal)
-              .frame(width: 4)
-          }
-          .background(Color.teal.opacity(0.5))
-      }
+            Section("Customization Example") {
+                MarkdownView(self.content)
+            }
+            .markdownBlockStyle(\.blockquote) { configuration in
+                configuration.label
+                    .padding()
+                    .markdownTextStyle {
+                        FontCapsVariant(.lowercaseSmallCaps)
+                        FontWeight(.semibold)
+                        BackgroundColor(nil)
+                    }
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(Color.teal)
+                            .frame(width: 4)
+                    }
+                    .background(Color.teal.opacity(0.5))
+            }
+        }
     }
-  }
 }
 
 struct BlockquotesView_Previews: PreviewProvider {
-  static var previews: some View {
-    QuotesView()
-  }
+    static var previews: some View {
+        QuotesView()
+    }
 }

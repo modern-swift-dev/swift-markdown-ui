@@ -1,23 +1,23 @@
 import Foundation
 
-extension Sequence where Element == InlineNode {
-  func renderPlainText() -> String {
-    self.collect { inline in
-      switch inline {
-      case .text(let content):
-        return [content]
-      case .softBreak:
-        return [" "]
-      case .lineBreak:
-        return ["\n"]
-      case .code(let content):
-        return [content]
-      case .html(let content):
-        return [content]
-      default:
-        return []
-      }
+extension Sequence<InlineNode> {
+    func renderPlainText() -> String {
+        self.collect { inline in
+            switch inline {
+                case let .text(content):
+                    [content]
+                case .softBreak:
+                    [" "]
+                case .lineBreak:
+                    ["\n"]
+                case let .code(content):
+                    [content]
+                case let .html(content):
+                    [content]
+                default:
+                    []
+            }
+        }
+        .joined()
     }
-    .joined()
-  }
 }

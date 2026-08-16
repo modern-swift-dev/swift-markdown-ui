@@ -1,25 +1,24 @@
 import Foundation
 
 struct HTMLTag {
-  let name: String
+    let name: String
 }
 
 extension HTMLTag {
-  private enum Constants {
-    static let tagExpression = try! NSRegularExpression(pattern: "<\\/?([a-zA-Z0-9]+)[^>]*>")
-  }
-
-  init?(_ description: String) {
-    guard
-      let match = Constants.tagExpression.firstMatch(
-        in: description,
-        range: NSRange(description.startIndex..., in: description)
-      ),
-      let nameRange = Range(match.range(at: 1), in: description)
-    else {
-      return nil
+    private enum Constants {
+        static let tagExpression = try? NSRegularExpression(pattern: "<\\/?([a-zA-Z0-9]+)[^>]*>")
     }
 
-    self.name = String(description[nameRange])
-  }
+    init?(_ description: String) {
+        guard let tagExpression = Constants.tagExpression,
+              let match = tagExpression.firstMatch(
+                  in: description,
+                  range: NSRange(description.startIndex..., in: description)
+              ),
+              let nameRange = Range(match.range(at: 1), in: description) else {
+            return nil
+        }
+
+        self.name = String(description[nameRange])
+    }
 }

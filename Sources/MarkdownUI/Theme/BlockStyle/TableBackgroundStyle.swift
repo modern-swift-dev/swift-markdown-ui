@@ -28,36 +28,36 @@ import SwiftUI
 ///
 /// ![](CustomTableBackground)
 public struct TableBackgroundStyle: Sendable {
-  let background: @Sendable (_ row: Int, _ column: Int) -> AnyShapeStyle
+    let background: @Sendable (_ row: Int, _ column: Int) -> AnyShapeStyle
 
-  /// Creates a table background style that customizes table backgrounds by applying a given closure
-  /// to the background of each cell.
-  /// - Parameter background: A closure that returns a shape style for a given table cell location.
-  public init<S: ShapeStyle>(background: @escaping @Sendable (_ row: Int, _ column: Int) -> S) {
-    self.background = { row, column in
-      AnyShapeStyle(background(row, column))
+    /// Creates a table background style that customizes table backgrounds by applying a given closure
+    /// to the background of each cell.
+    /// - Parameter background: A closure that returns a shape style for a given table cell location.
+    public init(background: @escaping @Sendable (_ row: Int, _ column: Int) -> some ShapeStyle) {
+        self.background = { row, column in
+            AnyShapeStyle(background(row, column))
+        }
     }
-  }
 }
 
-extension TableBackgroundStyle {
-  /// A clear color table background style.
-  public static var clear: Self {
-    TableBackgroundStyle { _, _ in Color.clear }
-  }
-
-  /// A table background style that alternates row background shape styles.
-  /// - Parameters:
-  ///   - odd: The shape style for odd rows.
-  ///   - even: The shape style for even rows.
-  ///   - header: The shape style for the header row. If `nil`, the odd row shape style is used.
-  public static func alternatingRows<S: ShapeStyle>(_ odd: S, _ even: S, header: S? = nil) -> Self {
-    TableBackgroundStyle { row, _ in
-      guard row > 0 else {
-        return header ?? odd
-      }
-
-      return row.isMultiple(of: 2) ? even : odd
+public extension TableBackgroundStyle {
+    /// A clear color table background style.
+    static var clear: Self {
+        TableBackgroundStyle { _, _ in Color.clear }
     }
-  }
+
+    /// A table background style that alternates row background shape styles.
+    /// - Parameters:
+    ///   - odd: The shape style for odd rows.
+    ///   - even: The shape style for even rows.
+    ///   - header: The shape style for the header row. If `nil`, the odd row shape style is used.
+    static func alternatingRows<S: ShapeStyle>(_ odd: S, _ even: S, header: S? = nil) -> Self {
+        TableBackgroundStyle { row, _ in
+            guard row > 0 else {
+                return header ?? odd
+            }
+
+            return row.isMultiple(of: 2) ? even : odd
+        }
+    }
 }

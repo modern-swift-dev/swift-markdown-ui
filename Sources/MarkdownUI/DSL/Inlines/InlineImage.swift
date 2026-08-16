@@ -25,30 +25,30 @@ import Foundation
 ///
 /// ![](InlineImage)
 public struct InlineImage: InlineContentProtocol {
-  public var _inlineContent: InlineContent {
-    .init(inlines: [.image(source: self.source, children: self.content.inlines)])
-  }
+    public var _inlineContent: InlineContent {
+        .init(inlines: [.image(source: self.source, children: self.content.inlines)])
+    }
 
-  private let source: String
-  private let content: InlineContent
+    private let source: String
+    private let content: InlineContent
 
-  init(source: String, content: InlineContent) {
-    self.source = source
-    self.content = content
-  }
+    init(source: String, content: InlineContent) {
+        self.source = source
+        self.content = content
+    }
 
-  /// Creates an inline image with the given source
-  /// - Parameter source: The absolute or relative path to the image.
-  public init(source: URL) {
-    self.init(source: source.absoluteString, content: .init())
-  }
+    /// Creates an inline image with the given source
+    /// - Parameter source: The absolute or relative path to the image.
+    public init(source: URL) {
+        self.init(source: source.absoluteString, content: .init())
+    }
 
-  /// Creates an inline image with an alternate text.
-  /// - Parameters:
-  ///   - text: The alternate text for the image. A ``Markdown`` view uses this text
-  ///           as the accessibility label of the image.
-  ///   - source: The absolute or relative path to the image.
-  public init(_ text: String, source: URL) {
-    self.init(source: source.absoluteString, content: .init(inlines: [.text(text)]))
-  }
+    /// Creates an inline image with an alternate text.
+    /// - Parameters:
+    ///   - text: The alternate text for the image. A ``Markdown`` view uses this text
+    ///           as the accessibility label of the image.
+    ///   - source: The absolute or relative path to the image.
+    public init(_ text: String, source: URL) {
+        self.init(source: source.absoluteString, content: .init(inlines: [.text(text)]))
+    }
 }

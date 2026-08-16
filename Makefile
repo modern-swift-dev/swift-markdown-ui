@@ -1,42 +1,37 @@
-test-macos:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="macOS"
+setup:
 
-test-visionos:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="visionOS Simulator,name=Apple Vision Pro"
+	brew bundle install
+	brew upgrade
+	brew cleanup
+	brew autoremove
+	mint bootstrap
+	lefthook install
 
-test-catalyst:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="macOS,variant=Mac Catalyst"
+lint:
 
-test-ios:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="iOS Simulator,name=iPhone SE (3rd generation)"
-
-test-tvos:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="tvOS Simulator,name=Apple TV"
-
-test-watchos:
-	xcodebuild test test \
-			-workspace swift-markdown-ui.xcworkspace \
-			-scheme MarkdownUI \
-			-destination platform="watchOS Simulator,name=Apple Watch SE (40mm) (2nd generation)"
-
-test: test-macos test-catalyst test-ios test-tvos test-watchos
+	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --quiet
 
 format:
-	swift format --in-place --recursive .
 
-.PHONY: format
+	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
+	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
+
+test-macos:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="macOS" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-ios:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="iOS Simulator,name=iPhone 17 Pro,OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-tvos:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-all: test-macos test-ios test-watchos

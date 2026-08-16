@@ -1,0 +1,78 @@
+excluded:
+  - .build
+  - .swiftpm
+
+disabled_rules:
+  - line_length
+  - identifier_name
+  - type_name
+  - file_length
+  - type_body_length
+  - inclusive_language
+  - nesting
+  - duplicate_imports
+  - redundant_objc_attribute
+  - blanket_disable_command
+  - non_optional_string_data_conversion
+  - function_body_length
+
+opt_in_rules:
+  - contains_over_range_nil_comparison
+  - contains_over_first_not_nil
+  - contains_over_filter_is_empty
+  - contains_over_filter_count
+  - force_unwrapping
+  - empty_count
+  - discarded_notification_center_observer
+  - weak_delegate
+  - direct_return
+  - prefer_self_type_over_type_of_self
+  - shorthand_operator
+#  - multiline_function_chains
+
+cyclomatic_complexity:
+  warning: 20
+  error: 50
+switch_case_alignment:
+    indented_cases: true
+large_tuple: 5
+function_parameter_count:
+    warning: 8
+    error: 10
+    ignores_default_parameters: true
+xctfail_message:
+  severity: error
+orphaned_doc_comment:
+  severity: error
+unused_optional_binding:
+  severity: error
+force_unwrapping:
+  severity: warning
+multiple_closures_with_trailing_closure:
+  severity: error
+discarded_notification_center_observer:
+  severity: error
+duplicated_key_in_dictionary_literal:
+  severity: error
+is_disjoint:
+  severity: error
+compiler_protocol_init:
+  severity: error
+computed_accessors_order:
+  severity: error
+contains_over_filter_is_empty:
+  severity: error
+contains_over_filter_count:
+  severity: error
+contains_over_first_not_nil:
+  severity: error
+contains_over_range_nil_comparison:
+  severity: error
+unneeded_break_in_switch:
+  severity: error
+void_function_in_ternary:
+  severity: error
+for_where:
+  severity: error
+trailing_semicolon:
+  severity: error

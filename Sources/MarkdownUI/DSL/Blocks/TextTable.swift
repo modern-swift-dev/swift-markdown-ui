@@ -58,70 +58,70 @@ import Foundation
 ///
 /// ![](Table-Static)
 public struct TextTable: MarkdownContentProtocol {
-  public var _markdownContent: MarkdownContent {
-    .init(blocks: [.table(columnAlignments: self.columnAlignments, rows: self.rows)])
-  }
-
-  private let columnAlignments: [RawTableColumnAlignment]
-  private let rows: [RawTableRow]
-
-  init(columnAlignments: [RawTableColumnAlignment], rows: [RawTableRow]) {
-    self.columnAlignments = columnAlignments
-    self.rows = rows
-  }
-
-  /// Creates a table with the given columns and rows.
-  /// - Parameters:
-  ///   - columns: The columns to display in the table.
-  ///   - rows: The rows to display in the table.
-  public init<Value>(
-    @TextTableColumnBuilder<Value> columns: () -> [TextTableColumn<Value>],
-    @TextTableRowBuilder<Value> rows: () -> [TextTableRow<Value>]
-  ) {
-    self.init(rows().map(\.value), columns: columns)
-  }
-
-  /// Creates a table that computes its rows from a collection of data.
-  /// - Parameters:
-  ///   - data: The data for computing the table rows.
-  ///   - columns: The columns to display in the table.
-  public init<Data>(
-    _ data: Data,
-    @TextTableColumnBuilder<Data.Element> columns: () -> [TextTableColumn<Data.Element>]
-  ) where Data: RandomAccessCollection {
-    let tableColumns = columns()
-
-    let columnAlignments = tableColumns.map(\.alignment)
-      .map(RawTableColumnAlignment.init)
-    let header = RawTableRow(
-      cells:
-        tableColumns
-        .map(\.title.inlines)
-        .map(RawTableCell.init)
-    )
-    let body = data.map { value in
-      RawTableRow(
-        cells: tableColumns.map { column in
-          RawTableCell(content: column.content(value).inlines)
-        }
-      )
+    public var _markdownContent: MarkdownContent {
+        .init(blocks: [.table(columnAlignments: self.columnAlignments, rows: self.rows)])
     }
 
-    self.init(columnAlignments: columnAlignments, rows: CollectionOfOne(header) + body)
-  }
+    private let columnAlignments: [RawTableColumnAlignment]
+    private let rows: [RawTableRow]
+
+    init(columnAlignments: [RawTableColumnAlignment], rows: [RawTableRow]) {
+        self.columnAlignments = columnAlignments
+        self.rows = rows
+    }
+
+    /// Creates a table with the given columns and rows.
+    /// - Parameters:
+    ///   - columns: The columns to display in the table.
+    ///   - rows: The rows to display in the table.
+    public init<Value>(
+        @TextTableColumnBuilder<Value> columns: () -> [TextTableColumn<Value>],
+        @TextTableRowBuilder<Value> rows: () -> [TextTableRow<Value>]
+    ) {
+        self.init(rows().map(\.value), columns: columns)
+    }
+
+    /// Creates a table that computes its rows from a collection of data.
+    /// - Parameters:
+    ///   - data: The data for computing the table rows.
+    ///   - columns: The columns to display in the table.
+    public init<Data>(
+        _ data: Data,
+        @TextTableColumnBuilder<Data.Element> columns: () -> [TextTableColumn<Data.Element>]
+    ) where Data: RandomAccessCollection {
+        let tableColumns = columns()
+
+        let columnAlignments = tableColumns.map(\.alignment)
+            .map(RawTableColumnAlignment.init)
+        let header = RawTableRow(
+            cells:
+            tableColumns
+                .map(\.title.inlines)
+                .map(RawTableCell.init)
+        )
+        let body = data.map { value in
+            RawTableRow(
+                cells: tableColumns.map { column in
+                    RawTableCell(content: column.content(value).inlines)
+                }
+            )
+        }
+
+        self.init(columnAlignments: columnAlignments, rows: CollectionOfOne(header) + body)
+    }
 }
 
 extension RawTableColumnAlignment {
-  init(_ alignment: TextTableColumnAlignment?) {
-    switch alignment {
-    case .none:
-      self = .none
-    case .leading:
-      self = .left
-    case .center:
-      self = .center
-    case .trailing:
-      self = .right
+    init(_ alignment: TextTableColumnAlignment?) {
+        switch alignment {
+            case .none:
+                self = .none
+            case .leading:
+                self = .left
+            case .center:
+                self = .center
+            case .trailing:
+                self = .right
+        }
     }
-  }
 }

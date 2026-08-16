@@ -2,7 +2,7 @@ import Foundation
 
 /// A protocol that represents any Markdown content.
 public protocol MarkdownContentProtocol: Sendable {
-  var _markdownContent: MarkdownContent { get }
+    var _markdownContent: MarkdownContent { get }
 }
 
 /// A Markdown content value.
@@ -60,57 +60,60 @@ public protocol MarkdownContentProtocol: Sendable {
 /// }
 /// ```
 public struct MarkdownContent: Equatable, MarkdownContentProtocol {
-  /// Returns a Markdown content value with the sum of the contents of all the container blocks
-  /// present in this content.
-  ///
-  /// You can use this property to access the contents of a blockquote or a list. Returns `nil` if
-  /// there are no container blocks.
-  public var childContent: MarkdownContent? {
-    let children = self.blocks.map(\.children).flatMap { $0 }
-    return children.isEmpty ? nil : .init(blocks: children)
-  }
+    /// Returns a Markdown content value with the sum of the contents of all the container blocks
+    /// present in this content.
+    ///
+    /// You can use this property to access the contents of a blockquote or a list. Returns `nil` if
+    /// there are no container blocks.
+    public var childContent: MarkdownContent? {
+        let children = self.blocks.map(\.children).flatMap(\.self)
+        return children.isEmpty ? nil : .init(blocks: children)
+    }
 
-  public var _markdownContent: MarkdownContent { self }
-  let blocks: [BlockNode]
+    public var _markdownContent: MarkdownContent {
+        self
+    }
 
-  init(blocks: [BlockNode] = []) {
-    self.blocks = blocks
-  }
+    let blocks: [BlockNode]
 
-  init(block: BlockNode) {
-    self.init(blocks: [block])
-  }
+    init(blocks: [BlockNode] = []) {
+        self.blocks = blocks
+    }
 
-  init(_ components: [MarkdownContentProtocol]) {
-    self.init(blocks: components.map(\._markdownContent).flatMap(\.blocks))
-  }
+    init(block: BlockNode) {
+        self.init(blocks: [block])
+    }
 
-  /// Creates a Markdown content value from a Markdown-formatted string.
-  /// - Parameter markdown: A Markdown-formatted string.
-  public init(_ markdown: String) {
-    self.init(blocks: .init(markdown: markdown))
-  }
+    init(_ components: [MarkdownContentProtocol]) {
+        self.init(blocks: components.map(\._markdownContent).flatMap(\.blocks))
+    }
 
-  /// Creates a Markdown content value composed of any number of blocks.
-  /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
-  public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
-    self.init(blocks: content().blocks)
-  }
+    /// Creates a Markdown content value from a Markdown-formatted string.
+    /// - Parameter markdown: A Markdown-formatted string.
+    public init(_ markdown: String) {
+        self.init(blocks: .init(markdown: markdown))
+    }
 
-  /// Renders this Markdown content value as a Markdown-formatted text.
-  public func renderMarkdown() -> String {
-    let result = self.blocks.renderMarkdown()
-    return result.hasSuffix("\n") ? String(result.dropLast()) : result
-  }
+    /// Creates a Markdown content value composed of any number of blocks.
+    /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
+    public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
+        self.init(blocks: content().blocks)
+    }
 
-  /// Renders this Markdown content value as plain text.
-  public func renderPlainText() -> String {
-    let result = self.blocks.renderPlainText()
-    return result.hasSuffix("\n") ? String(result.dropLast()) : result
-  }
+    /// Renders this Markdown content value as a Markdown-formatted text.
+    public func renderMarkdown() -> String {
+        let result = self.blocks.renderMarkdown()
+        return result.hasSuffix("\n") ? String(result.dropLast()) : result
+    }
 
-  /// Renders this Markdown content value as HTML code.
-  public func renderHTML() -> String {
-    self.blocks.renderHTML()
-  }
+    /// Renders this Markdown content value as plain text.
+    public func renderPlainText() -> String {
+        let result = self.blocks.renderPlainText()
+        return result.hasSuffix("\n") ? String(result.dropLast()) : result
+    }
+
+    /// Renders this Markdown content value as HTML code.
+    public func renderHTML() -> String {
+        self.blocks.renderHTML()
+    }
 }

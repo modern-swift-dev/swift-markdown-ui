@@ -31,40 +31,40 @@ import SwiftUI
 ///
 /// ![](CustomTableBorders)
 public struct TableBorderStyle: Sendable {
-  /// The visible table borders.
-  public var visibleBorders: TableBorderSelector
+    /// The visible table borders.
+    public var visibleBorders: TableBorderSelector
 
-  /// The table border color.
-  public var color: Color
+    /// The table border color.
+    public var color: Color
 
-  /// The table border stroke style.
-  public var strokeStyle: StrokeStyle
+    /// The table border stroke style.
+    public var strokeStyle: StrokeStyle
 
-  /// Creates a table border style with the given visible borders, color, and stroke style.
-  /// - Parameters:
-  ///   - visibleBorders: The visible table borders.
-  ///   - color: The table border color.
-  ///   - strokeStyle: The table border stroke style.
-  public init(
-    _ visibleBorders: TableBorderSelector = .allBorders,
-    color: Color,
-    strokeStyle: StrokeStyle
-  ) {
-    self.visibleBorders = visibleBorders
-    self.color = color
-    self.strokeStyle = strokeStyle
-  }
+    /// Creates a table border style with the given visible borders, color, and stroke style.
+    /// - Parameters:
+    ///   - visibleBorders: The visible table borders.
+    ///   - color: The table border color.
+    ///   - strokeStyle: The table border stroke style.
+    public init(
+        _ visibleBorders: TableBorderSelector = .allBorders,
+        color: Color,
+        strokeStyle: StrokeStyle
+    ) {
+        self.visibleBorders = visibleBorders
+        self.color = color
+        self.strokeStyle = strokeStyle
+    }
 
-  /// Creates a table border style with the given visible borders, color, and line width.
-  /// - Parameters:
-  ///   - visibleBorders: The visible table borders.
-  ///   - color: The table border color.
-  ///   - width: The table border line width.
-  public init(
-    _ visibleBorders: TableBorderSelector = .allBorders,
-    color: Color,
-    width: CGFloat = 1
-  ) {
-    self.init(visibleBorders, color: color, strokeStyle: .init(lineWidth: width))
-  }
+    /// Creates a table border style with the given visible borders, color, and line width.
+    /// - Parameters:
+    ///   - visibleBorders: The visible table borders.
+    ///   - color: The table border color.
+    ///   - width: The table border line width.
+    public init(
+        _ visibleBorders: TableBorderSelector = .allBorders,
+        color: Color,
+        width: CGFloat = 1
+    ) {
+        self.init(visibleBorders, color: color, strokeStyle: .init(lineWidth: width))
+    }
 }

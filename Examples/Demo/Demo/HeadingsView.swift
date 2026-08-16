@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct HeadingsView: View {
-  private let content = """
+    private let content = """
     # Headings
     To create a heading, add one to size `#` symbols before your heading text.
     The number of `#` you use will determine the size of the heading:
@@ -18,28 +18,28 @@ struct HeadingsView: View {
     ###### The smallest heading
     """
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
 
-      Section("Customization Example") {
-        MarkdownView("# One Big Header")
-      }
-      .markdownBlockStyle(\.heading1) { configuration in
-        configuration.label
-          .markdownMargin(top: .em(1), bottom: .em(1))
-          .markdownTextStyle {
-            FontFamily(.custom("Trebuchet MS"))
-            FontWeight(.bold)
-            FontSize(.em(2.5))
-          }
-      }
+            Section("Customization Example") {
+                MarkdownView("# One Big Header")
+            }
+            .markdownBlockStyle(\.heading1) { configuration in
+                configuration.label
+                    .markdownMargin(top: .em(1), bottom: .em(1))
+                    .markdownTextStyle {
+                        FontFamily(.custom("Trebuchet MS"))
+                        FontWeight(.bold)
+                        FontSize(.em(2.5))
+                    }
+            }
+        }
     }
-  }
 }
 
 struct HeadingsView_Previews: PreviewProvider {
-  static var previews: some View {
-    HeadingsView()
-  }
+    static var previews: some View {
+        HeadingsView()
+    }
 }

@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct TablesView: View {
-  let content = """
+    let content = """
     You can create tables with pipes `|` and hyphens `-`. Hyphens are used to
     create each column's header, while pipes separate each column. You must
     include a blank line before your table for it to render correctly.
@@ -40,15 +40,15 @@ struct TablesView: View {
     - [GitHub Flavored Markdown Spec](https://github.github.com/gfm/)
     """
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
+        }
     }
-  }
 }
 
 struct TablesView_Previews: PreviewProvider {
-  static var previews: some View {
-    TablesView()
-  }
+    static var previews: some View {
+        TablesView()
+    }
 }

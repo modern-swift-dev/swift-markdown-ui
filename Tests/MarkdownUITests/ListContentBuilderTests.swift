@@ -1,124 +1,123 @@
 import Foundation
+@testable import MarkdownUI
 import XCTest
 
-@testable import MarkdownUI
-
 final class ListContentBuilderTests: XCTestCase {
-  func testEmpty() {
-    // given
-    @ListContentBuilder func build() -> [ListItem] {}
+    func testEmpty() {
+        /// given
+        @ListContentBuilder func build() -> [ListItem] {}
 
-    // when
-    let result = build()
+        // when
+        let result = build()
 
-    // then
-    XCTAssertEqual([], result)
-  }
+        // then
+        XCTAssertEqual([], result)
+    }
 
-  func testExpressions() {
-    // given
-    @ListContentBuilder func build() -> [ListItem] {
-      "Flour"
-      ListItem {
-        "Cheese"
-      }
-      ListItem {
-        Paragraph {
-          "Tomatoes"
+    func testExpressions() {
+        /// given
+        @ListContentBuilder func build() -> [ListItem] {
+            "Flour"
+            ListItem {
+                "Cheese"
+            }
+            ListItem {
+                Paragraph {
+                    "Tomatoes"
+                }
+            }
         }
-      }
+
+        // when
+        let result = build()
+
+        // then
+        XCTAssertEqual(
+            [
+                .init(children: [.paragraph(content: [.text("Flour")])]),
+                .init(children: [.paragraph(content: [.text("Cheese")])]),
+                .init(children: [.paragraph(content: [.text("Tomatoes")])])
+            ],
+            result
+        )
     }
 
-    // when
-    let result = build()
-
-    // then
-    XCTAssertEqual(
-      [
-        .init(children: [.paragraph(content: [.text("Flour")])]),
-        .init(children: [.paragraph(content: [.text("Cheese")])]),
-        .init(children: [.paragraph(content: [.text("Tomatoes")])]),
-      ],
-      result
-    )
-  }
-
-  func testForLoops() {
-    // given
-    @ListContentBuilder func build() -> [ListItem] {
-      for i in 0...3 {
-        "\(i)"
-      }
-    }
-
-    // when
-    let result = build()
-
-    // then
-    XCTAssertEqual(
-      [
-        .init(children: [.paragraph(content: [.text("0")])]),
-        .init(children: [.paragraph(content: [.text("1")])]),
-        .init(children: [.paragraph(content: [.text("2")])]),
-        .init(children: [.paragraph(content: [.text("3")])]),
-      ],
-      result
-    )
-  }
-
-  func testIf() {
-    @ListContentBuilder func build() -> [ListItem] {
-      "Something is:"
-      if true {
-        ListItem {
-          "true"
+    func testForLoops() {
+        /// given
+        @ListContentBuilder func build() -> [ListItem] {
+            for i in 0 ... 3 {
+                "\(i)"
+            }
         }
-      }
+
+        // when
+        let result = build()
+
+        // then
+        XCTAssertEqual(
+            [
+                .init(children: [.paragraph(content: [.text("0")])]),
+                .init(children: [.paragraph(content: [.text("1")])]),
+                .init(children: [.paragraph(content: [.text("2")])]),
+                .init(children: [.paragraph(content: [.text("3")])])
+            ],
+            result
+        )
     }
 
-    // when
-    let result = build()
-
-    // then
-    XCTAssertEqual(
-      [
-        .init(children: [.paragraph(content: [.text("Something is:")])]),
-        .init(children: [.paragraph(content: [.text("true")])]),
-      ],
-      result
-    )
-  }
-
-  func testIfElse() {
-    @ListContentBuilder func build(_ value: Bool) -> [ListItem] {
-      "Something is:"
-      if value {
-        ListItem {
-          "true"
+    func testIf() {
+        @ListContentBuilder func build() -> [ListItem] {
+            "Something is:"
+            if true {
+                ListItem {
+                    "true"
+                }
+            }
         }
-      } else {
-        "false"
-      }
+
+        // when
+        let result = build()
+
+        // then
+        XCTAssertEqual(
+            [
+                .init(children: [.paragraph(content: [.text("Something is:")])]),
+                .init(children: [.paragraph(content: [.text("true")])])
+            ],
+            result
+        )
     }
 
-    // when
-    let result1 = build(true)
-    let result2 = build(false)
+    func testIfElse() {
+        @ListContentBuilder func build(_ value: Bool) -> [ListItem] {
+            "Something is:"
+            if value {
+                ListItem {
+                    "true"
+                }
+            } else {
+                "false"
+            }
+        }
 
-    // then
-    XCTAssertEqual(
-      [
-        .init(children: [.paragraph(content: [.text("Something is:")])]),
-        .init(children: [.paragraph(content: [.text("true")])]),
-      ],
-      result1
-    )
-    XCTAssertEqual(
-      [
-        .init(children: [.paragraph(content: [.text("Something is:")])]),
-        .init(children: [.paragraph(content: [.text("false")])]),
-      ],
-      result2
-    )
-  }
+        // when
+        let result1 = build(true)
+        let result2 = build(false)
+
+        // then
+        XCTAssertEqual(
+            [
+                .init(children: [.paragraph(content: [.text("Something is:")])]),
+                .init(children: [.paragraph(content: [.text("true")])])
+            ],
+            result1
+        )
+        XCTAssertEqual(
+            [
+                .init(children: [.paragraph(content: [.text("Something is:")])]),
+                .init(children: [.paragraph(content: [.text("false")])])
+            ],
+            result2
+        )
+    }
 }

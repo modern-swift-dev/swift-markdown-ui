@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct TextStylesView: View {
-  private let content = """
+    private let content = """
     ```
     **This is bold text**
     ```
@@ -37,37 +37,37 @@ struct TextStylesView: View {
     Use `git status` to list all new or modified files that haven't yet been committed.
     """
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
 
-      Section("Customization Example") {
-        MarkdownView(self.content)
-      }
-      .markdownTextStyle(\.code) {
-        FontFamilyVariant(.monospaced)
-        BackgroundColor(.yellow.opacity(0.5))
-      }
-      .markdownTextStyle(\.emphasis) {
-        FontStyle(.italic)
-        UnderlineStyle(.single)
-      }
-      .markdownTextStyle(\.strong) {
-        FontWeight(.heavy)
-      }
-      .markdownTextStyle(\.strikethrough) {
-        StrikethroughStyle(.init(pattern: .solid, color: .red))
-      }
-      .markdownTextStyle(\.link) {
-        ForegroundColor(.mint)
-        UnderlineStyle(.init(pattern: .dot))
-      }
+            Section("Customization Example") {
+                MarkdownView(self.content)
+            }
+            .markdownTextStyle(\.code) {
+                FontFamilyVariant(.monospaced)
+                BackgroundColor(.yellow.opacity(0.5))
+            }
+            .markdownTextStyle(\.emphasis) {
+                FontStyle(.italic)
+                UnderlineStyle(.single)
+            }
+            .markdownTextStyle(\.strong) {
+                FontWeight(.heavy)
+            }
+            .markdownTextStyle(\.strikethrough) {
+                StrikethroughStyle(.init(pattern: .solid, color: .red))
+            }
+            .markdownTextStyle(\.link) {
+                ForegroundColor(.mint)
+                UnderlineStyle(.init(pattern: .dot))
+            }
+        }
     }
-  }
 }
 
 struct TextStylesView_Previews: PreviewProvider {
-  static var previews: some View {
-    TextStylesView()
-  }
+    static var previews: some View {
+        TextStylesView()
+    }
 }

@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct DingusView: View {
-  @State private var markdown = """
+    @State private var markdown = """
     ## Try GitHub Flavored Markdown
 
     You can try **GitHub Flavored Markdown** here.  This dingus is powered
@@ -15,22 +15,22 @@ struct DingusView: View {
        - sublist
     """
 
-  var body: some View {
-    DemoView {
-      Section("Editor") {
-        TextEditor(text: $markdown)
-          .font(.system(.callout, design: .monospaced))
-      }
+    var body: some View {
+        DemoView {
+            Section("Editor") {
+                TextEditor(text: $markdown)
+                    .font(.system(.callout, design: .monospaced))
+            }
 
-      Section("Preview") {
-        MarkdownView(self.markdown)
-      }
+            Section("Preview") {
+                MarkdownView(self.markdown)
+            }
+        }
     }
-  }
 }
 
 struct DingusView_Previews: PreviewProvider {
-  static var previews: some View {
-    DingusView()
-  }
+    static var previews: some View {
+        DingusView()
+    }
 }

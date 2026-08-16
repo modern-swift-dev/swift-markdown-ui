@@ -23,19 +23,19 @@ import Foundation
 /// }
 /// ```
 public struct TaskListItem: Hashable {
-  let isCompleted: Bool
-  let children: [BlockNode]
+    let isCompleted: Bool
+    let children: [BlockNode]
 
-  init(isCompleted: Bool, children: [BlockNode]) {
-    self.isCompleted = isCompleted
-    self.children = children
-  }
+    init(isCompleted: Bool, children: [BlockNode]) {
+        self.isCompleted = isCompleted
+        self.children = children
+    }
 
-  init(_ text: String) {
-    self.init(isCompleted: false, children: [.paragraph(content: [.text(text)])])
-  }
+    init(_ text: String) {
+        self.init(isCompleted: false, children: [.paragraph(content: [.text(text)])])
+    }
 
-  public init(isCompleted: Bool = false, @MarkdownContentBuilder content: () -> MarkdownContent) {
-    self.init(isCompleted: isCompleted, children: content().blocks)
-  }
+    public init(isCompleted: Bool = false, @MarkdownContentBuilder content: () -> MarkdownContent) {
+        self.init(isCompleted: isCompleted, children: content().blocks)
+    }
 }

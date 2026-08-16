@@ -61,45 +61,45 @@ import Foundation
 /// }
 /// ```
 public struct TaskList: MarkdownContentProtocol {
-  public var _markdownContent: MarkdownContent {
-    .init(blocks: [.taskList(isTight: self.tight, items: self.items)])
-  }
-
-  private let tight: Bool
-  private let items: [RawTaskListItem]
-
-  init(tight: Bool, items: [TaskListItem]) {
-    // Force loose spacing if any of the items contains more than one paragraph
-    let hasItemsWithMultipleParagraphs = items.contains { item in
-      item.children.filter(\.isParagraph).count > 1
+    public var _markdownContent: MarkdownContent {
+        .init(blocks: [.taskList(isTight: self.tight, items: self.items)])
     }
 
-    self.tight = hasItemsWithMultipleParagraphs ? false : tight
-    self.items = items.map {
-      RawTaskListItem(isCompleted: $0.isCompleted, children: $0.children)
+    private let tight: Bool
+    private let items: [RawTaskListItem]
+
+    init(tight: Bool, items: [TaskListItem]) {
+        // Force loose spacing if any of the items contains more than one paragraph
+        let hasItemsWithMultipleParagraphs = items.contains { item in
+            item.children.filter(\.isParagraph).count > 1
+        }
+
+        self.tight = hasItemsWithMultipleParagraphs ? false : tight
+        self.items = items.map {
+            RawTaskListItem(isCompleted: $0.isCompleted, children: $0.children)
+        }
     }
-  }
 
-  /// Creates a task list with the given items.
-  /// - Parameters:
-  ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
-  ///            any of the list items contain more than one paragraph.
-  ///   - items: A task list content builder that returns the items included in the list.
-  public init(tight: Bool = true, @TaskListContentBuilder items: () -> [TaskListItem]) {
-    self.init(tight: tight, items: items())
-  }
+    /// Creates a task list with the given items.
+    /// - Parameters:
+    ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
+    ///            any of the list items contain more than one paragraph.
+    ///   - items: A task list content builder that returns the items included in the list.
+    public init(tight: Bool = true, @TaskListContentBuilder items: () -> [TaskListItem]) {
+        self.init(tight: tight, items: items())
+    }
 
-  /// Creates a task list from a sequence of elements.
-  /// - Parameters:
-  ///   - sequence: The sequence of elements.
-  ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
-  ///            any of the list items contain more than one paragraph.
-  ///   - items: A task list content builder that returns the items for each element in the sequence.
-  public init<S: Sequence>(
-    of sequence: S,
-    tight: Bool = true,
-    @TaskListContentBuilder items: (S.Element) -> [TaskListItem]
-  ) {
-    self.init(tight: tight, items: sequence.flatMap { items($0) })
-  }
+    /// Creates a task list from a sequence of elements.
+    /// - Parameters:
+    ///   - sequence: The sequence of elements.
+    ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
+    ///            any of the list items contain more than one paragraph.
+    ///   - items: A task list content builder that returns the items for each element in the sequence.
+    public init<S: Sequence>(
+        of sequence: S,
+        tight: Bool = true,
+        @TaskListContentBuilder items: (S.Element) -> [TaskListItem]
+    ) {
+        self.init(tight: tight, items: sequence.flatMap { items($0) })
+    }
 }

@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct ListsView: View {
-  private let content = """
+    private let content = """
     You can make an unordered list by preceding one or more lines of text with `-`, `*`, or `+`.
 
     ```
@@ -60,7 +60,7 @@ struct ListsView: View {
     bullets.
     """
 
-  private let customizedContent = """
+    private let customizedContent = """
     - George Washington
     - John Adams
     - Thomas Jefferson
@@ -74,25 +74,25 @@ struct ListsView: View {
     - [ ] Release MarkdownUI 2.0
     """
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
 
-      Section("Customization Example") {
-        MarkdownView(self.customizedContent)
-      }
-      .markdownBulletedListMarker(.dash)
-      .markdownNumberedListMarker(.lowerRoman)
-      .markdownBlockStyle(\.taskListMarker) { configuration in
-        Image(systemName: configuration.isCompleted ? "checkmark.circle.fill" : "circle")
-          .relativeFrame(minWidth: .em(1.5), alignment: .trailing)
-      }
+            Section("Customization Example") {
+                MarkdownView(self.customizedContent)
+            }
+            .markdownBulletedListMarker(.dash)
+            .markdownNumberedListMarker(.lowerRoman)
+            .markdownBlockStyle(\.taskListMarker) { configuration in
+                Image(systemName: configuration.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .relativeFrame(minWidth: .em(1.5), alignment: .trailing)
+            }
+        }
     }
-  }
 }
 
 struct ListView_Previews: PreviewProvider {
-  static var previews: some View {
-    ListsView()
-  }
+    static var previews: some View {
+        ListsView()
+    }
 }

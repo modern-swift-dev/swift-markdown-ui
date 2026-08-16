@@ -2,7 +2,7 @@ import MarkdownUI
 import SwiftUI
 
 struct CodeView: View {
-  private let content = #"""
+    private let content = #"""
     You can call out code or a command within a sentence with single backticks.
     The text within the backticks will not be formatted.
 
@@ -42,15 +42,15 @@ struct CodeView: View {
     ```
     """#
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
+        }
     }
-  }
 }
 
 struct CodeView_Previews: PreviewProvider {
-  static var previews: some View {
-    CodeView()
-  }
+    static var previews: some View {
+        CodeView()
+    }
 }

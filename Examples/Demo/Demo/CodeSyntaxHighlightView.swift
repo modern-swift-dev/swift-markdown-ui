@@ -3,9 +3,9 @@ import Splash
 import SwiftUI
 
 struct CodeSyntaxHighlightView: View {
-  @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var colorScheme
 
-  private let content = #"""
+    private let content = #"""
     This screen demonstrates how you can integrate a 3rd party library
     to render syntax-highlighted code blocks.
 
@@ -88,78 +88,77 @@ struct CodeSyntaxHighlightView: View {
 
     """#
 
-  var body: some View {
-    DemoView {
-      MarkdownView(self.content)
-        .markdownBlockStyle(\.codeBlock) {
-          codeBlock($0)
+    var body: some View {
+        DemoView {
+            MarkdownView(self.content)
+                .markdownBlockStyle(\.codeBlock) {
+                    codeBlock($0)
+                }
+                .markdownCodeSyntaxHighlighter(.splash(theme: self.theme))
         }
-        .markdownCodeSyntaxHighlighter(.splash(theme: self.theme))
     }
-  }
 
-  @ViewBuilder
-  private func codeBlock(_ configuration: CodeBlockConfiguration) -> some View {
-    VStack(spacing: 0) {
-      HStack {
-        Text(configuration.language ?? "plain text")
-          .font(.system(.caption, design: .monospaced))
-          .fontWeight(.semibold)
-          .foregroundColor(Color(theme.plainTextColor))
-        Spacer()
+    private func codeBlock(_ configuration: CodeBlockConfiguration) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(configuration.language ?? "plain text")
+                    .font(.system(.caption, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .foregroundColor(Color(theme.plainTextColor))
+                Spacer()
 
-        Image(systemName: "clipboard")
-          .onTapGesture {
-            copyToClipboard(configuration.content)
-          }
-      }
-      .padding(.horizontal)
-      .padding(.vertical, 8)
-      .background {
-        Color(theme.backgroundColor)
-      }
+                Image(systemName: "clipboard")
+                    .onTapGesture {
+                        copyToClipboard(configuration.content)
+                    }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background {
+                Color(theme.backgroundColor)
+            }
 
-      Divider()
+            Divider()
 
-      ScrollView(.horizontal) {
-        configuration.label
-          .relativeLineSpacing(.em(0.25))
-          .markdownTextStyle {
-            FontFamilyVariant(.monospaced)
-            FontSize(.em(0.85))
-          }
-          .padding()
-      }
+            ScrollView(.horizontal) {
+                configuration.label
+                    .relativeLineSpacing(.em(0.25))
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.85))
+                    }
+                    .padding()
+            }
+        }
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .markdownMargin(top: .zero, bottom: .em(0.8))
     }
-    .background(Color(.secondarySystemBackground))
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .markdownMargin(top: .zero, bottom: .em(0.8))
-  }
 
-  private var theme: Splash.Theme {
-    // NOTE: We are ignoring the Splash theme font
-    switch self.colorScheme {
-    case .dark:
-      return .wwdc17(withFont: .init(size: 16))
-    default:
-      return .sunset(withFont: .init(size: 16))
+    private var theme: Splash.Theme {
+        // NOTE: We are ignoring the Splash theme font
+        switch self.colorScheme {
+            case .dark:
+                .wwdc17(withFont: .init(size: 16))
+            default:
+                .sunset(withFont: .init(size: 16))
+        }
     }
-  }
 
-  private func copyToClipboard(_ string: String) {
-    #if os(macOS)
-      if let pasteboard = NSPasteboard.general {
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
-      }
-    #elseif os(iOS)
-      UIPasteboard.general.string = string
-    #endif
-  }
+    private func copyToClipboard(_ string: String) {
+        #if os(macOS)
+        if let pasteboard = NSPasteboard.general {
+            pasteboard.clearContents()
+            pasteboard.setString(string, forType: .string)
+        }
+        #elseif os(iOS)
+        UIPasteboard.general.string = string
+        #endif
+    }
 }
 
 struct CodeSyntaxHighlightView_Previews: PreviewProvider {
-  static var previews: some View {
-    CodeSyntaxHighlightView()
-  }
+    static var previews: some View {
+        CodeSyntaxHighlightView()
+    }
 }

@@ -1,135 +1,134 @@
 import Foundation
+@testable import MarkdownUI
 import XCTest
 
-@testable import MarkdownUI
-
 final class MarkdownContentBuilderTests: XCTestCase {
-  func testEmpty() {
-    // given
-    @MarkdownContentBuilder func build() -> MarkdownContent {}
+    func testEmpty() {
+        /// given
+        @MarkdownContentBuilder func build() -> MarkdownContent {}
 
-    // when
-    let result = build()
+        // when
+        let result = build()
 
-    // then
-    XCTAssertEqual(.init(), result)
-  }
-
-  func testExpressions() {
-    // given
-    @MarkdownContentBuilder func build() -> MarkdownContent {
-      "**First** paragraph."
-      Paragraph {
-        Strong("Second")
-        " paragraph."
-      }
+        // then
+        XCTAssertEqual(.init(), result)
     }
 
-    // when
-    let result = build()
+    func testExpressions() {
+        /// given
+        @MarkdownContentBuilder func build() -> MarkdownContent {
+            "**First** paragraph."
+            Paragraph {
+                Strong("Second")
+                " paragraph."
+            }
+        }
 
-    // then
-    XCTAssertEqual(
-      MarkdownContent(
-        blocks: [
-          .paragraph(
-            content: [
-              .strong(children: [.text("First")]),
-              .text(" paragraph."),
-            ]
-          ),
-          .paragraph(
-            content: [
-              .strong(children: [.text("Second")]),
-              .text(" paragraph."),
-            ]
-          ),
-        ]
-      ),
-      result
-    )
-  }
+        // when
+        let result = build()
 
-  func testForLoops() {
-    // given
-    @MarkdownContentBuilder func build() -> MarkdownContent {
-      for i in 0...3 {
-        "\(i)"
-      }
+        // then
+        XCTAssertEqual(
+            MarkdownContent(
+                blocks: [
+                    .paragraph(
+                        content: [
+                            .strong(children: [.text("First")]),
+                            .text(" paragraph.")
+                        ]
+                    ),
+                    .paragraph(
+                        content: [
+                            .strong(children: [.text("Second")]),
+                            .text(" paragraph.")
+                        ]
+                    )
+                ]
+            ),
+            result
+        )
     }
 
-    // when
-    let result = build()
+    func testForLoops() {
+        /// given
+        @MarkdownContentBuilder func build() -> MarkdownContent {
+            for i in 0 ... 3 {
+                "\(i)"
+            }
+        }
 
-    // then
-    XCTAssertEqual(
-      MarkdownContent(
-        blocks: [
-          .paragraph(content: [.text("0")]),
-          .paragraph(content: [.text("1")]),
-          .paragraph(content: [.text("2")]),
-          .paragraph(content: [.text("3")]),
-        ]
-      ),
-      result
-    )
-  }
+        // when
+        let result = build()
 
-  func testIf() {
-    @MarkdownContentBuilder func build() -> MarkdownContent {
-      "Something is:"
-      if true {
-        "true"
-      }
+        // then
+        XCTAssertEqual(
+            MarkdownContent(
+                blocks: [
+                    .paragraph(content: [.text("0")]),
+                    .paragraph(content: [.text("1")]),
+                    .paragraph(content: [.text("2")]),
+                    .paragraph(content: [.text("3")])
+                ]
+            ),
+            result
+        )
     }
 
-    // when
-    let result = build()
+    func testIf() {
+        @MarkdownContentBuilder func build() -> MarkdownContent {
+            "Something is:"
+            if true {
+                "true"
+            }
+        }
 
-    // then
-    XCTAssertEqual(
-      MarkdownContent(
-        blocks: [
-          .paragraph(content: [.text("Something is:")]),
-          .paragraph(content: [.text("true")]),
-        ]
-      ),
-      result
-    )
-  }
+        // when
+        let result = build()
 
-  func testIfElse() {
-    @MarkdownContentBuilder func build(_ value: Bool) -> MarkdownContent {
-      "Something is:"
-      if value {
-        "true"
-      } else {
-        "false"
-      }
+        // then
+        XCTAssertEqual(
+            MarkdownContent(
+                blocks: [
+                    .paragraph(content: [.text("Something is:")]),
+                    .paragraph(content: [.text("true")])
+                ]
+            ),
+            result
+        )
     }
 
-    // when
-    let result1 = build(true)
-    let result2 = build(false)
+    func testIfElse() {
+        @MarkdownContentBuilder func build(_ value: Bool) -> MarkdownContent {
+            "Something is:"
+            if value {
+                "true"
+            } else {
+                "false"
+            }
+        }
 
-    // then
-    XCTAssertEqual(
-      MarkdownContent(
-        blocks: [
-          .paragraph(content: [.text("Something is:")]),
-          .paragraph(content: [.text("true")]),
-        ]
-      ),
-      result1
-    )
-    XCTAssertEqual(
-      MarkdownContent(
-        blocks: [
-          .paragraph(content: [.text("Something is:")]),
-          .paragraph(content: [.text("false")]),
-        ]
-      ),
-      result2
-    )
-  }
+        // when
+        let result1 = build(true)
+        let result2 = build(false)
+
+        // then
+        XCTAssertEqual(
+            MarkdownContent(
+                blocks: [
+                    .paragraph(content: [.text("Something is:")]),
+                    .paragraph(content: [.text("true")])
+                ]
+            ),
+            result1
+        )
+        XCTAssertEqual(
+            MarkdownContent(
+                blocks: [
+                    .paragraph(content: [.text("Something is:")]),
+                    .paragraph(content: [.text("false")])
+                ]
+            ),
+            result2
+        )
+    }
 }

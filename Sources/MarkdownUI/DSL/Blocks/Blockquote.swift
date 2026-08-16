@@ -20,15 +20,15 @@ import Foundation
 ///
 /// ![](BlockquoteContent)
 public struct Blockquote: MarkdownContentProtocol {
-  public var _markdownContent: MarkdownContent {
-    .init(blocks: [.blockquote(children: content.blocks)])
-  }
+    public var _markdownContent: MarkdownContent {
+        .init(blocks: [.blockquote(children: content.blocks)])
+    }
 
-  private let content: MarkdownContent
+    private let content: MarkdownContent
 
-  /// Creates a blockquote element that includes the specified Markdown content.
-  /// - Parameter content: A Markdown content builder that returns the content included in the blockquote.
-  public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
-    self.content = content()
-  }
+    /// Creates a blockquote element that includes the specified Markdown content.
+    /// - Parameter content: A Markdown content builder that returns the content included in the blockquote.
+    public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
+        self.content = content()
+    }
 }

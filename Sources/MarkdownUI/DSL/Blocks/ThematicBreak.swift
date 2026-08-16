@@ -18,9 +18,9 @@ import Foundation
 ///
 /// ![](ThematicBreak)
 public struct ThematicBreak: MarkdownContentProtocol {
-  public var _markdownContent: MarkdownContent {
-    .init(blocks: [.thematicBreak])
-  }
+    public var _markdownContent: MarkdownContent {
+        .init(blocks: [.thematicBreak])
+    }
 
-  public init() {}
+    public init() {}
 }

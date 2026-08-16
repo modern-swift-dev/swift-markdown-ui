@@ -62,52 +62,52 @@ import Foundation
 ///
 /// ![](NestedBulletedList)
 public struct BulletedList: MarkdownContentProtocol {
-  public var _markdownContent: MarkdownContent {
-    .init(blocks: [.bulletedList(isTight: self.tight, items: self.items)])
-  }
-
-  private let tight: Bool
-  private let items: [RawListItem]
-
-  init(tight: Bool, items: [ListItem]) {
-    // Force loose spacing if any of the items contains more than one paragraph
-    let hasItemsWithMultipleParagraphs = items.contains { item in
-      item.children.filter(\.isParagraph).count > 1
+    public var _markdownContent: MarkdownContent {
+        .init(blocks: [.bulletedList(isTight: self.tight, items: self.items)])
     }
 
-    self.tight = hasItemsWithMultipleParagraphs ? false : tight
-    self.items = items.map(\.children).map(RawListItem.init)
-  }
+    private let tight: Bool
+    private let items: [RawListItem]
 
-  /// Creates a bulleted list with the specified items.
-  /// - Parameters:
-  ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
-  ///            any of the list items contain more than one paragraph.
-  ///   - items: A list content builder that returns the items included in the list.
-  public init(tight: Bool = true, @ListContentBuilder items: () -> [ListItem]) {
-    self.init(tight: tight, items: items())
-  }
+    init(tight: Bool, items: [ListItem]) {
+        // Force loose spacing if any of the items contains more than one paragraph
+        let hasItemsWithMultipleParagraphs = items.contains { item in
+            item.children.filter(\.isParagraph).count > 1
+        }
 
-  /// Creates a bulleted list from a sequence of elements.
-  /// - Parameters:
-  ///   - sequence: The sequence of elements.
-  ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
-  ///            any of the list items contain more than one paragraph.
-  ///   - items: A list content builder that returns the items for each element in the sequence.
-  public init<S: Sequence>(
-    of sequence: S,
-    tight: Bool = true,
-    @ListContentBuilder items: (S.Element) -> [ListItem]
-  ) {
-    self.init(tight: tight, items: sequence.flatMap { items($0) })
-  }
+        self.tight = hasItemsWithMultipleParagraphs ? false : tight
+        self.items = items.map(\.children).map(RawListItem.init)
+    }
 
-  /// Creates a bulleted list from a sequence of strings.
-  /// - Parameters:
-  ///   - sequence: The sequence of strings.
-  ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
-  ///            any of the list items contain more than one paragraph.
-  public init<S: Sequence>(of sequence: S, tight: Bool = true) where S.Element == String {
-    self.init(tight: tight, items: sequence.map(ListItem.init(_:)))
-  }
+    /// Creates a bulleted list with the specified items.
+    /// - Parameters:
+    ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
+    ///            any of the list items contain more than one paragraph.
+    ///   - items: A list content builder that returns the items included in the list.
+    public init(tight: Bool = true, @ListContentBuilder items: () -> [ListItem]) {
+        self.init(tight: tight, items: items())
+    }
+
+    /// Creates a bulleted list from a sequence of elements.
+    /// - Parameters:
+    ///   - sequence: The sequence of elements.
+    ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
+    ///            any of the list items contain more than one paragraph.
+    ///   - items: A list content builder that returns the items for each element in the sequence.
+    public init<S: Sequence>(
+        of sequence: S,
+        tight: Bool = true,
+        @ListContentBuilder items: (S.Element) -> [ListItem]
+    ) {
+        self.init(tight: tight, items: sequence.flatMap { items($0) })
+    }
+
+    /// Creates a bulleted list from a sequence of strings.
+    /// - Parameters:
+    ///   - sequence: The sequence of strings.
+    ///   - tight: A `Boolean` value that indicates if the list is tight or loose. This parameter is ignored if
+    ///            any of the list items contain more than one paragraph.
+    public init(of sequence: some Sequence<String>, tight: Bool = true) {
+        self.init(tight: tight, items: sequence.map(ListItem.init(_:)))
+    }
 }
