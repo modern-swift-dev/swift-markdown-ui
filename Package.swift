@@ -19,15 +19,13 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.6.0"),
         .package(url: "https://github.com/modern-swift-dev/swift-snapshot-testing", from: "2.2.0"),
-        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.6.0")
+        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.8.0")
     ],
     targets: [
         .target(
             name: "MarkdownUI",
             dependencies: [
-                .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark")
             ]
