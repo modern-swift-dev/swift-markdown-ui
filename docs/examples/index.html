@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="Examples of MarkdownUI in SwiftUI."><link rel="icon" type="image/svg+xml" href="/swift-markdown-ui/favicon.svg"><link rel="canonical" href="https://modern-swift-dev.github.io/swift-markdown-ui/examples/"><title>Examples | MarkdownUI</title><style>.code-block[data-astro-cid-c6nuo4je]{color:#eef2ff;background:linear-gradient(145deg,#1e1b4b,#172554);border:1px solid #312e81;border-radius:1rem;overflow:hidden}.code-label[data-astro-cid-c6nuo4je]{color:#c7d2fe;font:700 .73rem var(--font-mono);letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid #4c4aa1;padding:.55rem .85rem}pre[data-astro-cid-c6nuo4je]{margin:0;padding:1rem;font-size:.86rem;line-height:1.65;overflow-x:auto}code[data-astro-cid-c6nuo4je]{white-space:pre}
+.intro[data-astro-cid-jon2qpe7]{max-width:53rem;padding-top:4.5rem}h1[data-astro-cid-jon2qpe7]{letter-spacing:-.06em;margin:0;font-size:clamp(2.4rem,6vw,4rem);line-height:1}.intro[data-astro-cid-jon2qpe7]>p[data-astro-cid-jon2qpe7]:last-child,article[data-astro-cid-jon2qpe7]>p[data-astro-cid-jon2qpe7]{color:var(--color-muted)}.examples[data-astro-cid-jon2qpe7]{grid-template-columns:repeat(2,1fr);gap:1rem;margin-top:2.5rem;display:grid}article[data-astro-cid-jon2qpe7]{min-width:0}h2[data-astro-cid-jon2qpe7]{letter-spacing:-.03em;margin:0 0 .5rem;font-size:1.45rem}@media (width<=48rem){.examples[data-astro-cid-jon2qpe7]{grid-template-columns:1fr}}
+</style><link rel="stylesheet" href="/swift-markdown-ui/_astro/BaseLayout.C3Oz6x-8.css"></head><body><a class="skip" href="#main" data-astro-cid-yxete6jp>Skip to content</a><header class="site-header" data-astro-cid-yxete6jp><div class="container nav-wrap" data-astro-cid-yxete6jp><a class="brand" href="/swift-markdown-ui/" aria-label="MarkdownUI home" data-astro-cid-yxete6jp>Markdown<span data-astro-cid-yxete6jp>UI</span></a><nav aria-label="Primary navigation" data-astro-cid-yxete6jp><ul data-astro-cid-yxete6jp><li data-astro-cid-yxete6jp><a href="/swift-markdown-ui/documentation/" data-astro-cid-yxete6jp>Documentation</a></li><li data-astro-cid-yxete6jp><a href="/swift-markdown-ui/examples/" aria-current="page" data-astro-cid-yxete6jp>Examples</a></li><li data-astro-cid-yxete6jp><a href="https://github.com/modern-swift-dev/swift-markdown-ui" data-astro-cid-yxete6jp>GitHub <span aria-hidden="true" data-astro-cid-yxete6jp>↗</span></a></li></ul></nav></div></header><main id="main"><section class="container intro" data-astro-cid-jon2qpe7><p class="eyebrow" data-astro-cid-jon2qpe7>Examples</p><h1 data-astro-cid-jon2qpe7>Strings when they fit. A builder when they do not.</h1><p data-astro-cid-jon2qpe7>MarkdownUI accepts ordinary Markdown strings and a Swift result builder. Both forms produce native SwiftUI views.</p></section><section class="container examples" data-astro-cid-jon2qpe7><article data-astro-cid-jon2qpe7><h2 data-astro-cid-jon2qpe7>Compose with the content builder</h2><p data-astro-cid-jon2qpe7>Use <code data-astro-cid-jon2qpe7>Heading</code>, <code data-astro-cid-jon2qpe7>Paragraph</code>, and list types where the content belongs in code.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>import SwiftUI
+import MarkdownUI
+
+struct ReleaseNotesView: View {
+  var body: some View {
+    MarkdownView {
+      Heading(.level2) { &quot;Release notes&quot; }
+      Paragraph {
+        Strong(&quot;MarkdownUI&quot;)
+        &quot; renders Markdown in SwiftUI.&quot;
+      }
+      TaskList {
+        TaskListItem(isCompleted: true) { &quot;Parse Markdown&quot; }
+        TaskListItem { &quot;Apply a theme&quot; }
+      }
+    }
+  }
+}</code></pre></div></article><article data-astro-cid-jon2qpe7><h2 data-astro-cid-jon2qpe7>Override one block style</h2><p data-astro-cid-jon2qpe7>Keep the active theme and replace just the blockquote presentation.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>import SwiftUI
+import MarkdownUI
+
+MarkdownView(&quot;&gt; A quote with custom presentation.&quot;)
+  .markdownBlockStyle(\.blockquote) { configuration in
+    configuration.label
+      .padding()
+      .overlay(alignment: .leading) {
+        Rectangle().fill(.teal).frame(width: 4)
+      }
+  }</code></pre></div></article></section></main><footer data-astro-cid-jo6i4kqk><div class="container footer-wrap" data-astro-cid-jo6i4kqk><p data-astro-cid-jo6i4kqk>MarkdownUI is an open-source Swift package.</p><nav aria-label="Footer navigation" data-astro-cid-jo6i4kqk><a href="/swift-markdown-ui/documentation/" data-astro-cid-jo6i4kqk>Documentation</a><a href="/swift-markdown-ui/examples/" data-astro-cid-jo6i4kqk>Examples</a><a href="https://github.com/modern-swift-dev/swift-markdown-ui" data-astro-cid-jo6i4kqk>GitHub</a></nav></div></footer></body></html>

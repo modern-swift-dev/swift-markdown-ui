@@ -16,6 +16,20 @@ format:
 	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
 	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
 
+site-setup:
+	npm --prefix Website ci
+
+site-preview: site-build
+	./Scripts/preview-site.sh
+
+site-build:
+	./Scripts/build-site.sh
+
+site-validate: site-setup
+	npm --prefix Website run check
+	SITE_SKIP_INSTALL=1 ./Scripts/build-site.sh
+	./Scripts/check-links.py docs --base-path /swift-markdown-ui
+
 SCHEME := MarkdownUI
 IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5
 
@@ -43,3 +57,5 @@ build-maccatalyst:
 test-all: test-macos test-ios
 
 build-all: build-ios build-tvos build-watchos build-visionos build-maccatalyst
+
+.PHONY: setup lint format site-setup site-preview site-build site-validate test-macos test-ios build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all

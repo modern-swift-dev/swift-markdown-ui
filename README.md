@@ -1,7 +1,7 @@
 # MarkdownUI
-[![CI](https://github.com/gonzalezreal/MarkdownUI/workflows/CI/badge.svg)](https://github.com/gonzalezreal/MarkdownUI/actions?query=workflow%3ACI)
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fgonzalezreal%2Fswift-markdown-ui%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui)
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fgonzalezreal%2Fswift-markdown-ui%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui)
+[![CI](https://github.com/modern-swift-dev/swift-markdown-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/modern-swift-dev/swift-markdown-ui/actions/workflows/ci.yml)
+[![Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmodern-swift-dev%2Fswift-markdown-ui%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/modern-swift-dev/swift-markdown-ui)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmodern-swift-dev%2Fswift-markdown-ui%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/modern-swift-dev/swift-markdown-ui)
 
 Display and customize Markdown text in SwiftUI.
 
@@ -241,11 +241,8 @@ extension Theme {
 
 ## Documentation
 
-[Swift Package Index](https://swiftpackageindex.com) kindly hosts the online documentation for all versions, available here:
-
-- [main](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui/main/documentation/markdownui)
-- [2.1.0](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui/2.1.0/documentation/markdownui)
-- [2.0.2](https://swiftpackageindex.com/gonzalezreal/swift-markdown-ui/2.0.2/documentation/markdownui)
+Read the [MarkdownUI guides](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/)
+or browse the [API documentation](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/markdownui/).
 
 ### Related content
 
@@ -268,7 +265,7 @@ MarkdownUI comes with a few more tricks on the sleeve. You can explore the
 To use MarkdownUI in a Swift Package Manager project, add the following line to the dependencies in your `Package.swift` file:
 
 ```swift
-.package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.0.2")
+.package(url: "https://github.com/modern-swift-dev/swift-markdown-ui", from: "3.0.0")
 ```
 
 Include `"MarkdownUI"` as a dependency for your executable target:
@@ -284,6 +281,20 @@ Finally, add `import MarkdownUI` to your source code.
 ### Adding MarkdownUI to an Xcode project
 
 1. From the **File** menu, select **Add Packages…**
-1. Enter `https://github.com/gonzalezreal/swift-markdown-ui` into the
+1. Enter `https://github.com/modern-swift-dev/swift-markdown-ui` into the
    *Search or Enter Package URL* search field
 1. Link **MarkdownUI** to your application target
+
+## Publishing the documentation site
+
+The documentation is a static Astro and DocC build committed in `docs/`. A release update is manual:
+
+1. Publish the GitHub release.
+2. Run `make site-build` from the repository root. The build fetches the latest published release and replaces `docs/`.
+3. Review the release details and DocC changes in the generated output.
+4. Run `make site-validate`, then commit `docs/` with the related source changes.
+
+GitHub Pages needs one repository setting before the first publication. In **Settings > Pages**, choose
+**Deploy from a branch**, select `main` and `/docs`, then save. Do not automate this repository setting.
+See GitHub's [branch publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+for the current interface.

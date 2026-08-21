@@ -1,0 +1,32 @@
+---
+import { withBase } from "../lib/links";
+const currentPath = Astro.url.pathname;
+const links = [
+  { href: withBase("documentation/"), label: "Documentation" },
+  { href: withBase("examples/"), label: "Examples" },
+];
+---
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="container nav-wrap">
+    <a class="brand" href={withBase("")} aria-label="MarkdownUI home">Markdown<span>UI</span></a>
+    <nav aria-label="Primary navigation">
+      <ul>
+        {links.map((link) => <li><a href={link.href} aria-current={currentPath === link.href ? "page" : undefined}>{link.label}</a></li>)}
+        <li><a href="https://github.com/modern-swift-dev/swift-markdown-ui">GitHub <span aria-hidden="true">↗</span></a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<style>
+  .skip { position: absolute; left: 1rem; top: -5rem; z-index: 2; border-radius: .3rem; background: var(--color-ink); color: white; padding: .6rem .8rem; }
+  .skip:focus { top: 1rem; }
+  .site-header { border-bottom: 1px solid var(--color-line); background: rgb(251 250 247 / .95); }
+  .nav-wrap { display: flex; min-height: 4.5rem; align-items: center; justify-content: space-between; gap: 1rem; }
+  .brand { color: var(--color-ink); font-size: 1.25rem; font-weight: 800; letter-spacing: -.04em; text-decoration: none; }
+  .brand span { color: var(--color-accent); }
+  ul { display: flex; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+  nav a { color: var(--color-muted); font-size: .94rem; font-weight: 650; text-decoration: none; }
+  nav a[aria-current="page"] { color: var(--color-ink); text-decoration: underline; text-decoration-color: var(--color-accent); text-decoration-thickness: 2px; }
+  @media (max-width: 34rem) { .nav-wrap { align-items: flex-start; flex-direction: column; padding-block: 1rem; } ul { flex-wrap: wrap; gap: .5rem 1rem; } }
+</style>

@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="Create and style MarkdownUI views in SwiftUI."><link rel="icon" type="image/svg+xml" href="/swift-markdown-ui/favicon.svg"><link rel="canonical" href="https://modern-swift-dev.github.io/swift-markdown-ui/documentation/getting-started/"><title>Getting started | MarkdownUI</title><style>.code-block[data-astro-cid-c6nuo4je]{color:#eef2ff;background:linear-gradient(145deg,#1e1b4b,#172554);border:1px solid #312e81;border-radius:1rem;overflow:hidden}.code-label[data-astro-cid-c6nuo4je]{color:#c7d2fe;font:700 .73rem var(--font-mono);letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid #4c4aa1;padding:.55rem .85rem}pre[data-astro-cid-c6nuo4je]{margin:0;padding:1rem;font-size:.86rem;line-height:1.65;overflow-x:auto}code[data-astro-cid-c6nuo4je]{white-space:pre}
+</style><link rel="stylesheet" href="/swift-markdown-ui/_astro/BaseLayout.C3Oz6x-8.css"><style>.article[data-astro-cid-ksaix4uo]{max-width:48rem;padding-top:4.5rem}h1[data-astro-cid-ksaix4uo]{letter-spacing:-.06em;margin:0;font-size:clamp(2.4rem,6vw,4rem);line-height:1}.lede[data-astro-cid-ksaix4uo]{color:var(--color-muted);margin:1.25rem 0 2.5rem;font-size:1.15rem}h2[data-astro-cid-ksaix4uo]{letter-spacing:-.03em;margin:2.75rem 0 .7rem;font-size:1.65rem}p[data-astro-cid-ksaix4uo]{max-width:42rem}.code-block[data-astro-cid-ksaix4uo]{margin-top:1rem}
+</style></head><body><a class="skip" href="#main" data-astro-cid-yxete6jp>Skip to content</a><header class="site-header" data-astro-cid-yxete6jp><div class="container nav-wrap" data-astro-cid-yxete6jp><a class="brand" href="/swift-markdown-ui/" aria-label="MarkdownUI home" data-astro-cid-yxete6jp>Markdown<span data-astro-cid-yxete6jp>UI</span></a><nav aria-label="Primary navigation" data-astro-cid-yxete6jp><ul data-astro-cid-yxete6jp><li data-astro-cid-yxete6jp><a href="/swift-markdown-ui/documentation/" data-astro-cid-yxete6jp>Documentation</a></li><li data-astro-cid-yxete6jp><a href="/swift-markdown-ui/examples/" data-astro-cid-yxete6jp>Examples</a></li><li data-astro-cid-yxete6jp><a href="https://github.com/modern-swift-dev/swift-markdown-ui" data-astro-cid-yxete6jp>GitHub <span aria-hidden="true" data-astro-cid-yxete6jp>↗</span></a></li></ul></nav></div></header><main id="main"><article class="container article" data-astro-cid-ksaix4uo><p class="eyebrow" data-astro-cid-ksaix4uo>Getting started</p><h1 data-astro-cid-ksaix4uo>Create a Markdown view.</h1><p class="lede" data-astro-cid-ksaix4uo>Pass Markdown text to <code data-astro-cid-ksaix4uo>MarkdownView</code>. The view renders GitHub Flavored Markdown with SwiftUI.</p><h2 data-astro-cid-ksaix4uo>Requirements</h2><p data-astro-cid-ksaix4uo>MarkdownUI requires macOS 15.0, iOS 17.0, tvOS 17.0, Mac Catalyst 17.0, watchOS 10.0, or visionOS 2.0 and later.</p><h2 data-astro-cid-ksaix4uo>Install with Swift Package Manager</h2><p data-astro-cid-ksaix4uo>Add MarkdownUI to your package dependencies, then add <code data-astro-cid-ksaix4uo>MarkdownUI</code> to the target that imports it. This page uses the current stable release.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>dependencies: [
+  .package(
+    url: &quot;https://github.com/modern-swift-dev/swift-markdown-ui&quot;,
+    from: &quot;3.0.0&quot;
+  )
+]</code></pre></div><h2 data-astro-cid-ksaix4uo>Render your first string</h2><p data-astro-cid-ksaix4uo>The string initializer is the shortest path.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>import SwiftUI
+import MarkdownUI
+
+struct ArticleView: View {
+  let article: String
+
+  var body: some View {
+    MarkdownView(article)
+  }
+}</code></pre></div><h2 data-astro-cid-ksaix4uo>Pre-parse content you keep</h2><p data-astro-cid-ksaix4uo>Create <code data-astro-cid-ksaix4uo>MarkdownContent</code> in a model layer when you reuse the same source. It parses the Markdown before the view renders it.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>import SwiftUI
+import MarkdownUI
+
+let content = MarkdownContent(&quot;## Release notes\n\nA parsed value.&quot;)
+
+struct NotesView: View {
+  var body: some View {
+    MarkdownView(content)
+  }
+}</code></pre></div><h2 data-astro-cid-ksaix4uo>Style the result</h2><p data-astro-cid-ksaix4uo>MarkdownUI uses its basic theme by default. Apply <code data-astro-cid-ksaix4uo>.gitHub</code> to a Markdown view or an enclosing view hierarchy. Use <code data-astro-cid-ksaix4uo>markdownTextStyle</code> and <code data-astro-cid-ksaix4uo>markdownBlockStyle</code> when only one style needs to change.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>MarkdownView(&quot;Use `git status` to list modified files.&quot;)
+  .markdownTheme(.gitHub)</code></pre></div><h2 data-astro-cid-ksaix4uo>Resolve links and images</h2><p data-astro-cid-ksaix4uo><code data-astro-cid-ksaix4uo>baseURL</code> resolves relative Markdown links. <code data-astro-cid-ksaix4uo>imageBaseURL</code> resolves relative image URLs and otherwise uses <code data-astro-cid-ksaix4uo>baseURL</code>. Configure a built-in or custom image provider with <code data-astro-cid-ksaix4uo>markdownImageProvider</code>. Markdown links use SwiftUI's <code data-astro-cid-ksaix4uo>openURL</code> environment action, which you can replace for custom handling.</p><div class="code-block" data-astro-cid-c6nuo4je><div class="code-label" data-astro-cid-c6nuo4je>swift</div><pre data-astro-cid-c6nuo4je><code data-astro-cid-c6nuo4je>import SwiftUI
+import MarkdownUI
+
+MarkdownView(
+  &quot;[Guide](guide) ![Diagram](images/diagram.png)&quot;,
+  baseURL: URL(string: &quot;https://example.com/docs/&quot;)!,
+  imageBaseURL: URL(string: &quot;https://cdn.example.com/&quot;)!
+)
+.markdownImageProvider(.default)</code></pre></div><p data-astro-cid-ksaix4uo><a href="/swift-markdown-ui/documentation/markdownui/" data-astro-cid-ksaix4uo>Open the generated MarkdownUI DocC reference</a>.</p></article></main><footer data-astro-cid-jo6i4kqk><div class="container footer-wrap" data-astro-cid-jo6i4kqk><p data-astro-cid-jo6i4kqk>MarkdownUI is an open-source Swift package.</p><nav aria-label="Footer navigation" data-astro-cid-jo6i4kqk><a href="/swift-markdown-ui/documentation/" data-astro-cid-jo6i4kqk>Documentation</a><a href="/swift-markdown-ui/examples/" data-astro-cid-jo6i4kqk>Examples</a><a href="https://github.com/modern-swift-dev/swift-markdown-ui" data-astro-cid-jo6i4kqk>GitHub</a></nav></div></footer></body></html>

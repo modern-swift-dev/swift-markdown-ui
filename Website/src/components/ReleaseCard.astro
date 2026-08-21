@@ -1,0 +1,16 @@
+---
+import type { Release } from "../lib/release";
+interface Props { release: Release; }
+const { release } = Astro.props;
+const date = new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(release.publishedAt);
+---
+<aside class="release-card card" aria-label="Latest release">
+  <p class="eyebrow">Latest stable release</p>
+  <p class="version">{release.tag}</p>
+  <p class="date">Published {date}</p>
+  <p class="install">Swift Package Manager: <code>from: "{release.version}"</code></p>
+  <a href={release.url}>Release notes <span aria-hidden="true">↗</span></a>
+</aside>
+<style>
+  .release-card { padding: 1.25rem; } .eyebrow { margin-bottom: .35rem; } .version { margin: 0; font: 800 2rem var(--font-mono); letter-spacing: -.08em; } .date { color: var(--color-muted); font-size: .9rem; margin: .3rem 0 .65rem; } .install { color: var(--color-muted); font-size: .82rem; margin: 0 0 .8rem; } code { color: var(--color-ink); }
+</style>

@@ -19,6 +19,7 @@ let package = Package(
         )
     ],
     dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-docc-plugin", exact: "1.5.0"),
         .package(url: "https://github.com/modern-swift-dev/swift-snapshot-testing", from: "2.2.0"),
         .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.8.0")
     ],
