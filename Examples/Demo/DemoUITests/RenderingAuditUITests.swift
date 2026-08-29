@@ -1,7 +1,7 @@
 import XCTest
 
 final class RenderingAuditUITests: XCTestCase {
-    @MainActor func testAccessibilityAndLinkActivation() throws {
+    @MainActor func testAccessibilityAndLinkActivation() {
         let app = XCUIApplication()
         app.launchArguments = ["--rendering-audit"]
         app.launch()
@@ -28,12 +28,12 @@ final class RenderingAuditUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["opened-url"].label, "Opened: https://example.com/audit/opened")
     }
 
-    @MainActor func testAccessibilityDynamicTypeDoesNotHideContent() throws {
+    @MainActor func testAccessibilityDynamicTypeDoesNotHideContent() {
         let app = XCUIApplication()
         app.launchArguments = [
             "--rendering-audit",
             "-UIPreferredContentSizeCategoryName",
-            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
+            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
         ]
         app.launch()
 

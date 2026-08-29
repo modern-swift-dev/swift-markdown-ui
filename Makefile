@@ -16,6 +16,10 @@ format:
 	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
 	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
 
+examples:
+
+	cd Examples/Editor && xcodegen generate
+
 site-setup:
 	npm --prefix Website ci
 
@@ -58,4 +62,4 @@ test-all: test-macos test-ios
 
 build-all: build-ios build-tvos build-watchos build-visionos build-maccatalyst
 
-.PHONY: setup lint format site-setup site-preview site-build site-validate test-macos test-ios build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all
+.PHONY: setup lint format examples site-setup site-preview site-build site-validate test-macos test-ios build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all

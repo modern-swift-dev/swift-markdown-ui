@@ -16,6 +16,10 @@ let package = Package(
         .library(
             name: "MarkdownUI",
             targets: ["MarkdownUI"]
+        ),
+        .library(
+            name: "MarkdownUIEditor",
+            targets: ["MarkdownUIEditor"]
         )
     ],
     dependencies: [
@@ -31,6 +35,13 @@ let package = Package(
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark")
             ]
         ),
+        .target(
+            name: "MarkdownUIEditor",
+            dependencies: [
+                .product(name: "cmark-gfm", package: "swift-cmark"),
+                .product(name: "cmark-gfm-extensions", package: "swift-cmark")
+            ]
+        ),
         .testTarget(
             name: "MarkdownUITests",
             dependencies: [
@@ -39,6 +50,14 @@ let package = Package(
             ],
             exclude: ["__Snapshots__"],
             resources: [.process("Resources")]
+        ),
+        .testTarget(
+            name: "MarkdownUIEditorTests",
+            dependencies: [
+                "MarkdownUIEditor",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+            ],
+            exclude: ["Snapshots/__Snapshots__"]
         )
     ],
     swiftLanguageModes: [.v6]

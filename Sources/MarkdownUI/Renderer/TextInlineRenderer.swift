@@ -141,7 +141,7 @@ private struct TextInlineRenderer {
 
         if let image = self.images[data] {
             self.shouldSkipNextWhitespace = false
-            self.result = self.result + Text(image)
+            self.result = self.result.appending(Text(image))
         } else {
             self.renderText(data.alt)
         }
@@ -149,7 +149,13 @@ private struct TextInlineRenderer {
 
     private mutating func append(_ text: String) {
         let attributedString = AttributedString(text, attributes: self.attributes).resolvingFonts()
-        self.result = self.result + Text(attributedString)
+        self.result = self.result.appending(Text(attributedString))
+    }
+}
+
+private extension Text {
+    func appending(_ text: Text) -> Text {
+        self + text
     }
 }
 

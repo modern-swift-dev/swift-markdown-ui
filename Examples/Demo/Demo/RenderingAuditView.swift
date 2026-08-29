@@ -27,25 +27,25 @@ struct RenderingAuditView: View {
     }
 
     private static let fixture = """
-        # Accessible heading
+    # Accessible heading
 
-        [Open audit link](opened)
+    [Open audit link](opened)
 
-        [Invalid link](http://[)
+    [Invalid link](http://[)
 
-        ![Audit image](audit-image)
+    ![Audit image](audit-image)
 
-        [![Linked audit image](linked-audit-image)](image-opened)
+    [![Linked audit image](linked-audit-image)](image-opened)
 
-        Text before *![Inline audit image](inline-image)* text after.
+    Text before *![Inline audit image](inline-image)* text after.
 
-        - [x] Completed audit item
-        - [ ] Incomplete audit item
+    - [x] Completed audit item
+    - [ ] Incomplete audit item
 
-        | Column | Value |
-        | --- | --- |
-        | A very wide table value that must remain reachable | Another wide value |
-        """
+    | Column | Value |
+    | --- | --- |
+    | A very wide table value that must remain reachable | Another wide value |
+    """
 }
 
 private struct AuditImageProvider: ImageProvider {

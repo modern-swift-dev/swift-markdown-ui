@@ -259,6 +259,9 @@ MarkdownUI comes with a few more tricks on the sleeve. You can explore the
 ![](Examples/Demo/Screenshot.png#gh-light-mode-only)
 ![](Examples/Demo/Screenshot~dark.png#gh-dark-mode-only)
 
+To try `MarkdownUIEditor`, generate the iOS and macOS example project by following
+the [editor example instructions](Examples/Editor/README.md).
+
 ## Installation
 ### Adding MarkdownUI to a Swift package
 

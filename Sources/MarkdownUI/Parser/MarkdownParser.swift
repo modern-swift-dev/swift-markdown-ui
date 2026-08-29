@@ -1,6 +1,6 @@
-import Foundation
 internal import cmark_gfm
 internal import cmark_gfm_extensions
+import Foundation
 
 extension [BlockNode] {
     init(markdown: String) {

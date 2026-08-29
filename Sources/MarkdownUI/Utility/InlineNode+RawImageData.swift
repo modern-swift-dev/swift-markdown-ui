@@ -28,9 +28,9 @@ extension Sequence<InlineNode> {
         self.flatMap { inline -> [RawImageData] in
             switch inline {
                 case let .image(source, children):
-                    return [.init(source: source, alt: children.renderPlainText())]
+                    [.init(source: source, alt: children.renderPlainText())]
                 default:
-                    return inline.children.inlineImageData()
+                    inline.children.inlineImageData()
             }
         }
     }

@@ -8,14 +8,12 @@ public struct DefaultInlineImageProvider: InlineImageProvider {
         let (data, response) = try await URLSession.shared.data(from: url)
 
         guard let statusCode = (response as? HTTPURLResponse)?.statusCode,
-              200 ..< 300 ~= statusCode
-        else {
+              200 ..< 300 ~= statusCode else {
             throw URLError(.badServerResponse)
         }
 
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else {
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw URLError(.cannotDecodeContentData)
         }
 

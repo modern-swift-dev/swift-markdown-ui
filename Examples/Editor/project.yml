@@ -1,0 +1,54 @@
+name: Editor
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "15.0"
+packages:
+  MarkdownUI:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    GENERATE_INFOPLIST_FILE: YES
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+targets:
+  Editor-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.modernswiftdev.MarkdownUIEditorExample.iOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - package: MarkdownUI
+        product: MarkdownUIEditor
+  Editor-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.modernswiftdev.MarkdownUIEditorExample.macOS
+    dependencies:
+      - package: MarkdownUI
+        product: MarkdownUIEditor
+schemes:
+  Editor-iOS:
+    build:
+      targets:
+        Editor-iOS: all
+    run:
+      config: Debug
+  Editor-macOS:
+    build:
+      targets:
+        Editor-macOS: all
+    run:
+      config: Debug
