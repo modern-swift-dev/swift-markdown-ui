@@ -324,7 +324,7 @@ private extension UnsafeNode {
         guard let document = cmark_node_new(CMARK_NODE_DOCUMENT) else {
             return nil
         }
-        blocks.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(document, $0) }
+        blocks.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(document, $0) }
 
         defer { cmark_node_free(document) }
         return try body(document)
@@ -336,7 +336,7 @@ private extension UnsafeNode {
                 guard let node = cmark_node_new(CMARK_NODE_BLOCK_QUOTE) else {
                     return nil
                 }
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .bulletedList(isTight, items):
                 guard let node = cmark_node_new(CMARK_NODE_LIST) else {
@@ -344,7 +344,7 @@ private extension UnsafeNode {
                 }
                 cmark_node_set_list_type(node, CMARK_BULLET_LIST)
                 cmark_node_set_list_tight(node, isTight ? 1 : 0)
-                items.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                items.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .numberedList(isTight, start, items):
                 guard let node = cmark_node_new(CMARK_NODE_LIST) else {
@@ -353,7 +353,7 @@ private extension UnsafeNode {
                 cmark_node_set_list_type(node, CMARK_ORDERED_LIST)
                 cmark_node_set_list_tight(node, isTight ? 1 : 0)
                 cmark_node_set_list_start(node, Int32(start))
-                items.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                items.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .taskList(isTight, items):
                 guard let node = cmark_node_new(CMARK_NODE_LIST) else {
@@ -361,7 +361,7 @@ private extension UnsafeNode {
                 }
                 cmark_node_set_list_type(node, CMARK_BULLET_LIST)
                 cmark_node_set_list_tight(node, isTight ? 1 : 0)
-                items.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                items.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .codeBlock(fenceInfo, content):
                 guard let node = cmark_node_new(CMARK_NODE_CODE_BLOCK) else {
@@ -382,14 +382,14 @@ private extension UnsafeNode {
                 guard let node = cmark_node_new(CMARK_NODE_PARAGRAPH) else {
                     return nil
                 }
-                content.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                content.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .heading(level, content):
                 guard let node = cmark_node_new(CMARK_NODE_HEADING) else {
                     return nil
                 }
                 cmark_node_set_heading_level(node, Int32(level))
-                content.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                content.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .table(columnAlignments, rows):
                 return self.makeTable(columnAlignments: columnAlignments, rows: rows)
@@ -412,7 +412,7 @@ private extension UnsafeNode {
         cmark_gfm_extensions_set_table_columns(node, UInt16(columnAlignments.count))
         var alignments = columnAlignments.map { $0.rawValue.asciiValue ?? 0 }
         cmark_gfm_extensions_set_table_alignments(node, UInt16(columnAlignments.count), &alignments)
-        rows.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+        rows.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
         if let header = cmark_node_first_child(node) {
             cmark_gfm_extensions_set_table_row_is_header(header, 1)
         }
@@ -426,7 +426,7 @@ private extension UnsafeNode {
         guard let node = cmark_node_new(CMARK_NODE_ITEM) else {
             return nil
         }
-        item.children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+        item.children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
         return node
     }
 
@@ -436,7 +436,7 @@ private extension UnsafeNode {
             return nil
         }
         cmark_gfm_extensions_set_tasklist_item_checked(node, item.isCompleted)
-        item.children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+        item.children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
         return node
     }
 
@@ -445,7 +445,7 @@ private extension UnsafeNode {
               let node = cmark_node_new_with_ext(ExtensionNodeTypes.shared.CMARK_NODE_TABLE_ROW, table) else {
             return nil
         }
-        tableRow.cells.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+        tableRow.cells.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
         return node
     }
 
@@ -454,7 +454,7 @@ private extension UnsafeNode {
               let node = cmark_node_new_with_ext(ExtensionNodeTypes.shared.CMARK_NODE_TABLE_CELL, table) else {
             return nil
         }
-        tableCell.content.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+        tableCell.content.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
         return node
     }
 
@@ -486,13 +486,13 @@ private extension UnsafeNode {
                 guard let node = cmark_node_new(CMARK_NODE_EMPH) else {
                     return nil
                 }
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .strong(children):
                 guard let node = cmark_node_new(CMARK_NODE_STRONG) else {
                     return nil
                 }
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .strikethrough(children):
                 guard let strikethrough = cmark_find_syntax_extension("strikethrough"),
@@ -501,21 +501,21 @@ private extension UnsafeNode {
                       ) else {
                     return nil
                 }
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .link(destination, children):
                 guard let node = cmark_node_new(CMARK_NODE_LINK) else {
                     return nil
                 }
                 cmark_node_set_url(node, destination)
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
             case let .image(source, children):
                 guard let node = cmark_node_new(CMARK_NODE_IMAGE) else {
                     return nil
                 }
                 cmark_node_set_url(node, source)
-                children.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
+                children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
         }
     }

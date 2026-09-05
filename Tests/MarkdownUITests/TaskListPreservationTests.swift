@@ -108,6 +108,32 @@ final class TaskListPreservationTests: XCTestCase {
         XCTAssertTrue(html.contains("<em>inner</em>"))
     }
 
+    func testSerializationRoundTripsNestedInlinesTablesAndCustomHTML() {
+        let content = MarkdownContent("""
+        > Text with **strong [*link*](https://example.com)**.
+        >
+        > > Nested `code` and ![image](https://example.com/image.png).
+
+        | First | Second |
+        | --- | --- |
+        | *cell* | ~~value~~ |
+
+        Text <span>custom **inline**</span>.
+
+        <section>
+        Custom block
+        </section>
+        """)
+        let markdown = content.renderMarkdown()
+        let roundTrip = MarkdownContent(markdown)
+
+        XCTAssertTrue(markdown.contains("<span>custom **inline**</span>"))
+        XCTAssertTrue(markdown.contains("<section>\nCustom block\n</section>"))
+        XCTAssertEqual(roundTrip, content)
+        XCTAssertEqual(roundTrip.renderPlainText(), content.renderPlainText())
+        XCTAssertEqual(roundTrip.renderHTML(), content.renderHTML())
+    }
+
     #if os(macOS)
     @MainActor func testOrderedTasksRenderBothNumbersAndCheckboxes() async throws {
         let markers = RecordedListMarkers()
