@@ -9,6 +9,13 @@ import AppKit
 
 /// Draws task markers sized to the theme's body font.
 @MainActor final class MarkdownTaskCheckboxLayer: CAShapeLayer {
+    private struct ShapeConfiguration: Equatable {
+        let size: CGFloat
+        let checked: Bool
+    }
+
+    private var shapeConfiguration: ShapeConfiguration?
+
     struct Metrics {
         let boxSize: CGFloat
         var gutterWidth: CGFloat {
@@ -30,11 +37,22 @@ import AppKit
     }
 
     func update(textRect: CGRect, checked: Bool, color: CGColor, theme: MarkdownEditorTheme) {
-        actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
+        if shapeConfiguration == nil {
+            actions = ["position": NSNull(), "bounds": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
+            fillColor = nil
+            lineCap = .round
+            lineJoin = .round
+        }
         let metrics = Metrics(theme: theme)
         let size = metrics.boxSize
-        let scale = size / 24
         frame = CGRect(x: textRect.minX - metrics.gutterWidth + (metrics.gutterWidth - size) / 2, y: textRect.midY - size / 2, width: size, height: size)
+        strokeColor = color
+        let configuration = ShapeConfiguration(size: size, checked: checked)
+        guard shapeConfiguration != configuration else {
+            return
+        }
+        shapeConfiguration = configuration
+        let scale = size / 24
         let shape = CGMutablePath()
         shape.addRoundedRect(in: CGRect(x: scale, y: scale, width: size - 2 * scale, height: size - 2 * scale), cornerWidth: 4 * scale, cornerHeight: 4 * scale)
         if checked {
@@ -43,11 +61,7 @@ import AppKit
             shape.addLine(to: CGPoint(x: 18 * scale, y: 8 * scale))
         }
         path = shape
-        strokeColor = color
-        fillColor = nil
         lineWidth = 2 * scale
-        lineCap = .round
-        lineJoin = .round
     }
 
     static func hitBounds(textRect: CGRect, theme: MarkdownEditorTheme) -> CGRect {
