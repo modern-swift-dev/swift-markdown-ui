@@ -13,7 +13,7 @@ struct TaskListItemView: View {
         self.listItem.makeBody(
             configuration: .init(
                 label: .init(TaskListItemLabel(item: self.item)),
-                content: .init(blocks: item.children)
+                content: .init(configurationBlocks: item.children)
             )
         )
     }

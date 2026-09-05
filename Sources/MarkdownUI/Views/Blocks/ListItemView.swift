@@ -25,7 +25,7 @@ struct ListItemView: View {
         self.listItem.makeBody(
             configuration: .init(
                 label: .init(self.label),
-                content: .init(blocks: item.children)
+                content: .init(configurationBlocks: item.children)
             )
         )
     }

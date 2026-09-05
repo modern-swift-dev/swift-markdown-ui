@@ -75,16 +75,44 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
     }
 
     let blocks: [BlockNode]
-    /// Top-level branches that need the color-scheme image pass.
-    let colorSchemeImageBlockIndices: [Int]
+    enum ColorSchemeImageIndex: Sendable {
+        case known([Int])
+        case deferred
+    }
+
+    let colorSchemeImageIndex: ColorSchemeImageIndex
+
+    /// Style configurations rarely render their content again. Defer their metadata scan
+    /// until a caller actually uses the content in another Markdown view.
+    var colorSchemeImageBlockIndices: [Int] {
+        switch self.colorSchemeImageIndex {
+            case let .known(indices):
+                indices
+            case .deferred:
+                self.blocks.indices.filter { self.blocks[$0].containsColorSchemeImages }
+        }
+    }
 
     init(blocks: [BlockNode] = []) {
         self.blocks = blocks
-        self.colorSchemeImageBlockIndices = blocks.indices.filter { blocks[$0].containsColorSchemeImages }
+        self.colorSchemeImageIndex = .known(blocks.indices.filter { blocks[$0].containsColorSchemeImages })
     }
 
     init(block: BlockNode) {
         self.init(blocks: [block])
+    }
+
+    init(configurationBlocks: [BlockNode]) {
+        self.blocks = configurationBlocks
+        self.colorSchemeImageIndex = .deferred
+    }
+
+    init(configurationBlock: BlockNode) {
+        self.init(configurationBlocks: [configurationBlock])
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.blocks == rhs.blocks
     }
 
     init(_ components: [MarkdownContentProtocol]) {
@@ -100,7 +128,7 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
     /// Creates a Markdown content value composed of any number of blocks.
     /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
     public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
-        self.init(blocks: content().blocks)
+        self = content()
     }
 
     /// Renders this Markdown content value as a Markdown-formatted text.

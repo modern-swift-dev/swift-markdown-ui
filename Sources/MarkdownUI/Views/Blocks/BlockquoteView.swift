@@ -13,7 +13,7 @@ struct BlockquoteView: View {
         self.blockquote.makeBody(
             configuration: .init(
                 label: .init(BlockSequence(self.children)),
-                content: .init(block: .blockquote(children: self.children))
+                content: .init(configurationBlock: .blockquote(children: self.children))
             )
         )
     }

@@ -2,11 +2,12 @@ import SwiftUI
 
 extension MarkdownContent {
     func blocks(matching colorScheme: ColorScheme) -> [BlockNode] {
-        guard !self.colorSchemeImageBlockIndices.isEmpty else {
+        let indices = self.colorSchemeImageBlockIndices
+        guard !indices.isEmpty else {
             return self.blocks
         }
         var result = self.blocks
-        for index in self.colorSchemeImageBlockIndices {
+        for index in indices {
             // Inline filtering preserves the top-level block, even if all its images disappear.
             result[index] = [self.blocks[index]].filterImagesMatching(colorScheme: colorScheme)[0]
         }

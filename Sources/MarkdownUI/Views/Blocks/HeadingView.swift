@@ -15,7 +15,7 @@ struct HeadingView: View {
         self.headings[self.level - 1].makeBody(
             configuration: .init(
                 label: .init(InlineText(self.content)),
-                content: .init(block: .heading(level: self.level, content: self.content))
+                content: .init(configurationBlock: .heading(level: self.level, content: self.content))
             )
         )
         .id(content.renderPlainText().kebabCased())

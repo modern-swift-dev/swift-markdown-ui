@@ -19,7 +19,7 @@ import SwiftUI
                 row: self.row,
                 column: self.column,
                 label: .init(self.label),
-                content: .init(block: .paragraph(content: cell.content))
+                content: .init(configurationBlock: .paragraph(content: cell.content))
             )
         )
         .tableCellBounds(forRow: self.row, column: self.column)

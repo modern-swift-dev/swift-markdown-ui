@@ -15,7 +15,7 @@ struct ImageView: View {
         self.image.makeBody(
             configuration: .init(
                 label: .init(self.label),
-                content: .init(block: self.content)
+                content: .init(configurationBlock: self.content)
             )
         )
     }

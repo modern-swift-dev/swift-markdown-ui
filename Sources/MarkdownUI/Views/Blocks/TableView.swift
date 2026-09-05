@@ -16,7 +16,7 @@ import SwiftUI
         self.table.makeBody(
             configuration: .init(
                 label: .init(self.label),
-                content: .init(block: .table(columnAlignments: self.columnAlignments, rows: self.rows))
+                content: .init(configurationBlock: .table(columnAlignments: self.columnAlignments, rows: self.rows))
             )
         )
     }

@@ -16,7 +16,7 @@ struct TaskListView: View {
         self.list.makeBody(
             configuration: .init(
                 label: .init(self.label),
-                content: .init(block: .taskList(isTight: self.isTight, items: self.items))
+                content: .init(configurationBlock: .taskList(isTight: self.isTight, items: self.items))
             )
         )
     }

@@ -22,7 +22,7 @@ struct NumberedListView: View {
             configuration: .init(
                 label: .init(self.label),
                 content: .init(
-                    block: .numberedList(
+                    configurationBlock: .numberedList(
                         isTight: self.isTight,
                         start: self.start,
                         items: self.items
