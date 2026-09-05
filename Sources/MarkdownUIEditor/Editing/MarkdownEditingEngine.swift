@@ -626,7 +626,11 @@ private extension MarkdownEditingEngine {
             }
             block = .list(list)
             let nestedListPath = MarkdownLogicalPath.listItemBlock(list: location.list, item: parent, block: nestedIndex)
-            restored.path = .listItemBlock(list: nestedListPath, item: nestedItem, block: location.block)
+            restored.path = relocating(
+                selection.path,
+                from: .listItemBlock(list: location.list, item: location.item, block: location.block),
+                to: .listItemBlock(list: nestedListPath, item: nestedItem, block: location.block)
+            )
             changed = true
         }
         return changed ? MarkdownEditingResult(document: copy, selection: restored) : unchanged(document, selection)
@@ -666,8 +670,28 @@ private extension MarkdownEditingEngine {
             return unchanged(document, selection)
         }
         var restored = selection
-        restored.path = .listItemBlock(list: outerListPath, item: parentItem + 1, block: inner.block)
+        restored.path = relocating(
+            selection.path,
+            from: .listItemBlock(list: inner.list, item: inner.item, block: inner.block),
+            to: .listItemBlock(list: outerListPath, item: parentItem + 1, block: inner.block)
+        )
         return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    static func relocating(_ path: MarkdownLogicalPath, from oldParent: MarkdownLogicalPath, to newParent: MarkdownLogicalPath) -> MarkdownLogicalPath {
+        if path == oldParent {
+            return newParent
+        }
+        switch path {
+            case .block:
+                return path
+            case let .blockquote(parent, child):
+                return .blockquote(parent: relocating(parent, from: oldParent, to: newParent), child: child)
+            case let .listItemBlock(list, item, block):
+                return .listItemBlock(list: relocating(list, from: oldParent, to: newParent), item: item, block: block)
+            case let .tableCell(table, row, column):
+                return .tableCell(table: relocating(table, from: oldParent, to: newParent), row: row, column: column)
+        }
     }
 
     static func insertBlock(_ block: MarkdownBlock, in document: MarkdownDocument, selection: MarkdownLogicalSelection) -> MarkdownEditingResult {

@@ -151,6 +151,41 @@ final class MarkdownEditingTests: XCTestCase {
         XCTAssertEqual(outdented.selection.utf16Offset, 3)
     }
 
+    func testIndentAndOutdentPreserveDescendantSelectionAndAllowFurtherEditing() {
+        let itemPath = MarkdownLogicalPath.listItemBlock(list: .block(0), item: 1, block: 0)
+        let nestedListPath = MarkdownLogicalPath.listItemBlock(list: .block(0), item: 0, block: 1)
+        let movedItemPath = MarkdownLogicalPath.listItemBlock(list: nestedListPath, item: 0, block: 0)
+        let cases: [(MarkdownBlock, MarkdownLogicalPath, MarkdownLogicalPath)] = [
+            (
+                .blockquote([.blockquote([.paragraph([.text("second")])])]),
+                .blockquote(parent: .blockquote(parent: itemPath, child: 0), child: 0),
+                .blockquote(parent: .blockquote(parent: movedItemPath, child: 0), child: 0)
+            ),
+            (
+                .table(MarkdownTable(alignments: [.none], header: .init(cells: [cell("second")]), rows: [])),
+                .tableCell(table: itemPath, row: 0, column: 0),
+                .tableCell(table: movedItemPath, row: 0, column: 0)
+            )
+        ]
+        for (block, originalPath, movedPath) in cases {
+            let document = MarkdownDocument(blocks: [.list(MarkdownList(kind: .unordered, isTight: true, items: [
+                .init(blocks: [.paragraph([.text("first")])]),
+                .init(blocks: [block])
+            ]))])
+            let selection = MarkdownLogicalSelection(path: originalPath, utf16Offset: 1, utf16Length: 3)
+            let indented = MarkdownEditingEngine.apply(.indent, to: document, selection: selection)
+            XCTAssertEqual(indented.selection, .init(path: movedPath, utf16Offset: 1, utf16Length: 3))
+            let formatted = MarkdownEditingEngine.apply(.toggleInline(.strong), to: indented.document, selection: indented.selection)
+            XCTAssertNotEqual(formatted.document, indented.document)
+
+            let outdented = MarkdownEditingEngine.apply(.outdent, to: indented.document, selection: indented.selection)
+            XCTAssertEqual(outdented.document, document)
+            XCTAssertEqual(outdented.selection, selection)
+            let formattedAfterOutdent = MarkdownEditingEngine.apply(.toggleInline(.strong), to: outdented.document, selection: outdented.selection)
+            XCTAssertNotEqual(formattedAfterOutdent.document, outdented.document)
+        }
+    }
+
     func testLinkCommandsAndImageInsertion() {
         let selection = MarkdownLogicalSelection(path: .block(0), utf16Offset: 1, utf16Length: 3)
         let linked = MarkdownEditingEngine.apply(
