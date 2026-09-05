@@ -146,6 +146,40 @@ import XCTest
         XCTAssertEqual(total, 5)
     }
 
+    func testLargeAdmissionEvictsLeastRecentlyUsedImagesAndReleasesTheirBacking() async throws {
+        let small = try makeImage()
+        let smallCost = small.bytesPerRow * small.height
+        let entryCount = 128
+        let large = try makeImage(width: small.width, height: small.height * (entryCount - 4))
+        XCTAssertEqual(large.bytesPerRow * large.height, smallCost * (entryCount - 4))
+        let loader = InlineImageLoader(maximumCacheCost: smallCost * entryCount, load: { key in
+            .init(
+                image: key.url.lastPathComponent == "large" ? large : try makeImage(),
+                expiration: Date().addingTimeInterval(60)
+            )
+        })
+        var backings: [WeakReference<CGImage>] = []
+        for index in 0 ..< entryCount {
+            var image: CGImage? = try await loader.image(for: key("small-\(index)"))
+            backings.append(WeakReference(image))
+            image = nil
+        }
+        // Touch the oldest entries so they survive alongside the newest two.
+        for index in 0 ..< 2 {
+            let image = try await loader.image(for: key("small-\(index)"))
+            XCTAssertTrue(image === backings[index].value)
+        }
+        _ = try await loader.image(for: key("large"))
+        try await wait { backings[2 ..< entryCount - 2].allSatisfy { $0.value == nil } }
+        for index in [0, 1, entryCount - 2, entryCount - 1] {
+            XCTAssertNotNil(backings[index].value)
+            let image = try await loader.image(for: key("small-\(index)"))
+            XCTAssertTrue(image === backings[index].value, "Recent images should retain their backing")
+        }
+        await loader.purgeCache()
+        try await wait { backings.allSatisfy { $0.value == nil } }
+    }
+
     func testIdleExpirationReleasesDecodedBackingAndPreservesFreshEntries() async throws {
         let clock = ImageExpirationClock()
         let sleeper = ImageExpirationSleeper()

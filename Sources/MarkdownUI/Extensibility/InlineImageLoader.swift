@@ -187,10 +187,23 @@ actor InlineImageLoader {
         guard !overflow, cost <= maximumCacheCost else {
             return
         }
-        while cacheCost > maximumCacheCost - cost,
-              let oldest = cache.min(by: { $0.value.access < $1.value.access }) {
+        let targetCacheCost = maximumCacheCost - cost
+        if cacheCost > targetCacheCost,
+           let oldest = cache.min(by: { $0.value.access < $1.value.access }) {
             cacheCost -= oldest.value.cost
             cache.removeValue(forKey: oldest.key)
+            if cacheCost > targetCacheCost {
+                // Keep single-entry eviction linear, but order multiple victims only
+                // once instead of rescanning the shrinking cache for every removal.
+                let evictionOrder = cache.sorted { $0.value.access < $1.value.access }
+                for (key, entry) in evictionOrder {
+                    guard cacheCost > targetCacheCost else {
+                        break
+                    }
+                    cacheCost -= entry.cost
+                    cache.removeValue(forKey: key)
+                }
+            }
         }
         access &+= 1
         cache[key] = CachedImage(image: image, cost: cost, expiration: expiration, access: access)
