@@ -204,6 +204,27 @@ import UIKit
         XCTAssertNil(MarkdownEditorImageLoader.cacheExpiration(for: noCache, now: now))
     }
 
+    func testProviderRejectsHTTPErrorImagesAndPreservesSuccessfulAndNonHTTPResponses() async throws {
+        XCTAssertTrue(URLProtocol.registerClass(ImageStatusURLProtocol.self))
+        defer { URLProtocol.unregisterClass(ImageStatusURLProtocol.self) }
+        let provider = MarkdownURLSessionImageProvider()
+        for path in ["200", "non-http"] {
+            let url = try XCTUnwrap(URL(string: "https://\(ImageStatusURLProtocol.host)/\(path)"))
+            _ = try await provider.image(for: url)
+        }
+        for status in [404, 500] {
+            let url = try XCTUnwrap(URL(string: "https://\(ImageStatusURLProtocol.host)/\(status)"))
+            for _ in 0 ..< 2 {
+                do {
+                    _ = try await provider.image(for: url)
+                    XCTFail("An HTTP error image must not load or become a cached success")
+                } catch let error as URLError {
+                    XCTAssertEqual(error.code, .badServerResponse)
+                }
+            }
+        }
+    }
+
     #if canImport(AppKit)
     func testNativeViewDetachCancelsAndReattachRestarts() async throws {
         let provider = SuspendedNativeProvider()
@@ -290,4 +311,35 @@ import UIKit
     #else
     UIImage()
     #endif
+}
+
+private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
+    static let host = "markdown-editor-image-status.invalid"
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == host
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jYioAAAAASUVORK5CYII=") else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let response: URLResponse = if let status = Int(url.lastPathComponent),
+                                       let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Cache-Control": "max-age=60"]) {
+            http
+        } else {
+            URLResponse(url: url, mimeType: "image/png", expectedContentLength: data.count, textEncodingName: nil)
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

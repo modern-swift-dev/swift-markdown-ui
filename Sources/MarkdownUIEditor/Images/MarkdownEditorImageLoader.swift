@@ -158,6 +158,9 @@ import AppKit
     private static func download(_ url: URL) async throws -> Resource {
         let (data, response) = try await URLSession.shared.data(from: url)
         try Task.checkCancellation()
+        if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
+            throw URLError(.badServerResponse)
+        }
         // Read dimensions without changing NSImage/UIImage's original decoding or intrinsic sizing.
         let cost: Int
         if let source = CGImageSourceCreateWithData(data as CFData, nil),
