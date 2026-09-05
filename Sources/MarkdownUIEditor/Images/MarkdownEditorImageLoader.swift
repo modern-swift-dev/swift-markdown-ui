@@ -30,6 +30,10 @@ import AppKit
 
     private let cache = NSCache<NSURL, CachedImage>()
     private let maximumCacheCost: Int
+    private let now: @MainActor () -> Date
+    private let sleepUntil: @MainActor (Date) async throws -> Void
+    private var latestExpiration: Date?
+    private var expirationTask: Task<Void, Never>?
     private let load: @MainActor (URL) async throws -> Resource
     private var jobs: [UUID: Job] = [:]
     private var jobForURL: [URL: UUID] = [:]
@@ -44,19 +48,29 @@ import AppKit
 
     init(
         maximumCacheCost: Int = 64 * 1024 * 1024,
+        now: @escaping @MainActor () -> Date = { Date() },
+        sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
+            try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+        },
         load: @escaping @MainActor (URL) async throws -> Resource = MarkdownEditorImageLoader.download
     ) {
         precondition(maximumCacheCost >= 0)
         self.maximumCacheCost = maximumCacheCost
+        self.now = now
+        self.sleepUntil = sleepUntil
         self.load = load
         cache.totalCostLimit = maximumCacheCost
         cache.countLimit = 128
     }
 
+    deinit {
+        expirationTask?.cancel()
+    }
+
     func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
         try Task.checkCancellation()
         if let resource = cache.object(forKey: url as NSURL)?.resource,
-           let expiration = resource.expiration, expiration > Date() {
+           let expiration = resource.expiration, expiration > now() {
             return resource.image
         }
         cache.removeObject(forKey: url as NSURL)
@@ -145,14 +159,48 @@ import AppKit
             jobForURL.removeValue(forKey: job.url)
             if case let .success(resource) = result,
                resource.cost > 0, resource.cost <= maximumCacheCost,
-               let expiration = resource.expiration, expiration > Date() {
+               let expiration = resource.expiration, expiration > now() {
                 cache.setObject(CachedImage(resource), forKey: job.url as NSURL, cost: resource.cost)
+                latestExpiration = max(latestExpiration ?? expiration, expiration)
+                if expirationTask == nil {
+                    scheduleExpiration(at: expiration)
+                }
             }
             for continuation in job.waiters.values {
                 continuation.resume(with: result.map(\.image))
             }
         }
         startPendingLoads()
+    }
+
+    private func scheduleExpiration(at deadline: Date) {
+        let sleepUntil = self.sleepUntil
+        expirationTask = Task { @MainActor [weak self] in
+            do {
+                try await sleepUntil(deadline)
+                try Task.checkCancellation()
+            } catch {
+                return
+            }
+            self?.expireIdleCache()
+        }
+    }
+
+    /// Release an idle cache once every admitted resource has expired. Individual
+    /// expired entries may remain until the newest deadline (at most one minute
+    /// after the last download); NSCache still governs cost and count meanwhile.
+    /// One deadline and one task avoid retaining a separate index of cache keys.
+    private func expireIdleCache() {
+        expirationTask = nil
+        guard let latestExpiration else {
+            return
+        }
+        if latestExpiration > now() {
+            scheduleExpiration(at: latestExpiration)
+        } else {
+            cache.removeAllObjects()
+            self.latestExpiration = nil
+        }
     }
 
     private static func download(_ url: URL) async throws -> Resource {

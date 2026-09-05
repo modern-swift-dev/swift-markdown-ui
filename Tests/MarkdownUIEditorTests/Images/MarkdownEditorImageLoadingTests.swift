@@ -170,17 +170,17 @@ import UIKit
         _ = try await small.image(for: url)
         _ = try await small.image(for: url)
         XCTAssertEqual(probe.started, 2)
-        let noStore = MarkdownEditorImageLoader { url in
+        let noStore = MarkdownEditorImageLoader(load: { url in
             let resource = try await probe.load(url)
             return .init(image: resource.image, cost: resource.cost, expiration: nil)
-        }
+        })
         _ = try await noStore.image(for: url)
         _ = try await noStore.image(for: url)
         XCTAssertEqual(probe.started, 4)
-        let expired = MarkdownEditorImageLoader { url in
+        let expired = MarkdownEditorImageLoader(load: { url in
             let resource = try await probe.load(url)
             return .init(image: resource.image, cost: resource.cost, expiration: .distantPast)
-        }
+        })
         _ = try await expired.image(for: url)
         _ = try await expired.image(for: url)
         XCTAssertEqual(probe.started, 6)
@@ -223,6 +223,67 @@ import UIKit
                 }
             }
         }
+    }
+
+    func testIdleCacheReleasesExpiredImagesWithoutAnotherRequest() async throws {
+        let clock = NativeImageExpirationClock()
+        let sleeper = NativeImageExpirationSleeper()
+        let loader = MarkdownEditorImageLoader(now: { clock.now }, sleepUntil: sleeper.sleep, load: { _ in
+            .init(image: nativeImage(), cost: 1024, expiration: clock.now.addingTimeInterval(10))
+        })
+        var image: MarkdownEditorPlatformImage? = try await loader.image(for: imageURL())
+        let backing = NativeImageWeakReference(image)
+        image = nil
+        try await wait { sleeper.isSleeping }
+        XCTAssertNotNil(backing.value)
+        clock.now.addTimeInterval(10)
+        sleeper.wake()
+        try await wait { backing.value == nil }
+    }
+
+    func testLaterAdmissionExtendsIdleCleanupAndPreservesFreshBacking() async throws {
+        let clock = NativeImageExpirationClock()
+        let sleeper = NativeImageExpirationSleeper()
+        var loads = 0
+        let loader = MarkdownEditorImageLoader(now: { clock.now }, sleepUntil: sleeper.sleep, load: { _ in
+            loads += 1
+            return .init(image: nativeImage(), cost: 1024, expiration: clock.now.addingTimeInterval(10))
+        })
+        let firstURL = try imageURL()
+        let secondURL = firstURL.appendingPathComponent("second")
+        var first: MarkdownEditorPlatformImage? = try await loader.image(for: firstURL)
+        let firstBacking = NativeImageWeakReference(first)
+        first = nil
+        try await wait { sleeper.isSleeping }
+        clock.now.addTimeInterval(5)
+        var second: MarkdownEditorPlatformImage? = try await loader.image(for: secondURL)
+        let secondBacking = NativeImageWeakReference(second)
+        second = nil
+        XCTAssertEqual(sleeper.deadlines.count, 1, "Later admissions should not create additional sleepers")
+        clock.now.addTimeInterval(5)
+        sleeper.wake()
+        try await wait { sleeper.isSleeping && sleeper.deadlines.count == 2 }
+        XCTAssertEqual(sleeper.deadlines.last, clock.now.addingTimeInterval(5))
+        XCTAssertNotNil(firstBacking.value, "Idle cleanup waits until all entries have expired")
+        var reused: MarkdownEditorPlatformImage? = try await loader.image(for: secondURL)
+        XCTAssertTrue(reused === secondBacking.value)
+        reused = nil
+        XCTAssertEqual(loads, 2)
+        clock.now.addTimeInterval(5)
+        sleeper.wake()
+        try await wait { firstBacking.value == nil && secondBacking.value == nil }
+    }
+
+    func testIdleExpirationTaskDoesNotRetainLoader() async throws {
+        var loader: MarkdownEditorImageLoader? = MarkdownEditorImageLoader(load: { _ in
+            .init(image: nativeImage(), cost: 1024, expiration: Date().addingTimeInterval(60))
+        })
+        let weakLoader = NativeImageWeakReference(loader)
+        var image: MarkdownEditorPlatformImage? = try await loader?.image(for: imageURL())
+        let backing = NativeImageWeakReference(image)
+        image = nil
+        loader = nil
+        try await wait { weakLoader.value == nil && backing.value == nil }
     }
 
     #if canImport(AppKit)
@@ -316,11 +377,11 @@ import UIKit
 private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
     static let host = "markdown-editor-image-status.invalid"
 
-    override class func canInit(with request: URLRequest) -> Bool {
+    override static func canInit(with request: URLRequest) -> Bool {
         request.url?.host == host
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
         request
     }
 
@@ -342,4 +403,49 @@ private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+@MainActor private final class NativeImageExpirationClock {
+    var now = Date(timeIntervalSince1970: 1000)
+}
+
+@MainActor private final class NativeImageExpirationSleeper {
+    private var continuation: CheckedContinuation<Void, any Error>?
+    private(set) var deadlines: [Date] = []
+
+    var isSleeping: Bool {
+        continuation != nil
+    }
+
+    func sleep(until deadline: Date) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                deadlines.append(deadline)
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.continuation?.resume(throwing: CancellationError())
+                self?.continuation = nil
+            }
+        }
+    }
+
+    func wake() {
+        let pending = continuation
+        continuation = nil
+        pending?.resume()
+    }
+}
+
+private final class NativeImageWeakReference<Object: AnyObject> {
+    weak var value: Object?
+
+    init(_ value: Object?) {
+        self.value = value
+    }
 }
