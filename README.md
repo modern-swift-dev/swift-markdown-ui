@@ -244,6 +244,37 @@ extension Theme {
 Read the [MarkdownUI guides](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/)
 or browse the [API documentation](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/markdownui/).
 
+### Editing Markdown
+
+For native editing on iOS 17+, macOS 15+, and Mac Catalyst 17+, link the
+`MarkdownUIEditor` product from this package to your app target:
+
+```swift
+.product(name: "MarkdownUIEditor", package: "swift-markdown-ui")
+```
+
+```swift
+import MarkdownUIEditor
+import SwiftUI
+
+struct NotesEditor: View {
+  @State private var markdown = "# Notes\n\nStart writing."
+
+  var body: some View {
+    MarkdownEditor(markdown: $markdown)
+      .markdownEditorTheme(.gitHub)
+  }
+}
+```
+
+The binding receives normalized Markdown after edits. Use
+`MarkdownEditor(document:)` with a `Binding<MarkdownDocument>` to work with typed
+content. The editor includes formatting controls; image loading is opt-in through
+`markdownEditorImageProvider(_:)`.
+
+Read the [editor guide and API reference](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/markdownuieditor/)
+for document bindings, themes, images, and native text-view integration.
+
 ### Related content
 
 You can learn more about MarkdownUI by referring to the following articles and third-party resources:

@@ -18,6 +18,10 @@ struct DocumentEditor: View {
 
 The string initializer parses the binding value on input and writes normalized Markdown after an edit.
 
+Assign a new value to the binding to replace the document, such as when opening
+another note or restoring a saved version. Use a document binding when you also
+need to retain empty paragraphs during editing; Markdown source normalizes them.
+
 ```swift
 import MarkdownUIEditor
 import SwiftUI

@@ -24,4 +24,6 @@ jobs:
       - name: Test Demo UI
         run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
       - name: Build documentation
-        run: xcodebuild docbuild -scheme MarkdownUI -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
+        run: |
+          xcodebuild docbuild -scheme MarkdownUI -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
+          xcodebuild docbuild -scheme MarkdownUIEditor -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'

@@ -27,6 +27,32 @@ table = controller.table
 
 Images keep their Markdown URL, title, and alt text in ``MarkdownImageMetadata``. An optional ``MarkdownEditorImageProvider`` resolves a URL to a platform image for display. The editor does not upload, store, or generate image assets.
 
+Image loading is opt-in. In SwiftUI, keep a provider in your view or model and set
+it with `markdownEditorImageProvider(_:)`. Relative image paths resolve against
+the editor's `baseURL`. Without a provider, the image attachment displays its
+alternative text.
+
+```swift
+import MarkdownUIEditor
+import SwiftUI
+
+struct IllustratedNotes: View {
+    @State private var markdown = "![Diagram](images/diagram.png)"
+    @State private var imageProvider = MarkdownURLSessionImageProvider()
+
+    var body: some View {
+        MarkdownEditor(
+            markdown: $markdown,
+            baseURL: URL(string: "https://example.com/notes/")
+        )
+        .markdownEditorImageProvider(imageProvider)
+    }
+}
+```
+
+Implement ``MarkdownEditorImageProvider`` for local assets, caching, or custom
+networking. For native TextKit integration, pass a provider to the attachment:
+
 ```swift
 import MarkdownUIEditor
 

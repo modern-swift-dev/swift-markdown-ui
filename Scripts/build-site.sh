@@ -8,7 +8,7 @@ astro_output="$website_dir/dist"
 published_output="$repository_root/docs"
 work_dir=$(mktemp -d "$repository_root/.site-build.XXXXXX")
 staged_output="$work_dir/docs"
-docc_output="$work_dir/docc"
+docc_output="$work_dir/MarkdownLibraries.doccarchive"
 previous_output="$work_dir/previous-docs"
 
 cleanup() {
@@ -43,17 +43,27 @@ if [[ ! -d "$astro_output" ]]; then
     exit 1
 fi
 
-mkdir -p "$staged_output" "$docc_output"
+mkdir -p "$staged_output"
 cp -R "$astro_output"/. "$staged_output"/
 
-SWIFT_DETERMINISTIC_HASHING=1 swift package \
-    --package-path "$repository_root" \
-    --allow-writing-to-directory "$docc_output" \
-    generate-documentation \
-    --target MarkdownUI \
-    --output-path "$docc_output" \
-    --disable-indexing \
-    --transform-for-static-hosting \
+for target in MarkdownUI MarkdownUIEditor; do
+    archive="$work_dir/$target.doccarchive"
+    SWIFT_DETERMINISTIC_HASHING=1 swift package \
+        --package-path "$repository_root" \
+        --allow-writing-to-directory "$archive" \
+        generate-documentation \
+        --target "$target" \
+        --output-path "$archive" \
+        --disable-indexing \
+        --warnings-as-errors
+done
+
+xcrun docc merge \
+    "$work_dir/MarkdownUI.doccarchive" \
+    "$work_dir/MarkdownUIEditor.doccarchive" \
+    --synthesized-landing-page-name "Markdown Libraries" \
+    --output-path "$docc_output"
+xcrun docc process-archive transform-for-static-hosting "$docc_output" \
     --hosting-base-path swift-markdown-ui
 
 for asset_directory in css data downloads images img index js videos; do
@@ -63,14 +73,18 @@ for asset_directory in css data downloads images img index js videos; do
     fi
 done
 
-if [[ ! -d "$docc_output/documentation/markdownui" ]]; then
-    echo "error: DocC did not create documentation/markdownui" >&2
-    exit 1
-fi
-
 mkdir -p "$staged_output/documentation"
-mkdir -p "$staged_output/documentation/markdownui"
-cp -R "$docc_output/documentation/markdownui"/. "$staged_output/documentation/markdownui"/
+for module in markdownui markdownuieditor; do
+    if [[ ! -d "$docc_output/documentation/$module" ]]; then
+        echo "error: DocC did not create documentation/$module" >&2
+        exit 1
+    fi
+done
+# Include the merged archive's landing page as well as both module references.
+# Keep the site's existing documentation overview when DocC has an index page.
+cp "$staged_output/documentation/index.html" "$work_dir/documentation-overview.html"
+cp -R "$docc_output/documentation"/. "$staged_output/documentation"/
+cp "$work_dir/documentation-overview.html" "$staged_output/documentation/index.html"
 
 for asset_file in favicon.ico favicon.svg; do
     if [[ -f "$docc_output/$asset_file" && ! -f "$staged_output/$asset_file" ]]; then

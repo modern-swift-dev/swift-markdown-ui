@@ -14,6 +14,14 @@ Clipboard content carries Markdown and plain text. The editor prefers Markdown w
 
 Markdown cannot store arbitrary font families, sizes, colors, underline, paragraph alignment, page layout, comments, or tracked changes. The editor drops those distinctions when it turns native text into ``MarkdownDocument`` and reapplies its theme from Markdown semantics.
 
-Inline code is exclusive. If a run has code plus another inline style, code wins. Other overlapping runs use a stable nesting order: link, strong, emphasis, then strikethrough. Adjacent equivalent wrappers merge. Markdown does not permit nested links, so a link command keeps the visible children under one link destination.
+Inline code and HTML retain their enclosing links and inline styles. Overlapping
+runs use a stable nesting order: link, strong, emphasis, then strikethrough, around
+the text, code, or HTML content. Adjacent equivalent wrappers merge. Markdown does
+not permit nested links, so a link command keeps the visible children under one
+link destination.
+
+When punctuation would prevent a formatting delimiter from opening or closing,
+serialization uses numeric character references for adjacent text. This preserves
+the visible characters and formatting when the exported Markdown is parsed again.
 
 Plain-text paste inserts literal text. Asterisks and brackets in that payload remain visible characters. Markdown paste parses through ``MarkdownDocument/init(markdown:)`` and inserts the resulting semantic content. Serialization always goes through ``MarkdownDocument/markdown``.

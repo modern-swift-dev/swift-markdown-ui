@@ -1,8 +1,23 @@
-# MarkdownUIEditor
+# ``MarkdownUIEditor``
 
 Create and edit GitHub Flavored Markdown with native text controls on iOS, Mac Catalyst, and macOS.
 
 `MarkdownUIEditor` is a separate library product from `MarkdownUI`. It does not import the renderer and the renderer does not import the editor. Move content between them as Markdown source when an application uses both products.
+
+Native editing supports iOS 17.0+, macOS 15.0+, and Mac Catalyst 17.0+.
+
+## Installation
+
+Add the `swift-markdown-ui` package to your project and link its
+`MarkdownUIEditor` product to the target that uses the editor. In a Swift package,
+add this entry to your target's dependencies:
+
+```swift
+.product(name: "MarkdownUIEditor", package: "swift-markdown-ui")
+```
+
+In Xcode, add `MarkdownUIEditor` under your app target's **Frameworks,
+Libraries, and Embedded Content**. Import `MarkdownUIEditor` in your source files.
 
 ```swift
 import MarkdownUI
@@ -17,6 +32,8 @@ let view = MarkdownView(source)
 
 ### Getting started
 
+- ``MarkdownEditor``
+- ``MarkdownDocument``
 - <doc:Markdown-documents>
 - <doc:SwiftUI-editor>
 - <doc:Native-text-views>
