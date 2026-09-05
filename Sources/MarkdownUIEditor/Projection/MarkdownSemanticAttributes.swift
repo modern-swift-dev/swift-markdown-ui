@@ -21,8 +21,8 @@ extension NSAttributedString.Key {
 /// Converts one rich TextKit leaf back into typed inline nodes.
 ///
 /// TextKit permits style combinations whose overlap cannot be represented exactly
-/// by Markdown. The decoder gives inline code precedence, then uses the stable
-/// nesting order link, strong, emphasis, and strikethrough.
+/// by Markdown. The decoder uses the stable nesting order link, strong,
+/// emphasis, and strikethrough, including around code and inline HTML.
 enum MarkdownAttributedInlineDecoder {
     static func decode(_ attributedString: NSAttributedString) -> [MarkdownInline] {
         guard attributedString.length > 0 else {
@@ -72,10 +72,10 @@ enum MarkdownAttributedInlineDecoder {
         attributes: [NSAttributedString.Key: Any]
     ) -> MarkdownInline {
         if (attributes[.markdownEditorInlineHTML] as? NSNumber)?.boolValue == true {
-            return .html(text)
+            return styledInline(.html(text), attributes: attributes)
         }
         if (attributes[.markdownEditorCode] as? NSNumber)?.boolValue == true {
-            return .code(text)
+            return styledInline(.code(text), attributes: attributes)
         }
 
         return styledInline(.text(text), attributes: attributes)

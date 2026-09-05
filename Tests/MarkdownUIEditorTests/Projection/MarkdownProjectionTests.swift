@@ -141,7 +141,7 @@ import XCTest
         XCTAssertFalse(projection.source.contains("~~done"))
     }
 
-    func testAttributedNormalizationMakesCodeExclusiveAndDropsNativeOnlyStyles() {
+    func testAttributedNormalizationPreservesStylesAroundCodeAndDropsNativeOnlyStyles() {
         let attributes: [NSAttributedString.Key: Any] = [
             .markdownEditorCode: true,
             .markdownEditorStrong: true,
@@ -150,7 +150,28 @@ import XCTest
         ]
         let attributed = NSAttributedString(string: "code", attributes: attributes)
 
-        XCTAssertEqual(MarkdownAttributedInlineDecoder.decode(attributed), [.code("code")])
+        XCTAssertEqual(MarkdownAttributedInlineDecoder.decode(attributed), [.strong([.code("code")])])
+    }
+
+    func testCodeAndHTMLKeepEnclosingLinksAndStylesWhenDecodingEditedParagraph() {
+        for source in [
+            "[`code`](/target) tail",
+            "**`code`** tail",
+            "*`code`* tail",
+            "~~`code`~~ tail",
+            "[**`code`**](/target \"Title\") tail",
+            "[<kbd>HTML</kbd>](/target) tail"
+        ] {
+            let document = MarkdownDocument(markdown: source)
+            let projection = MarkdownProjectionBuilder().build(document: document)
+            let content = NSMutableAttributedString(attributedString: projection.attributedString.attributedSubstring(
+                from: NSRange(location: 0, length: projection.attributedString.length - 1)
+            ))
+            content.append(NSAttributedString(string: "!"))
+            let decoded = MarkdownDocument(blocks: [.paragraph(MarkdownAttributedInlineDecoder.decode(content))])
+            XCTAssertEqual(decoded, MarkdownDocument(markdown: source + "!"), source)
+            XCTAssertEqual(MarkdownDocument(markdown: decoded.markdown), decoded, source)
+        }
     }
 
     func testHardLineBreakSurvivesRichProjectionDecoding() throws {
