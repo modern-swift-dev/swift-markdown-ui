@@ -156,14 +156,21 @@ struct TextInlineRenderer {
     }
 
     private mutating func append(_ text: String) {
-        self.pendingText.append(AttributedString(text, attributes: self.attributes))
+        // Keep the inherited attributes unresolved so nested styles can still modify
+        // font properties. Resolve only the fragment being appended.
+        var attributes = self.attributes
+        if let fontProperties = attributes.fontProperties {
+            attributes.font = .withProperties(fontProperties)
+            attributes.fontProperties = nil
+        }
+        self.pendingText.append(AttributedString(text, attributes: attributes))
     }
 
     private mutating func flushText() {
         guard !self.pendingText.characters.isEmpty else {
             return
         }
-        self.result = self.result.appending(Text(self.pendingText.resolvingFonts()))
+        self.result = self.result.appending(Text(self.pendingText))
         self.pendingText = AttributedString()
         self.textChunkCount += 1
     }

@@ -101,6 +101,73 @@ import XCTest
         }
     }
 
+    func testCustomFontsPreserveFontPropertiesPrecedenceAndStyleRestoration() throws {
+        let customStyles = InlineTextStyles(
+            code: FontFamilyVariant(.monospaced),
+            emphasis: CustomFontStyle.clearingProperties,
+            strong: CustomFontStyle.keepingProperties,
+            strikethrough: StrikethroughStyle(.single),
+            link: ForegroundColor(.blue)
+        )
+        let nodes: [InlineNode] = [
+            .text("base "),
+            .strong(children: [.text("properties win ")]),
+            .emphasis(children: [
+                .text("direct font "),
+                .strong(children: [.text("nested direct ")]),
+                .link(destination: "guide", children: [.code("linked code ")]),
+                .text("restored direct ")
+            ]),
+            .text("restored base")
+        ]
+        // Compare with the previous whole-string resolution, including a direct
+        // font overridden by properties and a custom style removing properties.
+        var propertiesWin = attributes
+        propertiesWin.font = .system(size: 29, weight: .heavy)
+        var direct = attributes
+        direct.fontProperties = nil
+        direct.font = .system(size: 21, design: .serif)
+        var nestedDirect = direct
+        nestedDirect.font = .system(size: 29, weight: .heavy)
+        var linkedCode = direct
+        linkedCode.foregroundColor = .blue
+        linkedCode.link = URL(string: "guide", relativeTo: baseURL)
+        let fragments: [(String, AttributeContainer)] = [
+            ("base ", attributes), ("properties win ", propertiesWin),
+            ("direct font ", direct), ("nested direct ", nestedDirect),
+            ("linked code ", linkedCode), ("restored direct ", direct),
+            ("restored base", attributes)
+        ]
+        var renderer = TextInlineRenderer(
+            baseURL: baseURL, textStyles: customStyles, images: [:],
+            softBreakMode: .space, attributes: attributes
+        )
+        renderer.render(nodes)
+        let actual = renderer.finish()
+        var expected = AttributedString()
+        for (text, attributes) in fragments {
+            expected.append(AttributedString(text, attributes: attributes))
+        }
+        XCTAssertEqual(actual, Text("") + Text(expected.resolvingFonts()))
+        try assertSamePixels(actual, legacyText(fragments))
+        XCTAssertEqual(renderer.textChunkCount, 1)
+    }
+
+    private enum CustomFontStyle: TextStyle {
+        case keepingProperties
+        case clearingProperties
+
+        func _collectAttributes(in attributes: inout AttributeContainer) {
+            switch self {
+                case .keepingProperties:
+                    attributes.font = .system(size: 29, weight: .heavy)
+                case .clearingProperties:
+                    attributes.fontProperties = nil
+                    attributes.font = .system(size: 21, design: .serif)
+            }
+        }
+    }
+
     func testLoadedImagesSplitChunksAndKeepSurroundingTextOrder() throws {
         let image = Image(systemName: "star.fill")
         let data = RawImageData(source: "star", alt: "star")
