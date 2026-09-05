@@ -3,8 +3,14 @@ import SwiftUI
 
 /// A SwiftUI wrapper around the platform-native Markdown editor.
 @MainActor public struct MarkdownEditor: View {
-    /// The structured document binding that receives editor changes.
-    private let document: Binding<MarkdownDocument>
+    private enum Content {
+        case document(Binding<MarkdownDocument>)
+        case markdown(Binding<String>)
+    }
+
+    /// The current owner's document or source binding.
+    private let content: Content
+    @State private var sourceCache = MarkdownEditorSourceCache()
     /// The base URL used to resolve relative image destinations.
     private let baseURL: URL?
     /// The focused command target for this editor instance.
@@ -15,7 +21,7 @@ import SwiftUI
 
     /// Creates an editor for a structured Markdown document.
     public init(document: Binding<MarkdownDocument>, baseURL: URL? = nil) {
-        self.document = document
+        self.content = .document(document)
         self.baseURL = baseURL
     }
 
@@ -23,15 +29,7 @@ import SwiftUI
     ///
     /// The binding receives the editor's normalized Markdown after an edit.
     public init(markdown: Binding<String>, baseURL: URL? = nil) {
-        self.document = Binding(
-            get: { MarkdownDocument(markdown: markdown.wrappedValue) },
-            set: { document in
-                let normalized = document.markdown
-                if markdown.wrappedValue != normalized {
-                    markdown.wrappedValue = normalized
-                }
-            }
-        )
+        self.content = .markdown(markdown)
         self.baseURL = baseURL
     }
 
@@ -39,7 +37,7 @@ import SwiftUI
     public var body: some View {
         VStack(spacing: 0) {
             PlatformMarkdownEditor(
-                document: document,
+                document: documentBinding,
                 theme: theme,
                 baseURL: baseURL,
                 imageProvider: imageProvider,
@@ -51,6 +49,49 @@ import SwiftUI
             }
         }
         .focusedValue(\.markdownEditorContext, editorContext)
+    }
+
+    private var documentBinding: Binding<MarkdownDocument> {
+        switch content {
+            case let .document(document):
+                sourceCache.clear()
+                return document
+            case let .markdown(markdown):
+                let cache = sourceCache
+                return Binding(
+                    get: { cache.document(for: markdown.wrappedValue) },
+                    set: { document in
+                        let normalized = document.markdown
+                        if markdown.wrappedValue != normalized {
+                            markdown.wrappedValue = normalized
+                        }
+                    }
+                )
+        }
+    }
+}
+
+/// Retains only the current source and its parsed document across binding reads.
+@MainActor final class MarkdownEditorSourceCache {
+    private var cached: (source: String, document: MarkdownDocument)?
+    private let parse: (String) -> MarkdownDocument
+
+    init(parse: @escaping (String) -> MarkdownDocument = { MarkdownDocument(markdown: $0) }) {
+        self.parse = parse
+    }
+
+    func document(for source: String) -> MarkdownDocument {
+        if let cached, cached.source == source {
+            return cached.document
+        }
+        cached = nil
+        let document = parse(source)
+        cached = (source, document)
+        return document
+    }
+
+    func clear() {
+        cached = nil
     }
 }
 

@@ -29,6 +29,31 @@ import XCTest
         XCTAssertEqual(normalized, "text\n")
     }
 
+    func testReplacingSourceBindingWritesToCurrentOwner() async throws {
+        var first = "same"
+        var second = "same"
+        let host = NSHostingView(rootView: MarkdownEditor(markdown: Binding(get: { first }, set: { first = $0 })))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.contentView = nil }
+        host.layoutSubtreeIfNeeded()
+        let textView = try XCTUnwrap(findTextView(in: host))
+        XCTAssertEqual(textView.document.markdown, "same\n")
+
+        host.rootView = MarkdownEditor(markdown: Binding(get: { second }, set: { second = $0 }))
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(try XCTUnwrap(findTextView(in: host)) === textView)
+        textView.selectedRange = NSRange(location: 0, length: 4)
+        textView.perform(.toggleInline(.strong))
+
+        XCTAssertEqual(first, "same")
+        XCTAssertEqual(second, "**same**\n", "The replacement binding must receive edits synchronously")
+    }
+
     func testExternalDocumentUpdateReplacesNativeDocument() {
         let textView = MarkdownTextView(usingTextLayoutManager: true)
         textView.document = MarkdownDocument(markdown: "first")
