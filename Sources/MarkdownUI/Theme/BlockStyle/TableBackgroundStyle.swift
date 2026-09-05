@@ -28,13 +28,22 @@ import SwiftUI
 ///
 /// ![](CustomTableBackground)
 public struct TableBackgroundStyle: Sendable {
-    let background: @Sendable (_ row: Int, _ column: Int) -> AnyShapeStyle
+    enum Background: Sendable {
+        case clear
+        case custom(@Sendable (_ row: Int, _ column: Int) -> AnyShapeStyle)
+    }
+
+    let background: Background
+
+    private init(background: Background) {
+        self.background = background
+    }
 
     /// Creates a table background style that customizes table backgrounds by applying a given closure
     /// to the background of each cell.
     /// - Parameter background: A closure that returns a shape style for a given table cell location.
     public init(background: @escaping @Sendable (_ row: Int, _ column: Int) -> some ShapeStyle) {
-        self.background = { row, column in
+        self.background = .custom { row, column in
             AnyShapeStyle(background(row, column))
         }
     }
@@ -43,7 +52,7 @@ public struct TableBackgroundStyle: Sendable {
 public extension TableBackgroundStyle {
     /// A clear color table background style.
     static var clear: Self {
-        TableBackgroundStyle { _, _ in Color.clear }
+        TableBackgroundStyle(background: .clear)
     }
 
     /// A table background style that alternates row background shape styles.

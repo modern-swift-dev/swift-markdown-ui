@@ -34,6 +34,33 @@ import XCTest
         XCTAssertTrue(noRows.bounds(forColumn: 0).isNull)
     }
 
+    func testOnlyBuiltInClearSkipsCellBackgrounds() {
+        guard case .clear = TableBackgroundStyle.clear.background else {
+            return XCTFail("The built-in clear style must bypass cell background construction")
+        }
+        let customClear = TableBackgroundStyle { _, _ in Color.clear }
+        guard case .custom = customClear.background else {
+            return XCTFail("Custom closures must retain per-cell evaluation")
+        }
+        let alternatingClear = TableBackgroundStyle.alternatingRows(Color.clear, Color.clear)
+        guard case .custom = alternatingClear.background else {
+            return XCTFail("Alternating styles must retain their custom rendering semantics")
+        }
+    }
+
+    func testBuiltInClearMatchesTransparentCustomBackgroundPixels() throws {
+        let actual = try render(DecorationFixture(legacy: false)
+            .markdownTableBackgroundStyle(.clear))
+        let expected = try render(DecorationFixture(legacy: false)
+            .markdownTableBackgroundStyle(TableBackgroundStyle { _, _ in Color.clear }))
+        XCTAssertEqual(actual.width, expected.width)
+        XCTAssertEqual(actual.height, expected.height)
+        let actualData = try pixels(actual)
+        let expectedData = try pixels(expected)
+        XCTAssertTrue(actualData.contains { $0 != 0 }, "Clear cell backgrounds must preserve the table's visible borders")
+        XCTAssertEqual(actualData, expectedData)
+    }
+
     func testSharedBoundsMatchLegacyDecorationPixelsWithCustomStylesAndRTL() throws {
         let selectors: [TableBorderSelector] = [.allBorders, .insideBorders, .horizontalBorders, .outsideBorders]
         let strokes = [StrokeStyle(lineWidth: 1), StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round, dash: [4, 2], dashPhase: 1)]
