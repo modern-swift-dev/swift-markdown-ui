@@ -2,6 +2,92 @@
 import XCTest
 
 final class MarkdownDocumentParsingTests: XCTestCase {
+    func testTaskMarkersUseItemOffsetAndOnlyTheirOwnCompletionMarker() {
+        let samples: [(String, [MarkdownTaskState?])] = [
+            ("1. [ ] todo contains [x] text", [.unchecked]),
+            ("> 1. [ ] todo", [.unchecked]),
+            ("> - [x] done", [.checked]),
+            ("> > - [X] café 😀", [.checked]),
+            ("- outer\n  > 1. [ ] todo\n  >    continuation", [nil, .unchecked]),
+            ("> -\t[ ]\ttodo\r\n> - [x] done\r\n", [.unchecked, .checked]),
+            ("> - outer\n>   - [x] inner", [nil, .checked]),
+            ("> - [ ] [link](https://example.com)", [.unchecked]),
+            ("> -\n>   [ ] todo", [.unchecked]),
+            ("> - [ ]\n> - [X] done", [.unchecked, .checked])
+        ]
+        for (source, expected) in samples {
+            let document = MarkdownDocument(markdown: source)
+            XCTAssertEqual(taskStates(in: document.blocks), expected, source)
+            XCTAssertEqual(taskStates(in: MarkdownDocument(markdown: document.markdown).blocks), expected, source)
+        }
+        XCTAssertEqual(MarkdownDocument(markdown: "> > - [X] café 😀").blocks, [
+            .blockquote([.blockquote([
+                .list(.init(kind: .unordered, isTight: true, items: [
+                    .init(taskState: .checked, blocks: [.paragraph([.text("café 😀")])])
+                ]))
+            ])])
+        ])
+    }
+
+    func testTaskDetectionPreservesEscapesCodeLinksAndLaterParagraphs() {
+        let literalSamples: [(String, [MarkdownInline])] = [
+            (#"\[ ] escaped"#, [.text("[ ] escaped")]),
+            ("`[ ] code`", [.code("[ ] code")]),
+            ("[ ](https://example.com)", [.link(destination: "https://example.com", title: nil, children: [.text(" ")])]),
+            ("&#91; ] entity", [.text("[ ] entity")])
+        ]
+        for prefix in ["", "> ", "> > "] {
+            for (source, expected) in literalSamples {
+                var blocks = MarkdownDocument(markdown: prefix + "- " + source).blocks
+                for _ in prefix.filter({ $0 == ">" }) {
+                    guard case let .blockquote(children) = blocks.first else {
+                        return XCTFail("Expected blockquote: \(prefix + source)")
+                    }
+                    blocks = children
+                }
+                XCTAssertEqual(blocks, [.list(.init(kind: .unordered, isTight: true, items: [
+                    .init(blocks: [.paragraph(expected)])
+                ]))], source)
+            }
+        }
+        let blockSamples: [(String, [MarkdownBlock])] = [
+            ("> - normal\n>\n>   [ ] second paragraph", [
+                .paragraph([.text("normal")]), .paragraph([.text("[ ] second paragraph")])
+            ]),
+            ("> -     [ ] code", [.codeBlock(info: nil, content: "[ ] code\n")])
+        ]
+        for (source, expected) in blockSamples {
+            let document = MarkdownDocument(markdown: source)
+            XCTAssertEqual(taskStates(in: document.blocks), [nil], source)
+            guard case let .blockquote(children) = document.blocks.first,
+                  case let .list(list) = children.first else {
+                return XCTFail("Expected quoted list: \(source)")
+            }
+            XCTAssertEqual(list.items.first?.blocks, expected, source)
+        }
+    }
+
+    private func taskStates(in blocks: [MarkdownBlock]) -> [MarkdownTaskState?] {
+        blocks.flatMap { block -> [MarkdownTaskState?] in
+            switch block {
+                case let .list(list):
+                    list.items.flatMap { [$0.taskState] + taskStates(in: $0.blocks) }
+                case let .blockquote(children):
+                    taskStates(in: children)
+                default:
+                    []
+            }
+        }
+    }
+
+    func testTaskExtensionIsIsolatedAcrossConcurrentParses() {
+        let sources = ["> - [ ] todo contains [x] text", "> > 1. [X] café 😀"]
+        let expected = sources.map { MarkdownDocument(markdown: $0) }
+        DispatchQueue.concurrentPerform(iterations: 64) { index in
+            XCTAssertEqual(MarkdownDocument(markdown: sources[index % sources.count]), expected[index % sources.count])
+        }
+    }
+
     func testComprehensiveGFMRoundTripIsSemanticallyStable() {
         let source = #"""
         # Héllø 👩🏽‍💻

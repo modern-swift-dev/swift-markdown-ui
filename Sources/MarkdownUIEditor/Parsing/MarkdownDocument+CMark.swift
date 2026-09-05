@@ -2,6 +2,58 @@ internal import cmark_gfm
 internal import cmark_gfm_extensions
 import Foundation
 
+/// Corrects cmark's task opener, which scans the whole line instead of the
+/// current item content and therefore misses markers inside blockquotes.
+private enum TaskListSyntaxExtension {
+    static func make() -> UnsafeMutablePointer<cmark_syntax_extension>? {
+        guard let canonical = cmark_find_syntax_extension("tasklist"),
+              let syntaxExtension = cmark_syntax_extension_new("markdown-tasklist") else {
+            return nil
+        }
+        // The registry owns the canonical extension. This local extension only
+        // borrows it; recognized nodes use its existing continuation/render hooks.
+        cmark_syntax_extension_set_private(syntaxExtension, canonical, nil)
+        cmark_syntax_extension_set_open_block_func(syntaxExtension) { syntaxExtension, indented, parser, parent, input, length in
+            guard indented == 0, let syntaxExtension, let parser, let parent, let input,
+                  cmark_node_get_type(parent) == CMARK_NODE_ITEM,
+                  cmark_node_first_child(parent) == nil else {
+                return nil
+            }
+            let start = Int(cmark_parser_get_first_nonspace(parser))
+            let offset = Int(cmark_parser_get_offset(parser))
+            guard start >= offset, start >= 0, start <= Int(length) - 4,
+                  input[start] == 0x5B, input[start + 2] == 0x5D,
+                  TaskListSyntaxExtension.isWhitespace(input[start + 3]) else {
+                return nil
+            }
+            let marker = input[start + 1]
+            guard marker == 0x20 || marker == 0x78 || marker == 0x58,
+                  let canonical = cmark_syntax_extension_get_private(syntaxExtension)?
+                  .assumingMemoryBound(to: cmark_syntax_extension.self) else {
+                return nil
+            }
+            cmark_node_set_syntax_extension(parent, canonical)
+            cmark_gfm_extensions_set_tasklist_item_checked(parent, marker != 0x20)
+            cmark_parser_advance_offset(
+                parser, UnsafeRawPointer(input).assumingMemoryBound(to: CChar.self),
+                Int32(start - offset + 3), 0
+            )
+            return nil
+        }
+        return syntaxExtension
+    }
+
+    private static func isWhitespace(_ byte: UInt8) -> Bool {
+        switch byte {
+            case 0x09 ... 0x0D,
+                 0x20:
+                true
+            default:
+                false
+        }
+    }
+}
+
 public extension MarkdownDocument {
     /// Parses GitHub Flavored Markdown into the editor's structured document model.
     ///
@@ -24,13 +76,19 @@ private enum CMarkDocument {
     static func parse(_ markdown: String) -> MarkdownDocument? {
         registerExtensions()
 
+        let taskListExtension = TaskListSyntaxExtension.make()
+        defer {
+            if let taskListExtension {
+                cmark_syntax_extension_free(cmark_get_default_mem_allocator(), taskListExtension)
+            }
+        }
         guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else {
             return nil
         }
         defer { cmark_parser_free(parser) }
 
         for name in extensionNames {
-            if let syntaxExtension = cmark_find_syntax_extension(name) {
+            if let syntaxExtension = name == "tasklist" ? taskListExtension : cmark_find_syntax_extension(name) {
                 cmark_parser_attach_syntax_extension(parser, syntaxExtension)
             }
         }

@@ -6,6 +6,85 @@ import SwiftUI
 #endif
 
 final class TaskListPreservationTests: XCTestCase {
+    func testTaskMarkersUseItemOffsetAndOnlyTheirOwnCompletionMarker() {
+        let samples: [(String, [Bool?])] = [
+            ("1. [ ] todo contains [x] text", [false]),
+            ("> 1. [ ] todo", [false]),
+            ("> - [x] done", [true]),
+            ("> > - [X] café 😀", [true]),
+            ("- outer\n  > 1. [ ] todo\n  >    continuation", [nil, false]),
+            ("> -\t[ ]\ttodo\r\n> - [x] done\r\n", [false, true]),
+            ("> - outer\n>   - [x] inner", [nil, true]),
+            ("> - [ ] [link](https://example.com)", [false]),
+            ("> -\n>   [ ] todo", [false]),
+            ("> - [ ]\n> - [X] done", [false, true])
+        ]
+        for (source, expected) in samples {
+            let content = MarkdownContent(source)
+            XCTAssertEqual(taskCompletionStates(in: content.blocks), expected, source)
+            XCTAssertEqual(
+                taskCompletionStates(in: MarkdownContent(content.renderMarkdown()).blocks), expected, source
+            )
+        }
+        XCTAssertEqual(MarkdownContent("> > - [X] café 😀").blocks, [
+            .blockquote(children: [.blockquote(children: [
+                .taskList(isTight: true, items: [
+                    .init(isCompleted: true, children: [.paragraph(content: [.text("café 😀")])])
+                ])
+            ])])
+        ])
+    }
+
+    func testTaskDetectionPreservesEscapesCodeLinksAndLaterParagraphs() {
+        let literalSamples: [(String, [InlineNode])] = [
+            (#"\[ ] escaped"#, [.text("[ ] escaped")]),
+            ("`[ ] code`", [.code("[ ] code")]),
+            ("[ ](https://example.com)", [.link(destination: "https://example.com", children: [.text(" ")])]),
+            ("&#91; ] entity", [.text("[ ] entity")])
+        ]
+        for prefix in ["", "> ", "> > "] {
+            for (source, expected) in literalSamples {
+                var blocks = MarkdownContent(prefix + "- " + source).blocks
+                for _ in prefix.filter({ $0 == ">" }) {
+                    guard case let .blockquote(children) = blocks.first else {
+                        return XCTFail("Expected blockquote: \(prefix + source)")
+                    }
+                    blocks = children
+                }
+                XCTAssertEqual(blocks, [.bulletedList(isTight: true, items: [
+                    .init(children: [.paragraph(content: expected)])
+                ])], source)
+            }
+        }
+        for source in ["> - normal\n>\n>   [ ] second paragraph", "> -     [ ] code"] {
+            let content = MarkdownContent(source)
+            XCTAssertEqual(taskCompletionStates(in: content.blocks), [nil], source)
+            XCTAssertTrue(content.renderPlainText().contains("[ ]"), source)
+        }
+    }
+
+    private func taskCompletionStates(in blocks: [BlockNode]) -> [Bool?] {
+        blocks.flatMap { block -> [Bool?] in
+            switch block {
+                case let .bulletedList(_, items),
+                     let .numberedList(_, _, items):
+                    items.flatMap { [$0.isCompleted] + taskCompletionStates(in: $0.children) }
+                case let .taskList(_, items):
+                    items.flatMap { [Optional($0.isCompleted)] + taskCompletionStates(in: $0.children) }
+                default:
+                    taskCompletionStates(in: block.children)
+            }
+        }
+    }
+
+    func testTaskExtensionIsIsolatedAcrossConcurrentParses() {
+        let sources = ["> - [ ] todo contains [x] text", "> > 1. [X] café 😀"]
+        let expected = sources.map(MarkdownContent.init)
+        DispatchQueue.concurrentPerform(iterations: 64) { index in
+            XCTAssertEqual(MarkdownContent(sources[index % sources.count]), expected[index % sources.count])
+        }
+    }
+
     func testMixedBulletedListPreservesOrdinaryAndTaskItems() {
         let content = MarkdownContent("- ordinary\n- [x] done\n- [ ] todo")
 
