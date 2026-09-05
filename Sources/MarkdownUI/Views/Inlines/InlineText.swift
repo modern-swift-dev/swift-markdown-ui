@@ -11,6 +11,12 @@ struct InlineText: View {
 
     private let inlines: [InlineNode]
 
+    private struct ImageLoadID: Equatable {
+        let inlines: [InlineNode]
+        let baseURL: URL?
+        let providerID: InlineImageProviderContext.ID
+    }
+
     init(_ inlines: [InlineNode]) {
         self.inlines = inlines
     }
@@ -31,12 +37,21 @@ struct InlineText: View {
                 attributes: attributes
             )
         }
-        .task(id: self.inlines) {
-            self.inlineImages = await Self.loadInlineImages(
+        .task(id: ImageLoadID(
+            inlines: self.inlines,
+            baseURL: self.imageBaseURL,
+            providerID: self.inlineImageProvider.id
+        )) {
+            self.inlineImages = [:]
+            let images = await Self.loadInlineImages(
                 in: self.inlines,
                 baseURL: self.imageBaseURL,
-                imageProvider: self.inlineImageProvider
+                imageProvider: self.inlineImageProvider.provider
             )
+            guard !Task.isCancelled else {
+                return
+            }
+            self.inlineImages = images
         }
     }
 

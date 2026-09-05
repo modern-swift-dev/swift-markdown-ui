@@ -2,6 +2,9 @@ import SwiftUI
 
 /// An inline image provider that loads images from resources located in an app or a module.
 public struct AssetInlineImageProvider: InlineImageProvider {
+    static let defaultProvider = AssetInlineImageProvider()
+    let id = UUID()
+
     private let name: @Sendable (URL) -> String
     private let bundle: Bundle?
 
@@ -27,6 +30,6 @@ public extension InlineImageProvider where Self == AssetInlineImageProvider {
     ///
     /// Use the `markdownInlineImageProvider(_:)` modifier to configure this image provider for a view hierarchy.
     static var asset: Self {
-        .init()
+        .defaultProvider
     }
 }

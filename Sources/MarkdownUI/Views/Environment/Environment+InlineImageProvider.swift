@@ -8,10 +8,35 @@ public extension View {
     ///                                  conforms to the ``InlineImageProvider`` protocol.
     /// - Returns: A view that uses the specified inline image provider for itself and its child views.
     func markdownInlineImageProvider(_ inlineImageProvider: InlineImageProvider) -> some View {
-        self.environment(\.inlineImageProvider, inlineImageProvider)
+        self.environment(\.inlineImageProvider, InlineImageProviderContext(provider: inlineImageProvider))
     }
 }
 
 extension EnvironmentValues {
-    @Entry var inlineImageProvider: InlineImageProvider = .default
+    @Entry var inlineImageProvider = InlineImageProviderContext(provider: .default)
+}
+
+struct InlineImageProviderContext: Sendable {
+    enum ID: Equatable, Sendable {
+        case defaultProvider
+        case reference(ObjectIdentifier)
+        case value(UUID)
+    }
+
+    let id: ID
+    let provider: any InlineImageProvider
+
+    init(provider: any InlineImageProvider) {
+        self.provider = provider
+        if provider is DefaultInlineImageProvider {
+            self.id = .defaultProvider
+        } else if let asset = provider as? AssetInlineImageProvider {
+            self.id = .value(asset.id)
+        } else if let reference = provider as? any InlineImageProvider & AnyObject {
+            self.id = .reference(ObjectIdentifier(reference))
+        } else {
+            // An arbitrary value provider has no equality requirement; conservatively reload it.
+            self.id = .value(UUID())
+        }
+    }
 }
