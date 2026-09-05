@@ -27,6 +27,42 @@ struct ProjectionIndex {
         return baseUnits.indices.map { materializedUnit(at: $0) }
     }
 
+    /// Returns only leaf starts in a visible projection range, without copying offset maps.
+    func unitStartOffsets(in range: ProjectionUTF16Range) -> [Int] {
+        guard range.length > 0 else {
+            return []
+        }
+        var low = 0
+        var high = baseUnits.count
+        while low < high {
+            let middle = (low + high) / 2
+            if projectionStart(at: middle) < range.location {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        var offsets: [Int] = []
+        while low < baseUnits.count {
+            let offset = projectionStart(at: low)
+            guard offset < range.upperBound else {
+                break
+            }
+            offsets.append(offset)
+            low += 1
+        }
+        return offsets
+    }
+
+    private func projectionStart(at index: Int) -> Int {
+        let delta = if let activeReplacement, index > activeReplacement.unitIndex {
+            activeReplacement.projectionDelta
+        } else {
+            0
+        }
+        return baseUnits[index].projectionRange.location + delta
+    }
+
     init(
         units: [ProjectionUnit],
         projectionUTF16Length: Int,

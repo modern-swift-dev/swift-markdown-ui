@@ -123,6 +123,69 @@ import XCTest
         XCTAssertEqual(textView.document.markdown, "  - [ ] task\n")
     }
 
+    func testTaskCheckboxLayersFollowScrolledViewportAfterTyping() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 220)
+        let scrollView = NSScrollView(frame: frame)
+        scrollView.hasVerticalScroller = true
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.frame = frame
+        editor.isVerticallyResizable = true
+        editor.isHorizontallyResizable = false
+        editor.maxSize = NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude)
+        editor.textContainer?.widthTracksTextView = true
+        scrollView.documentView = editor
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = scrollView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        editor.document = MarkdownDocument(markdown: (0 ..< 300).map { "- [ ] Task \($0)" }.joined(separator: "\n"))
+        window.makeFirstResponder(editor)
+        window.displayIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        editor.selectedRange = NSRange(location: 2, length: 0)
+        editor.insertText("new text ", replacementRange: editor.selectedRange)
+        window.displayIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(editor.document.markdown.contains("Tanew text sk 0"))
+
+        func assertVisibleCheckboxes(file: StaticString = #filePath, line: UInt = #line) throws -> [CGFloat] {
+            let manager = try XCTUnwrap(editor.textLayoutManager, file: file, line: line)
+            let contentManager = try XCTUnwrap(manager.textContentManager, file: file, line: line)
+            let viewport = try XCTUnwrap(manager.textViewportLayoutController.viewportRange, file: file, line: line)
+            let range = ProjectionUTF16Range(
+                location: contentManager.offset(from: contentManager.documentRange.location, to: viewport.location),
+                length: contentManager.offset(from: viewport.location, to: viewport.endLocation)
+            )
+            let offsets = editor.editingSession.projection.index.unitStartOffsets(in: range)
+            let layers = (editor.layer?.sublayers ?? []).compactMap { $0 as? MarkdownTaskCheckboxLayer }
+            XCTAssertGreaterThan(layers.count, 0, file: file, line: line)
+            XCTAssertLessThan(layers.count, 30, file: file, line: line)
+            XCTAssertEqual(layers.count, offsets.count, file: file, line: line)
+            for (layer, offset) in zip(layers, offsets) {
+                var actualRange = NSRange()
+                let screenRect = editor.firstRect(forCharacterRange: NSRange(location: offset, length: 0), actualRange: &actualRange)
+                let textRect = editor.convert(window.convertFromScreen(screenRect), from: nil)
+                XCTAssertEqual(layer.frame.midY, textRect.midY, accuracy: 0.5, file: file, line: line)
+            }
+            return layers.map(\.frame.midY)
+        }
+
+        let initialPositions = try assertVisibleCheckboxes()
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 1600))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        window.displayIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        let scrolledPositions = try assertVisibleCheckboxes()
+        XCTAssertNotEqual(initialPositions, scrolledPositions)
+        XCTAssertGreaterThan(scrolledPositions.first ?? 0, 1000)
+
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        window.displayIfNeeded()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(try assertVisibleCheckboxes(), initialPositions)
+    }
+
     func testTaskToggleAtProjectionPositionRejectsOrdinaryListItems() {
         let textView = MarkdownTextView(usingTextLayoutManager: true)
         textView.document = MarkdownDocument(markdown: "- item")

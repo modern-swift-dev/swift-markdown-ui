@@ -77,8 +77,18 @@ import UIKit
             return
         }
         var count = 0
-        for unit in editingSession.projection.index.units {
-            let offset = unit.projectionRange.location
+        let index = editingSession.projection.index
+        let visibleRange = if let manager = textLayoutManager,
+                              let contentManager = manager.textContentManager,
+                              let viewport = manager.textViewportLayoutController.viewportRange {
+            ProjectionUTF16Range(
+                location: contentManager.offset(from: contentManager.documentRange.location, to: viewport.location),
+                length: contentManager.offset(from: viewport.location, to: viewport.endLocation)
+            )
+        } else {
+            ProjectionUTF16Range(location: 0, length: index.projectionUTF16Length)
+        }
+        for offset in index.unitStartOffsets(in: visibleRange) {
             guard offset < textStorage.length,
                   let checked = textStorage.attribute(.markdownEditorTaskChecked, at: offset, effectiveRange: nil) as? NSNumber,
                   let position = position(from: beginningOfDocument, offset: offset) else {

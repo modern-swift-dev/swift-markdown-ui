@@ -385,6 +385,32 @@ import XCTest
         )
     }
 
+    func testVisibleUnitStartsApplyDeltasWithoutReturningMappingSegments() {
+        var index = makeReplacementProjection().index
+        let originalUnits = index.units
+        let first = originalUnits[0]
+        XCTAssertTrue(index.replaceUnit(
+            at: first.path,
+            projectionLength: first.projectionRange.length + 7,
+            sourceLength: first.sourceRange.length + 11
+        ))
+        let visibleStart = originalUnits[2].projectionRange.location + 7
+        let visibleEnd = originalUnits[4].projectionRange.location + 7
+        XCTAssertEqual(
+            index.unitStartOffsets(in: ProjectionUTF16Range(
+                location: visibleStart, length: visibleEnd - visibleStart
+            )),
+            [visibleStart, originalUnits[3].projectionRange.location + 7]
+        )
+        XCTAssertEqual(index.unitStartOffsets(in: ProjectionUTF16Range(location: 0, length: 0)), [])
+        XCTAssertEqual(index.unitStartOffsets(in: ProjectionUTF16Range(
+            location: index.projectionUTF16Length, length: 10
+        )), [])
+        XCTAssertEqual(index.unitStartOffsets(in: ProjectionUTF16Range(
+            location: visibleStart + 1, length: 1
+        )), [])
+    }
+
     func testReplaceFirstUnitPerformance() throws {
         try measureUnitReplacement(at: 0)
     }
