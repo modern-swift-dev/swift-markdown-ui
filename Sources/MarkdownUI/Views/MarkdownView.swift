@@ -193,6 +193,7 @@ public struct MarkdownView: View {
     @Environment(\.theme.text) private var text
     @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
     @State private var contentCache = MarkdownContentCache()
+    @State private var colorSchemeImageCache = ColorSchemeImageCache()
 
     private enum Content {
         case parsed(MarkdownContent)
@@ -233,9 +234,11 @@ public struct MarkdownView: View {
         switch self.content {
             case let .parsed(content):
                 self.contentCache.clear()
-                return content.blocks(matching: self.colorScheme)
+                return self.colorSchemeImageCache.blocks(for: content, matching: self.colorScheme)
             case let .markdown(source):
-                return self.contentCache.content(for: source).blocks(matching: self.colorScheme)
+                return self.colorSchemeImageCache.blocks(
+                    for: self.contentCache.content(for: source), matching: self.colorScheme
+                )
         }
     }
 }
