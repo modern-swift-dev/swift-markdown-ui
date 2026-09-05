@@ -185,19 +185,19 @@ private struct ActiveTableSelection: Equatable, Sendable {
     }
 
     /// Synchronizes a binding without letting delayed echoes overwrite newer edits.
-    func replaceDocumentFromBinding(_ replacement: MarkdownDocument) {
+    @discardableResult func replaceDocumentFromBinding(_ replacement: MarkdownDocument) -> Bool {
         guard !acknowledgeBindingDocument(replacement) else {
-            return
+            return false
         }
-        replaceDocument(replacement)
+        return replaceDocument(replacement)
     }
 
     /// Replaces the document from an external owner, preserving selection where possible.
-    func replaceDocument(_ replacement: MarkdownDocument) {
+    @discardableResult func replaceDocument(_ replacement: MarkdownDocument) -> Bool {
         pendingLocalEchoes.removeAll()
 
         guard Self.editableDocument(replacement) != document else {
-            return
+            return false
         }
         needsCompositionFlush = false
         pendingNativeEdits = []
@@ -205,6 +205,34 @@ private struct ActiveTableSelection: Equatable, Sendable {
         activeTableSelection = validated(activeTableSelection, in: replacement)
         projection = makeProjection(document: document)
         installProjection(projection, selectedRanges: restoredRanges(bridge?.markdownSelectedRanges ?? [], in: projection))
+        return true
+    }
+
+    /// Applies one representable update using at most one projection rebuild.
+    /// A nil document preserves the native draft when its binding is unchanged.
+    func synchronizeFromBinding(
+        document replacement: MarkdownDocument?,
+        theme replacementTheme: MarkdownEditorTheme,
+        baseURL: URL?,
+        imageProvider: (any MarkdownEditorImageProvider)?
+    ) {
+        let themeChanged = theme !== replacementTheme && !themesAreEqual(theme, replacementTheme)
+        let objectsChanged = self.baseURL != baseURL || !sameImageProvider(self.imageProvider, imageProvider)
+        if themeChanged {
+            theme = replacementTheme
+        }
+        if objectsChanged {
+            self.baseURL = baseURL
+            self.imageProvider = imageProvider
+        }
+        if let replacement, replaceDocumentFromBinding(replacement) {
+            return
+        }
+        guard themeChanged || objectsChanged else {
+            return
+        }
+        projection = makeProjection(document: document)
+        installProjection(projection, selectedRanges: bridge?.markdownSelectedRanges ?? [])
     }
 
     /// Rebuilds the projection with a new attribute theme.

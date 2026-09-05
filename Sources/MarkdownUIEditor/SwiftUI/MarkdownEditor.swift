@@ -219,19 +219,20 @@ private struct PlatformMarkdownEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> MarkdownTextView {
         let textView = MarkdownTextView(usingTextLayoutManager: true)
         textView.markdownDelegate = context.coordinator
-        textView.document = document.wrappedValue
-        textView.editorTheme = theme
-        textView.baseURL = baseURL
-        textView.imageProvider = imageProvider
+        let initialDocument = document.wrappedValue
+        textView.editingSession.synchronizeFromBinding(
+            document: initialDocument, theme: theme, baseURL: baseURL, imageProvider: imageProvider
+        )
+        // Attach only after the session has its complete initial configuration.
+        textView.document = initialDocument
         context.coordinator.context.setTextView(textView)
         return textView
     }
 
     func updateUIView(_ textView: MarkdownTextView, context: Context) {
-        context.coordinator.updateDocument(document, in: textView)
-        textView.editorTheme = theme
-        textView.baseURL = baseURL
-        textView.imageProvider = imageProvider
+        context.coordinator.update(
+            document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
+        )
         context.coordinator.context.setTextView(textView)
     }
 
@@ -255,14 +256,20 @@ private struct PlatformMarkdownEditor: UIViewRepresentable {
             self.lastBindingValue = document.wrappedValue
         }
 
-        func updateDocument(_ binding: Binding<MarkdownDocument>, in textView: MarkdownTextView) {
+        func update(
+            _ binding: Binding<MarkdownDocument>,
+            theme: MarkdownEditorTheme,
+            baseURL: URL?,
+            imageProvider: (any MarkdownEditorImageProvider)?,
+            in textView: MarkdownTextView
+        ) {
             document = binding
             let incoming = binding.wrappedValue
-            guard incoming != lastBindingValue else {
-                return
-            }
+            let replacement = incoming != lastBindingValue ? incoming : nil
             lastBindingValue = incoming
-            textView.editingSession.replaceDocumentFromBinding(incoming)
+            textView.editingSession.synchronizeFromBinding(
+                document: replacement, theme: theme, baseURL: baseURL, imageProvider: imageProvider
+            )
         }
 
         func markdownTextView(_ textView: MarkdownTextView, didChange document: MarkdownDocument) {
@@ -315,10 +322,12 @@ private struct PlatformMarkdownEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
         textView.markdownDelegate = context.coordinator
-        textView.document = document.wrappedValue
-        textView.editorTheme = theme
-        textView.baseURL = baseURL
-        textView.imageProvider = imageProvider
+        let initialDocument = document.wrappedValue
+        textView.editingSession.synchronizeFromBinding(
+            document: initialDocument, theme: theme, baseURL: baseURL, imageProvider: imageProvider
+        )
+        // Attach only after the session has its complete initial configuration.
+        textView.document = initialDocument
         context.coordinator.context.setTextView(textView)
         return scrollView
     }
@@ -327,10 +336,9 @@ private struct PlatformMarkdownEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? MarkdownTextView else {
             return
         }
-        context.coordinator.updateDocument(document, in: textView)
-        textView.editorTheme = theme
-        textView.baseURL = baseURL
-        textView.imageProvider = imageProvider
+        context.coordinator.update(
+            document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
+        )
         context.coordinator.context.setTextView(textView)
     }
 
@@ -354,14 +362,20 @@ private struct PlatformMarkdownEditor: NSViewRepresentable {
             self.lastBindingValue = document.wrappedValue
         }
 
-        func updateDocument(_ binding: Binding<MarkdownDocument>, in textView: MarkdownTextView) {
+        func update(
+            _ binding: Binding<MarkdownDocument>,
+            theme: MarkdownEditorTheme,
+            baseURL: URL?,
+            imageProvider: (any MarkdownEditorImageProvider)?,
+            in textView: MarkdownTextView
+        ) {
             document = binding
             let incoming = binding.wrappedValue
-            guard incoming != lastBindingValue else {
-                return
-            }
+            let replacement = incoming != lastBindingValue ? incoming : nil
             lastBindingValue = incoming
-            textView.editingSession.replaceDocumentFromBinding(incoming)
+            textView.editingSession.synchronizeFromBinding(
+                document: replacement, theme: theme, baseURL: baseURL, imageProvider: imageProvider
+            )
         }
 
         func markdownTextView(_ textView: MarkdownTextView, didChange document: MarkdownDocument) {

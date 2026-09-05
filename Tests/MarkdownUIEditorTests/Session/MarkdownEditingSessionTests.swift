@@ -9,6 +9,68 @@ import UIKit
 #endif
 
 @MainActor final class MarkdownEditingSessionTests: XCTestCase {
+    func testInitialConfigurationInstallsOnePopulatedProjection() throws {
+        let session = MarkdownEditingSession(document: MarkdownDocument())
+        let document = MarkdownDocument(markdown: "initial")
+        let theme = MarkdownEditorTheme.docC
+        let provider = MarkdownURLSessionImageProvider()
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        session.synchronizeFromBinding(document: document, theme: theme, baseURL: url, imageProvider: provider)
+        let bridge = FakeTextViewBridge()
+        session.attach(to: bridge)
+
+        XCTAssertEqual(bridge.replacementCount, 1)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "initial\n")
+        XCTAssertTrue(session.theme === theme)
+        XCTAssertEqual(session.baseURL, url)
+        XCTAssertTrue(session.imageProvider === provider)
+    }
+
+    func testCombinedConfigurationUpdateRebuildsOnceAndClampsSelection() throws {
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "long original text"))
+        let bridge = FakeTextViewBridge()
+        session.attach(to: bridge)
+        bridge.markdownSelectedRanges = [NSRange(location: 10, length: 4)]
+        let count = bridge.replacementCount
+        let theme = MarkdownEditorTheme.docC
+        let provider = MarkdownURLSessionImageProvider()
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+
+        session.synchronizeFromBinding(document: MarkdownDocument(markdown: "x"), theme: theme, baseURL: url, imageProvider: provider)
+
+        XCTAssertEqual(bridge.replacementCount, count + 1)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "x\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 2, length: 0)])
+        session.synchronizeFromBinding(document: nil, theme: .docC, baseURL: url, imageProvider: provider)
+        XCTAssertEqual(bridge.replacementCount, count + 1, "Equivalent theme and identical provider must not rebuild")
+
+        let replacementProvider = MarkdownURLSessionImageProvider()
+        session.synchronizeFromBinding(document: nil, theme: theme, baseURL: url, imageProvider: replacementProvider)
+        XCTAssertEqual(bridge.replacementCount, count + 2)
+        XCTAssertTrue(session.imageProvider === replacementProvider)
+    }
+
+    func testConfigurationUpdatePreservesUnchangedDraftAndDelayedBindingEcho() {
+        let draft = MarkdownDocument(blocks: [.paragraph([.text("text")]), .paragraph([])])
+        let session = MarkdownEditingSession(document: draft)
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 5, length: 0)])
+        session.attach(to: bridge)
+        let count = bridge.replacementCount
+        session.synchronizeFromBinding(document: nil, theme: .docC, baseURL: nil, imageProvider: nil)
+        XCTAssertEqual(session.document, draft)
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 5, length: 0)])
+        XCTAssertEqual(bridge.replacementCount, count + 1)
+
+        session.perform(.convertBlock(.heading(.one)))
+        let published = session.document
+        session.perform(.convertBlock(.heading(.two)))
+        let current = session.document
+        let countAfterEdits = bridge.replacementCount
+        session.synchronizeFromBinding(document: published, theme: .gitHub, baseURL: nil, imageProvider: nil)
+        XCTAssertEqual(session.document, current, "A delayed echo must not overwrite the latest native edit")
+        XCTAssertEqual(bridge.replacementCount, countAfterEdits + 1)
+    }
+
     func testFocusingRichLeavesNeverRevealsMarkdownDelimiters() {
         let document = MarkdownDocument(blocks: [
             .paragraph([.strong([.text("bold")])]),

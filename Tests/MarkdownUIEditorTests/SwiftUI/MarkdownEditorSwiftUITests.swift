@@ -5,6 +5,62 @@ import SwiftUI
 import XCTest
 
 @MainActor final class MarkdownEditorSwiftUITests: XCTestCase {
+    func testRepresentableInstallsInitialAndUpdatedConfigurationOnce() throws {
+        let observer = StorageReplacementObserver()
+        NotificationCenter.default.addObserver(
+            observer, selector: #selector(StorageReplacementObserver.storageChanged(_:)),
+            name: NSTextStorage.didProcessEditingNotification, object: nil
+        )
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let initialTheme = MarkdownEditorTheme.docC
+        let initialProvider = MarkdownURLSessionImageProvider()
+        let initialURL = try XCTUnwrap(URL(string: "https://example.com/first/"))
+        let host = NSHostingView(rootView: configuredEditor("initial", theme: initialTheme, baseURL: initialURL, provider: initialProvider))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.contentView = nil }
+        host.layoutSubtreeIfNeeded()
+        let editor = try XCTUnwrap(findTextView(in: host))
+        let storage = try XCTUnwrap(editor.textStorage)
+        XCTAssertEqual(storage.string, "initial\n")
+        XCTAssertEqual(observer.replacements[ObjectIdentifier(storage)], 1)
+        XCTAssertTrue(editor.editorTheme === initialTheme)
+        XCTAssertTrue(editor.imageProvider === initialProvider)
+        XCTAssertEqual(editor.baseURL, initialURL)
+        editor.selectedRange = NSRange(location: 2, length: 2)
+
+        let updatedTheme = MarkdownEditorTheme.gitHub
+        let updatedProvider = MarkdownURLSessionImageProvider()
+        let updatedURL = try XCTUnwrap(URL(string: "https://example.com/second/"))
+        observer.replacements.removeAll()
+        host.rootView = configuredEditor("updated", theme: updatedTheme, baseURL: updatedURL, provider: updatedProvider)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(try XCTUnwrap(findTextView(in: host)) === editor)
+        XCTAssertEqual(storage.string, "updated\n")
+        XCTAssertEqual(observer.replacements[ObjectIdentifier(storage)], 1)
+        XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 2))
+        XCTAssertTrue(editor.editorTheme === updatedTheme)
+        XCTAssertTrue(editor.imageProvider === updatedProvider)
+        XCTAssertEqual(editor.baseURL, updatedURL)
+
+        observer.replacements.removeAll()
+        host.rootView = configuredEditor("updated", theme: .gitHub, baseURL: updatedURL, provider: updatedProvider)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertNil(observer.replacements[ObjectIdentifier(storage)])
+    }
+
+    private func configuredEditor(
+        _ source: String, theme: MarkdownEditorTheme, baseURL: URL?, provider: any MarkdownEditorImageProvider
+    ) -> some View {
+        MarkdownEditor(document: .constant(MarkdownDocument(markdown: source)), baseURL: baseURL)
+            .markdownEditorTheme(theme)
+            .markdownEditorImageProvider(provider)
+            .markdownEditorShowsFormattingToolbar(false)
+    }
+
     func testDocumentBindingInitializerBuilds() {
         var document = MarkdownDocument(markdown: "# Title")
         let binding = Binding<MarkdownDocument>(
@@ -237,6 +293,18 @@ import XCTest
 
     func markdownTextView(_ textView: MarkdownTextView, didChange document: MarkdownDocument) {
         self.document.wrappedValue = document
+    }
+}
+
+@MainActor private final class StorageReplacementObserver: NSObject {
+    var replacements: [ObjectIdentifier: Int] = [:]
+
+    @objc func storageChanged(_ notification: Notification) {
+        guard let storage = notification.object as? NSTextStorage,
+              storage.editedMask.contains(.editedCharacters) else {
+            return
+        }
+        replacements[ObjectIdentifier(storage), default: 0] += 1
     }
 }
 #endif
