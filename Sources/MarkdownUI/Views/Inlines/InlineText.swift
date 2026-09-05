@@ -20,7 +20,7 @@ struct InlineText: View {
 
     init(_ inlines: [InlineNode]) {
         self.inlines = inlines
-        self.imageData = Set(inlines.inlineImageData())
+        self.imageData = inlines.inlineImageDataSet()
     }
 
     var body: some View {
@@ -44,7 +44,12 @@ struct InlineText: View {
             baseURL: self.imageBaseURL,
             providerID: self.inlineImageProvider.id
         )) {
-            self.inlineImages = [:]
+            if !self.inlineImages.isEmpty {
+                self.inlineImages = [:]
+            }
+            guard !self.imageData.isEmpty else {
+                return
+            }
             let images = await Self.loadInlineImages(
                 images: self.imageData,
                 baseURL: self.imageBaseURL,
@@ -53,7 +58,9 @@ struct InlineText: View {
             guard !Task.isCancelled else {
                 return
             }
-            self.inlineImages = images
+            if !images.isEmpty {
+                self.inlineImages = images
+            }
         }
     }
 
@@ -62,7 +69,7 @@ struct InlineText: View {
         baseURL: URL?,
         imageProvider: any InlineImageProvider
     ) async -> [RawImageData: Image] {
-        await loadInlineImages(images: Set(inlines.inlineImageData()), baseURL: baseURL, imageProvider: imageProvider)
+        await loadInlineImages(images: inlines.inlineImageDataSet(), baseURL: baseURL, imageProvider: imageProvider)
     }
 
     private static func loadInlineImages(

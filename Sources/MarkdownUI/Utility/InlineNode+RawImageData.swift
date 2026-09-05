@@ -25,12 +25,24 @@ extension InlineNode {
 
 extension Sequence<InlineNode> {
     func inlineImageData() -> [RawImageData] {
-        self.flatMap { inline -> [RawImageData] in
+        var images: [RawImageData] = []
+        self.forEachInlineImage { images.append($0) }
+        return images
+    }
+
+    func inlineImageDataSet() -> Set<RawImageData> {
+        var images: Set<RawImageData> = []
+        self.forEachInlineImage { images.insert($0) }
+        return images
+    }
+
+    private func forEachInlineImage(_ visit: (RawImageData) -> Void) {
+        for inline in self {
             switch inline {
                 case let .image(source, children):
-                    [.init(source: source, alt: children.renderPlainText())]
+                    visit(.init(source: source, alt: children.renderPlainText()))
                 default:
-                    inline.children.inlineImageData()
+                    inline.children.forEachInlineImage(visit)
             }
         }
     }
