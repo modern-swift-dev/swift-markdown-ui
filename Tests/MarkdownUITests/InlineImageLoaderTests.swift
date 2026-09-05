@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 @testable import MarkdownUI
+import os
 import XCTest
 
 @MainActor final class InlineImageLoaderTests: XCTestCase {
@@ -85,6 +86,56 @@ import XCTest
         _ = try await uncached.image(for: key("no-store"))
         let total = await probe.started
         XCTAssertEqual(total, 5)
+    }
+
+    func testIdleExpirationReleasesDecodedBackingAndPreservesFreshEntries() async throws {
+        let clock = ImageExpirationClock()
+        let sleeper = ImageExpirationSleeper()
+        let loader = InlineImageLoader(now: { clock.now }, sleepUntil: { await sleeper.sleep(until: $0) }, load: { key in
+            .init(image: try makeImage(), expiration: clock.now.addingTimeInterval(key.url.lastPathComponent == "first" ? 10 : 20))
+        })
+        var first: CGImage? = try await loader.image(for: key("first"))
+        let expiredBacking = WeakReference(first)
+        first = nil
+        var second: CGImage? = try await loader.image(for: key("second"))
+        let freshBacking = WeakReference(second)
+        second = nil
+        XCTAssertNotNil(expiredBacking.value)
+        try await wait { await sleeper.isSleeping }
+        clock.advance(by: 10)
+        await sleeper.wake()
+        try await wait { await sleeper.isSleeping }
+        XCTAssertNil(expiredBacking.value, "Expiration must release storage without another image request")
+        XCTAssertNotNil(freshBacking.value)
+        clock.advance(by: 10)
+        await sleeper.wake()
+        try await wait { freshBacking.value == nil }
+    }
+
+    func testMemoryPressurePurgeReleasesBackingAndAllowsReload() async throws {
+        let probe = LoaderProbe(suspended: false)
+        let loader = InlineImageLoader(load: { try await probe.load($0) })
+        let key = try key("purged")
+        var image: CGImage? = try await loader.image(for: key)
+        let backing = WeakReference(image)
+        image = nil
+        XCTAssertNotNil(backing.value)
+        // This is the same actor entry point used by the dispatch memory-pressure handler.
+        await loader.purgeCache()
+        try await wait { backing.value == nil }
+        _ = try await loader.image(for: key)
+        let started = await probe.started
+        XCTAssertEqual(started, 2)
+        await loader.purgeCache()
+    }
+
+    func testExpirationTaskDoesNotRetainLoader() async throws {
+        let probe = LoaderProbe(suspended: false)
+        var loader: InlineImageLoader? = InlineImageLoader(load: { try await probe.load($0) })
+        let weakLoader = WeakReference(loader)
+        _ = try await loader?.image(for: key("released"))
+        loader = nil
+        try await wait { weakLoader.value == nil }
     }
 
     func testHTTPFreshnessAndNoStore() throws {
@@ -193,4 +244,43 @@ private func makeImage(width: Int = 4, height: Int = 4) throws -> CGImage {
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ))
     return try XCTUnwrap(context.makeImage())
+}
+
+/// The clock is read by detached loading/expiration tasks and advanced by the test.
+private final class ImageExpirationClock: Sendable {
+    private let date = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 1000))
+
+    var now: Date {
+        date.withLock { $0 }
+    }
+
+    func advance(by interval: TimeInterval) {
+        date.withLock { $0.addTimeInterval(interval) }
+    }
+}
+
+private actor ImageExpirationSleeper {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    var isSleeping: Bool {
+        continuation != nil
+    }
+
+    func sleep(until deadline: Date) async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func wake() {
+        let pending = continuation
+        continuation = nil
+        pending?.resume()
+    }
+}
+
+private final class WeakReference<Object: AnyObject> {
+    weak var value: Object?
+
+    init(_ value: Object?) {
+        self.value = value
+    }
 }

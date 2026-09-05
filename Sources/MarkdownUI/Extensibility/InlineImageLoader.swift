@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import ImageIO
 
@@ -29,6 +30,12 @@ actor InlineImageLoader {
 
     private let maximumConcurrentLoads: Int
     private let maximumCacheCost: Int
+    private let now: @Sendable () -> Date
+    private let sleepUntil: @Sendable (Date) async throws -> Void
+    private var expirationTask: Task<Void, Never>?
+    private var scheduledExpiration: Date?
+    private var expirationGeneration: UInt64 = 0
+    private var memoryPressureObserver: MemoryPressureObserver?
     private let load: @Sendable (Key) async throws -> Resource
     private var jobs: [UUID: Job] = [:]
     private var jobForKey: [Key: UUID] = [:]
@@ -41,17 +48,27 @@ actor InlineImageLoader {
     init(
         maximumConcurrentLoads: Int = 4,
         maximumCacheCost: Int = 64 * 1024 * 1024,
+        now: @escaping @Sendable () -> Date = { Date() },
+        sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
+            try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+        },
         load: @escaping @Sendable (Key) async throws -> Resource = InlineImageLoader.download
     ) {
         precondition(maximumConcurrentLoads > 0 && maximumCacheCost >= 0)
         self.maximumConcurrentLoads = maximumConcurrentLoads
         self.maximumCacheCost = maximumCacheCost
+        self.now = now
+        self.sleepUntil = sleepUntil
         self.load = load
+    }
+
+    deinit {
+        expirationTask?.cancel()
     }
 
     func image(for key: Key) async throws -> CGImage {
         try Task.checkCancellation()
-        if var cached = cache[key], cached.expiration > Date() {
+        if var cached = cache[key], cached.expiration > now() {
             access &+= 1
             cached.access = access
             cache[key] = cached
@@ -59,6 +76,7 @@ actor InlineImageLoader {
         }
         if let expired = cache.removeValue(forKey: key) {
             cacheCost -= expired.cost
+            scheduleExpiration()
         }
         let waiterID = UUID()
         return try await withTaskCancellationHandler {
@@ -135,7 +153,7 @@ actor InlineImageLoader {
     }
 
     private func insert(_ resource: Resource, for key: Key) {
-        guard let expiration = resource.expiration, expiration > Date() else {
+        guard let expiration = resource.expiration, expiration > now() else {
             return
         }
         let image = resource.image
@@ -151,6 +169,59 @@ actor InlineImageLoader {
         access &+= 1
         cache[key] = CachedImage(image: image, cost: cost, expiration: expiration, access: access)
         cacheCost += cost
+        if memoryPressureObserver == nil {
+            memoryPressureObserver = MemoryPressureObserver { [weak self] in
+                Task { await self?.purgeCache() }
+            }
+        }
+        // Keep the existing earlier wake-up: it also handles eviction of its original entry.
+        if scheduledExpiration.map({ expiration < $0 }) ?? true {
+            scheduleExpiration(at: expiration)
+        }
+    }
+
+    /// Releases decoded storage without disturbing downloads or their waiters.
+    func purgeCache() {
+        cache.removeAll(keepingCapacity: false)
+        cacheCost = 0
+        scheduleExpiration(at: nil)
+    }
+
+    private func scheduleExpiration() {
+        scheduleExpiration(at: cache.values.lazy.map(\.expiration).min())
+    }
+
+    private func scheduleExpiration(at deadline: Date?) {
+        expirationTask?.cancel()
+        expirationTask = nil
+        scheduledExpiration = deadline
+        expirationGeneration &+= 1
+        guard let deadline else {
+            return
+        }
+        let generation = expirationGeneration
+        let sleepUntil = self.sleepUntil
+        expirationTask = Task.detached { [weak self] in
+            do {
+                try await sleepUntil(deadline)
+                try Task.checkCancellation()
+            } catch {
+                return
+            }
+            await self?.expireCache(generation: generation)
+        }
+    }
+
+    private func expireCache(generation: UInt64) {
+        guard generation == expirationGeneration else {
+            return
+        }
+        let currentDate = now()
+        for (key, entry) in cache where entry.expiration <= currentDate {
+            cache.removeValue(forKey: key)
+            cacheCost -= entry.cost
+        }
+        scheduleExpiration()
     }
 
     private static func download(_ key: Key) async throws -> Resource {
@@ -214,5 +285,20 @@ actor InlineImageLoader {
             throw URLError(.cannotDecodeContentData)
         }
         return image
+    }
+}
+
+/// Owns an immutable, resumed dispatch source; callbacks only hop onto the loader actor.
+private final class MemoryPressureObserver: @unchecked Sendable {
+    private let source: any DispatchSourceMemoryPressure
+
+    init(handler: @escaping @Sendable () -> Void) {
+        source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical])
+        source.setEventHandler(handler: handler)
+        source.resume()
+    }
+
+    deinit {
+        source.cancel()
     }
 }
