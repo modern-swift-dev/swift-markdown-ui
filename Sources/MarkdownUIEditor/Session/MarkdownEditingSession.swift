@@ -147,20 +147,28 @@ private struct ActiveTableSelection: Equatable, Sendable {
         guard ranges.count == replacements.count, ranges.count > 1 else {
             return true
         }
-        var edits: [PendingNativeEdit] = []
+        var edits: [EditorNodePath: PendingNativeEdit] = [:]
         for (range, replacement) in zip(ranges, replacements) {
             guard replacement != "\n",
                   let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
                   NSMaxRange(range) <= unit.projectionRange.upperBound - 1 else {
                 return true
             }
-            edits.append(PendingNativeEdit(
-                path: unit.path,
-                unitRange: unit.projectionRange.nsRange,
-                projectionDelta: replacement.utf16.count - range.length
-            ))
+            let delta = replacement.utf16.count - range.length
+            if var edit = edits[unit.path] {
+                edit.projectionDelta += delta
+                edits[unit.path] = edit
+            } else {
+                edits[unit.path] = PendingNativeEdit(
+                    path: unit.path,
+                    unitRange: unit.projectionRange.nsRange,
+                    projectionDelta: delta
+                )
+            }
         }
-        pendingNativeEdits = edits.sorted { $0.unitRange.location < $1.unitRange.location }
+        // TextKit has applied every range before storageDidChange arrives.
+        // Reconcile each leaf using its total length change.
+        pendingNativeEdits = edits.values.sorted { $0.unitRange.location < $1.unitRange.location }
         return true
     }
 

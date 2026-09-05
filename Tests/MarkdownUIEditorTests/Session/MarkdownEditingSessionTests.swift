@@ -565,6 +565,53 @@ import UIKit
         XCTAssertEqual(bridge.markdownSelectedRanges.count, 2)
     }
 
+    func testMultipleDeletionsWithinOneLeafKeepDocumentAndStorageSynchronized() {
+        let bridge = FakeTextViewBridge()
+        var published: [MarkdownDocument] = []
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "abcdef")) {
+            published.append($0)
+        }
+        session.attach(to: bridge)
+        let ranges = [NSRange(location: 1, length: 2), NSRange(location: 4, length: 2)]
+        XCTAssertTrue(session.shouldReplaceCharacters(in: ranges, with: ["", ""]))
+        for range in ranges.reversed() {
+            bridge.markdownTextStorage.replaceCharacters(in: range, with: "")
+        }
+        let selections = [NSRange(location: 1, length: 0), NSRange(location: 2, length: 0)]
+        bridge.markdownSelectedRanges = selections
+
+        session.storageDidChange()
+
+        let expected = MarkdownDocument(markdown: "ad")
+        XCTAssertEqual(session.document, expected)
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(bridge.markdownTextStorage.string, "ad\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, selections)
+        XCTAssertEqual(session.projection.index.projectionUTF16Length, bridge.markdownTextStorage.length)
+    }
+
+    func testMultipleEditsWithinAndAcrossLeavesUseCombinedOffsets() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "**abcdef**\n\n*ghijkl*"))
+        session.attach(to: bridge)
+        let ranges = [
+            NSRange(location: 1, length: 2), NSRange(location: 4, length: 2),
+            NSRange(location: 8, length: 2), NSRange(location: 11, length: 2)
+        ]
+        let replacements = ["", "", "XYZ", "Q"]
+        XCTAssertTrue(session.shouldReplaceCharacters(in: ranges, with: replacements))
+        for (range, replacement) in zip(ranges, replacements).reversed() {
+            let attributes = bridge.markdownTextStorage.attributes(at: range.location, effectiveRange: nil)
+            bridge.replaceAttributedCharacters(in: range, with: NSAttributedString(string: replacement, attributes: attributes))
+        }
+
+        session.storageDidChange()
+
+        XCTAssertEqual(session.document, MarkdownDocument(markdown: "**ad**\n\n*gXYZjQ*"))
+        XCTAssertEqual(bridge.markdownTextStorage.string, "ad\ngXYZjQ\n")
+        XCTAssertEqual(session.projection.index.projectionUTF16Length, bridge.markdownTextStorage.length)
+    }
+
     func testMarkedTextDefersSemanticReconciliationUntilCompositionEnds() {
         let original = MarkdownDocument(blocks: [.paragraph([.text("old")])])
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 0, length: 0)])
