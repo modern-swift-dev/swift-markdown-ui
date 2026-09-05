@@ -12,6 +12,7 @@ extension [BlockNode] {
 
     func renderMarkdown() -> String {
         UnsafeNode.makeDocument(self) { document in
+            document.prepareOrderedTasksForTextRendering(.markdown)
             guard let buffer = cmark_render_commonmark(document, CMARK_OPT_DEFAULT, 0) else {
                 return ""
             }
@@ -22,6 +23,7 @@ extension [BlockNode] {
 
     func renderPlainText() -> String {
         UnsafeNode.makeDocument(self) { document in
+            document.prepareOrderedTasksForTextRendering(.plainText)
             guard let buffer = cmark_render_plaintext(document, CMARK_OPT_DEFAULT, 0) else {
                 return ""
             }
@@ -47,7 +49,8 @@ private extension BlockNode {
             case .blockquote:
                 self = .blockquote(children: unsafeNode.children.compactMap(BlockNode.init(unsafeNode:)))
             case .list:
-                if unsafeNode.children.contains(where: \.isTaskListItem) {
+                if unsafeNode.listType == CMARK_BULLET_LIST,
+                   unsafeNode.children.allSatisfy(\.isTaskListItem) {
                     self = .taskList(
                         isTight: unsafeNode.isTightList,
                         items: unsafeNode.children.map(RawTaskListItem.init(unsafeNode:))
@@ -96,10 +99,13 @@ private extension BlockNode {
 
 private extension RawListItem {
     init(unsafeNode: UnsafeNode) {
-        guard unsafeNode.nodeType == .item else {
+        guard unsafeNode.nodeType == .item || unsafeNode.nodeType == .taskListItem else {
             fatalError("Expected a list item but got a '\(unsafeNode.nodeType)' instead.")
         }
-        self.init(children: unsafeNode.children.compactMap(BlockNode.init(unsafeNode:)))
+        self.init(
+            children: unsafeNode.children.compactMap(BlockNode.init(unsafeNode:)),
+            isCompleted: unsafeNode.isTaskListItem ? unsafeNode.isTaskListItemChecked : nil
+        )
     }
 }
 
@@ -171,7 +177,36 @@ private extension InlineNode {
 
 private typealias UnsafeNode = UnsafeMutablePointer<cmark_node>
 
+private enum TextRenderingFormat {
+    case markdown
+    case plainText
+}
+
 private extension UnsafeNode {
+    func prepareOrderedTasksForTextRendering(_ format: TextRenderingFormat) {
+        // cmark's task-list text renderer always emits a bullet, even in an ordered list.
+        // Render these as ordinary numbered items with a literal checkbox prefix instead.
+        if self.isTaskListItem,
+           let parent = cmark_node_parent(self), parent.listType == CMARK_ORDERED_LIST,
+           let paragraph = cmark_node_first_child(self), paragraph.nodeType == .paragraph {
+            let prefix = self.isTaskListItemChecked ? "[x] " : "[ ] "
+            let type = format == .markdown ? CMARK_NODE_CUSTOM_INLINE : CMARK_NODE_TEXT
+            if let marker = cmark_node_new(type) {
+                switch format {
+                    case .markdown:
+                        cmark_node_set_on_enter(marker, prefix)
+                    case .plainText:
+                        cmark_node_set_literal(marker, prefix)
+                }
+                cmark_node_prepend_child(paragraph, marker)
+                cmark_node_set_syntax_extension(self, nil)
+            }
+        }
+        for child in self.children {
+            child.prepareOrderedTasksForTextRendering(format)
+        }
+    }
+
     var nodeType: NodeType {
         let typeString = String(cString: cmark_node_get_type_string(self))
         guard let nodeType = NodeType(rawValue: typeString) else {
@@ -373,6 +408,9 @@ private extension UnsafeNode {
     }
 
     static func make(_ item: RawListItem) -> UnsafeNode? {
+        if let isCompleted = item.isCompleted {
+            return self.make(RawTaskListItem(isCompleted: isCompleted, children: item.children))
+        }
         guard let node = cmark_node_new(CMARK_NODE_ITEM) else {
             return nil
         }

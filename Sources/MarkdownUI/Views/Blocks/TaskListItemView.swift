@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TaskListItemView: View {
     @Environment(\.theme.listItem) private var listItem
-    @Environment(\.theme.taskListMarker) private var taskListMarker
 
     private let item: RawTaskListItem
 
@@ -13,13 +12,20 @@ struct TaskListItemView: View {
     var body: some View {
         self.listItem.makeBody(
             configuration: .init(
-                label: .init(self.label),
+                label: .init(TaskListItemLabel(item: self.item)),
                 content: .init(blocks: item.children)
             )
         )
     }
 
-    private var label: some View {
+}
+
+struct TaskListItemLabel: View {
+    @Environment(\.theme.taskListMarker) private var taskListMarker
+
+    let item: RawTaskListItem
+
+    var body: some View {
         Label {
             BlockSequence(self.item.children)
         } icon: {

@@ -32,7 +32,11 @@ struct ListItemView: View {
 
     private var label: some View {
         Label {
-            BlockSequence(self.item.children)
+            if let isCompleted = self.item.isCompleted {
+                TaskListItemLabel(item: .init(isCompleted: isCompleted, children: self.item.children))
+            } else {
+                BlockSequence(self.item.children)
+            }
         } icon: {
             self.markerStyle
                 .makeBody(configuration: .init(listLevel: self.listLevel, itemNumber: self.number))

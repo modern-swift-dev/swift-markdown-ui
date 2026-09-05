@@ -71,7 +71,7 @@ public struct NumberedList: MarkdownContentProtocol {
         }
         self.tight = hasItemsWithMultipleParagraphs ? false : tight
         self.start = start
-        self.items = items.map(\.children).map(RawListItem.init)
+        self.items = items.map { RawListItem(children: $0.children) }
     }
 
     /// Creates a numbered list with the specified items.

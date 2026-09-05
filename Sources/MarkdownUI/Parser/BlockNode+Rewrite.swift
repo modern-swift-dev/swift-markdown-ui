@@ -20,7 +20,7 @@ extension BlockNode {
                     .bulletedList(
                         isTight: isTight,
                         items: try items.map {
-                            RawListItem(children: try $0.children.rewrite(r))
+                            RawListItem(children: try $0.children.rewrite(r), isCompleted: $0.isCompleted)
                         }
                     )
                 )
@@ -30,7 +30,7 @@ extension BlockNode {
                         isTight: isTight,
                         start: start,
                         items: try items.map {
-                            RawListItem(children: try $0.children.rewrite(r))
+                            RawListItem(children: try $0.children.rewrite(r), isCompleted: $0.isCompleted)
                         }
                     )
                 )
@@ -57,7 +57,7 @@ extension BlockNode {
                     .bulletedList(
                         isTight: isTight,
                         items: try items.map {
-                            RawListItem(children: try $0.children.rewrite(r))
+                            RawListItem(children: try $0.children.rewrite(r), isCompleted: $0.isCompleted)
                         }
                     )
                 ]
@@ -67,7 +67,7 @@ extension BlockNode {
                         isTight: isTight,
                         start: start,
                         items: try items.map {
-                            RawListItem(children: try $0.children.rewrite(r))
+                            RawListItem(children: try $0.children.rewrite(r), isCompleted: $0.isCompleted)
                         }
                     )
                 ]

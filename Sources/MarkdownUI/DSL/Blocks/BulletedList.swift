@@ -76,7 +76,7 @@ public struct BulletedList: MarkdownContentProtocol {
         }
 
         self.tight = hasItemsWithMultipleParagraphs ? false : tight
-        self.items = items.map(\.children).map(RawListItem.init)
+        self.items = items.map { RawListItem(children: $0.children) }
     }
 
     /// Creates a bulleted list with the specified items.

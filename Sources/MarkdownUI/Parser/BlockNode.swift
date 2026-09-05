@@ -39,6 +39,12 @@ extension BlockNode {
 
 struct RawListItem: Hashable, Sendable {
     let children: [BlockNode]
+    let isCompleted: Bool?
+
+    init(children: [BlockNode], isCompleted: Bool? = nil) {
+        self.children = children
+        self.isCompleted = isCompleted
+    }
 }
 
 struct RawTaskListItem: Hashable, Sendable {
