@@ -60,6 +60,7 @@ private enum CMarkDocument {
             cmark_node_append_child(root, child)
         }
 
+        root.protectEmphasisBoundaries()
         guard let buffer = cmark_render_commonmark(root, CMARK_OPT_DEFAULT, 0) else {
             return nil
         }
@@ -190,6 +191,56 @@ private extension MarkdownInline {
 }
 
 private extension CMarkNode {
+    /// cmark's renderer emits delimiters even when punctuation prevents them
+    /// from opening or closing. An entity in the adjacent text gives the source
+    /// a punctuation boundary without changing the decoded text or formatting.
+    func protectEmphasisBoundaries() {
+        for child in Array(children) {
+            child.protectEmphasisBoundaries()
+            guard [.emphasis, .strong, .strikethrough].contains(child.type) else {
+                continue
+            }
+            if let first = cmark_node_first_child(child), first.hasPunctuationBoundary(atStart: true),
+               let previous = cmark_node_previous(child), previous.type == .text {
+                previous.encodeBoundaryScalar(atStart: false)
+            }
+            if let last = cmark_node_last_child(child), last.hasPunctuationBoundary(atStart: false),
+               let next = cmark_node_next(child), next.type == .text {
+                next.encodeBoundaryScalar(atStart: true)
+            }
+        }
+    }
+
+    func hasPunctuationBoundary(atStart: Bool) -> Bool {
+        if type == .text, let literal,
+           let scalar = atStart ? literal.unicodeScalars.first : literal.unicodeScalars.last {
+            return cmark_utf8proc_is_punctuation(Int32(scalar.value)) != 0
+        }
+        // Code, links, HTML, and nested formatting begin and end with markup.
+        return ![.softBreak, .lineBreak].contains(type)
+    }
+
+    func encodeBoundaryScalar(atStart: Bool) {
+        guard let literal,
+              let scalar = atStart ? literal.unicodeScalars.first : literal.unicodeScalars.last else {
+            return
+        }
+        var scalars = literal.unicodeScalars
+        guard cmark_utf8proc_is_space(Int32(scalar.value)) == 0,
+              cmark_utf8proc_is_punctuation(Int32(scalar.value)) == 0,
+              let entity = Self.literalNode(CMARK_NODE_HTML_INLINE, content: "&#\(scalar.value);") else {
+            return
+        }
+        if atStart {
+            scalars.removeFirst()
+            cmark_node_insert_before(self, entity)
+        } else {
+            scalars.removeLast()
+            cmark_node_insert_after(self, entity)
+        }
+        cmark_node_set_literal(self, String(scalars))
+    }
+
     var type: CMarkNodeType {
         CMarkNodeType(rawValue: String(cString: cmark_node_get_type_string(self))) ?? .unknown
     }

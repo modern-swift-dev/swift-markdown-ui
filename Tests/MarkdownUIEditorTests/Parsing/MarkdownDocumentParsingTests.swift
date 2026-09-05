@@ -59,6 +59,35 @@ final class MarkdownDocumentParsingTests: XCTestCase {
         assertSemanticRoundTrip(source)
     }
 
+    func testPunctuationAdjacentFormattingPreservesEverySelectionOnExport() {
+        for text in ["a.b", "a!b", "a_b", "a\\b", "hello (world)", "é。文", "👩🏽‍💻.文", "e\u{301}.b"] {
+            for style in [MarkdownInlineStyle.emphasis, .strong, .strikethrough] {
+                let boundaries = text.indices.map { $0.utf16Offset(in: text) } + [text.utf16.count]
+                for (index, start) in boundaries.dropLast().enumerated() {
+                    for end in boundaries.dropFirst(index + 1) {
+                        let result = MarkdownEditingEngine.apply(
+                            .toggleInline(style),
+                            to: MarkdownDocument(blocks: [.paragraph([.text(text)])]),
+                            selection: .init(path: .block(0), utf16Offset: start, utf16Length: end - start)
+                        ).document
+                        XCTAssertEqual(MarkdownDocument(markdown: result.markdown), result, "\(text), \(style), \(start)..<\(end): \(result.markdown)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testFormattingBesideCodeAndLinksKeepsItsBoundaries() {
+        for content: [MarkdownInline] in [
+            [.text("a"), .strong([.code("code")]), .text("b")],
+            [.text("é"), .emphasis([.link(destination: "/", title: nil, children: [.text("link")])]), .text("文")],
+            [.text("a"), .strong([.text(".")]), .text("b"), .emphasis([.text("!")]), .text("c")]
+        ] {
+            let document = MarkdownDocument(blocks: [.paragraph(content)])
+            XCTAssertEqual(MarkdownDocument(markdown: document.markdown), document, document.markdown)
+        }
+    }
+
     func testLinkAndImageTitlesArePreserved() {
         let document = MarkdownDocument(markdown: #"[link](/target "link title") ![alt](/image "image title")"#)
 
