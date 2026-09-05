@@ -24,6 +24,8 @@ struct DocumentProjection {
     private var serializedSource: String
     /// Mapping between visible TextKit positions and Markdown source positions.
     var index: ProjectionIndex
+    /// Native typing defers source mapping reconstruction until it is needed.
+    private var hasUnreconciledSource = false
 
     var string: String {
         attributedString.string
@@ -47,6 +49,23 @@ struct DocumentProjection {
         self.index = index
     }
 
+    /// Keeps native storage and unrelated unit identities when a table changes.
+    @MainActor mutating func reconcileTable(at path: EditorNodePath, document: MarkdownDocument) -> Bool {
+        if hasUnreconciledSource {
+            let rebuilt = MarkdownProjectionBuilder().build(document: document, output: .sourceIndex)
+            index.refreshSourceMappings(from: rebuilt.index)
+            serializedSource = rebuilt.source
+            hasUnreconciledSource = false
+            return true
+        }
+        guard let sourceLength = MarkdownProjectionBuilder.tableSourceLength(at: path, in: document),
+              index.replaceTableUnit(at: path, sourceLength: sourceLength) else {
+            return false
+        }
+        serializedSource = document.markdown
+        return true
+    }
+
     /// Records a native rich-text edit without rebuilding unrelated units.
     mutating func reconcileRichLeaf(
         at path: EditorNodePath,
@@ -64,15 +83,71 @@ struct DocumentProjection {
             return false
         }
         attributedString = textStorage
+        hasUnreconciledSource = true
         return true
     }
 }
 
 /// Builds TextKit-ready attributed text and offset mappings from a document.
 @MainActor struct MarkdownProjectionBuilder {
+    enum Output {
+        case nativeText
+        case sourceIndex
+    }
+
+    /// Computes the changed table's source length by visiting only its ancestors.
+    static func tableSourceLength(at path: EditorNodePath, in document: MarkdownDocument) -> Int? {
+        guard case let .block(rootIndex)? = path.components.first,
+              document.blocks.indices.contains(rootIndex) else {
+            return nil
+        }
+        var block = document.blocks[rootIndex]
+        var components = path.components.dropFirst()
+        var prefix = ""
+        while let component = components.first {
+            components = components.dropFirst()
+            switch (block, component) {
+                case let (.blockquote(children), .blockquoteBlock(index)):
+                    guard children.indices.contains(index) else {
+                        return nil
+                    }
+                    block = children[index]
+                    prefix += "> "
+                case let (.list(list), .listItem(itemIndex)):
+                    guard list.items.indices.contains(itemIndex),
+                          case let .itemBlock(blockIndex)? = components.first,
+                          list.items[itemIndex].blocks.indices.contains(blockIndex) else {
+                        return nil
+                    }
+                    components = components.dropFirst()
+                    let item = list.items[itemIndex]
+                    let marker = switch list.kind {
+                        case .unordered: "- "
+                        case let .ordered(start): "\(start + itemIndex). "
+                    }
+                    let taskMarker = switch item.taskState {
+                        case .checked?: "[x] "
+                        case .unchecked?: "[ ] "
+                        case nil: ""
+                    }
+                    prefix += blockIndex == 0
+                        ? marker + taskMarker
+                        : String(repeating: " ", count: marker.utf16.count + taskMarker.utf16.count)
+                    block = item.blocks[blockIndex]
+                default:
+                    return nil
+            }
+        }
+        guard case let .table(table) = block else {
+            return nil
+        }
+        return BuildState.tableMarkdown(table, prefix: prefix).utf16.count + 1
+    }
+
     /// Renders a complete document. Full builds are reserved for structural or configuration changes.
     func build(
         document: MarkdownDocument,
+        output: Output = .nativeText,
         theme: MarkdownEditorTheme = .basic,
         baseURL: URL? = nil,
         imageProvider: (any MarkdownEditorImageProvider)? = nil,
@@ -82,6 +157,7 @@ struct DocumentProjection {
         onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)? = nil
     ) -> DocumentProjection {
         let state = BuildState(
+            output: output,
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
@@ -105,7 +181,7 @@ struct DocumentProjection {
             serializedSource: document.markdown,
             index: ProjectionIndex(
                 units: state.units,
-                projectionUTF16Length: attributedString.length,
+                projectionUTF16Length: state.projectionLength,
                 sourceUTF16Length: state.source.length
             )
         )
@@ -127,7 +203,7 @@ private struct BlockPresentation {
 
     func inList(
         kind: MarkdownListKind,
-        textList: NSTextList,
+        textList: NSTextList?,
         taskState: MarkdownTaskState?
     ) -> Self {
         var copy = self
@@ -147,6 +223,8 @@ private struct BlockPresentation {
     /// Completed replaceable leaf units.
     var units: [ProjectionUnit] = []
 
+    private let output: MarkdownProjectionBuilder.Output
+    private(set) var projectionLength = 0
     private let theme: MarkdownEditorTheme
     private let baseURL: URL?
     private let imageProvider: (any MarkdownEditorImageProvider)?
@@ -157,6 +235,7 @@ private struct BlockPresentation {
     private let identities = EditorIdentityTree()
 
     init(
+        output: MarkdownProjectionBuilder.Output,
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
@@ -165,6 +244,7 @@ private struct BlockPresentation {
         onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)?,
         onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
     ) {
+        self.output = output
         self.theme = theme
         self.baseURL = baseURL
         self.imageProvider = imageProvider
@@ -242,6 +322,10 @@ private struct BlockPresentation {
             case let .table(table):
                 renderLeaf(path: path, kind: .table, presentation: presentation) {
                     let markdown = Self.tableMarkdown(table, prefix: firstPrefix)
+                    guard output == .nativeText else {
+                        appendObjectPlaceholder(source: markdown, kind: "table")
+                        return
+                    }
                     let attachment = MarkdownTableAttachment(table: table) { [onTableChange] table in
                         onTableChange?(path, table)
                     }
@@ -265,7 +349,7 @@ private struct BlockPresentation {
         prefix: String,
         presentation: BlockPresentation
     ) {
-        let sharedTextList = makeTextList(kind: list.kind)
+        let sharedTextList = output == .nativeText ? makeTextList(kind: list.kind) : nil
         for (itemIndex, item) in list.items.enumerated() {
             let marker = switch list.kind {
                 case .unordered: "- "
@@ -302,7 +386,7 @@ private struct BlockPresentation {
         body: () -> Void
     ) {
         let sourceStart = source.length
-        let projectionStart = projection.length
+        let projectionStart = projectionLength
         let segmentStart = allSegments.count
 
         body()
@@ -312,7 +396,7 @@ private struct BlockPresentation {
         let id = identities.id(for: path)
         let projectionRange = ProjectionUTF16Range(
             location: projectionStart,
-            length: projection.length - projectionStart
+            length: projectionLength - projectionStart
         )
         let sourceRange = SourceUTF16Range(
             location: sourceStart,
@@ -329,7 +413,7 @@ private struct BlockPresentation {
                 segments: segments
             )
         )
-        if projectionRange.length > 0 {
+        if output == .nativeText, projectionRange.length > 0 {
             if let taskState = presentation.taskState {
                 projection.addAttribute(.markdownEditorTaskChecked, value: NSNumber(value: taskState == .checked), range: projectionRange.nsRange)
                 if taskState == .checked {
@@ -453,6 +537,13 @@ private struct BlockPresentation {
                 appendHidden("](" + Self.linkDestination(destination) + Self.titleSuffix(title) + ")")
             case let .image(source, title, children):
                 let alt = Self.inlineMarkdown(children)
+                guard output == .nativeText else {
+                    appendObjectPlaceholder(
+                        source: "![" + alt + "](" + Self.linkDestination(source) + Self.titleSuffix(title) + ")",
+                        kind: "image"
+                    )
+                    return
+                }
                 let metadata = MarkdownImageMetadata(source: source, title: title, altText: MarkdownImageMetadata.altText(for: children))
                 let attachment = MarkdownImageAttachment(
                     metadata: metadata,
@@ -495,7 +586,7 @@ private struct BlockPresentation {
         source.append(value)
         allSegments.append(
             OffsetMapSegment(
-                projectionRange: ProjectionUTF16Range(location: projection.length, length: 0),
+                projectionRange: ProjectionUTF16Range(location: projectionLength, length: 0),
                 sourceRange: SourceUTF16Range(location: sourceStart, length: value.utf16.count),
                 kind: .hiddenSource
             )
@@ -524,11 +615,14 @@ private struct BlockPresentation {
             return
         }
         let sourceStart = source.length
-        let projectionStart = projection.length
+        let projectionStart = projectionLength
         source.append(sourceValue)
-        projection.append(NSAttributedString(string: projectionValue, attributes: attributes))
+        if output == .nativeText {
+            projection.append(NSAttributedString(string: projectionValue, attributes: attributes))
+        }
         let sourceLength = sourceValue.utf16.count
         let projectionLength = projectionValue.utf16.count
+        self.projectionLength += projectionLength
         let kind: OffsetMapSegment.Kind = projectionLength == 1 && projectionValue == "\u{fffc}"
             ? .objectReplacement
             : .text
@@ -548,7 +642,7 @@ private struct BlockPresentation {
         attributes: [NSAttributedString.Key: Any] = [:]
     ) {
         let sourceStart = source.length
-        let projectionStart = projection.length
+        let projectionStart = projectionLength
         source.append(sourceValue)
         let attributedString = NSMutableAttributedString(attachment: attachment)
         attributedString.addAttributes(
@@ -558,6 +652,7 @@ private struct BlockPresentation {
             range: NSRange(location: 0, length: attributedString.length)
         )
         projection.append(attributedString)
+        projectionLength += 1
         allSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionStart, length: 1),
@@ -569,14 +664,17 @@ private struct BlockPresentation {
 
     private func appendObjectPlaceholder(source sourceValue: String, kind: String) {
         let sourceStart = source.length
-        let projectionStart = projection.length
+        let projectionStart = projectionLength
         source.append(sourceValue)
-        projection.append(
-            NSAttributedString(
-                string: "\u{fffc}",
-                attributes: theme.objectPlaceholderAttributes.merging([.markdownEditorObjectKind: kind]) { _, rhs in rhs }
+        if output == .nativeText {
+            projection.append(
+                NSAttributedString(
+                    string: "\u{fffc}",
+                    attributes: theme.objectPlaceholderAttributes.merging([.markdownEditorObjectKind: kind]) { _, rhs in rhs }
+                )
             )
-        )
+        }
+        projectionLength += 1
         allSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionStart, length: 1),
@@ -640,6 +738,9 @@ private extension BuildState {
     static let markdownEscapablePunctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 
     func attributes(for style: InlineStyle) -> [NSAttributedString.Key: Any] {
+        guard output == .nativeText else {
+            return [:]
+        }
         var result: [NSAttributedString.Key: Any] = if style.isCode {
             theme.codeAttributes
         } else if let headingLevel = style.headingLevel {

@@ -755,6 +755,82 @@ import UIKit
         XCTAssertEqual(session.document, original)
     }
 
+    func testTableChangesOnlyReplaceTableMappingsAndPreserveNativeIdentities() throws {
+        let table = try XCTUnwrap(MarkdownDocument(markdown: "| Name |\n| --- |\n| Old |").blocks.first)
+        let containers: [MarkdownBlock] = [
+            table,
+            .blockquote([table]),
+            .list(MarkdownList(kind: .ordered(start: 10), isTight: false, items: [
+                MarkdownListItem(taskState: .checked, blocks: [.paragraph([.text("item")]), .blockquote([table])])
+            ]))
+        ]
+        for container in containers {
+            let document = MarkdownDocument(blocks: [
+                .paragraph([.strong([.text("Before")])]),
+                container,
+                .paragraph([.image(source: "image.png", title: nil, children: [.text("alt")])]),
+                .paragraph([.text("After 👩‍👩‍👧‍👦")])
+            ])
+            let bridge = FakeTextViewBridge()
+            let session = MarkdownEditingSession(document: document)
+            session.attach(to: bridge)
+            let originalUnits = session.projection.index.units
+            let tableAttachment = try XCTUnwrap(attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+            let originalImage = try XCTUnwrap(attachment(in: bridge.markdownTextStorage, ofType: MarkdownImageAttachment.self))
+            let replacements = bridge.replacementCount
+            for source in ["**Longer 👩‍👩‍👧‍👦**", "x"] {
+                tableAttachment.controller.updateCell(
+                    at: MarkdownTableCellPosition(section: .body(row: 0), column: 0), source: source
+                )
+                let expected = MarkdownProjectionBuilder().build(document: session.document)
+                let actualUnits = session.projection.index.units
+                XCTAssertEqual(session.projection.source, expected.source)
+                XCTAssertEqual(session.projection.index.sourceUTF16Length, expected.index.sourceUTF16Length)
+                XCTAssertEqual(actualUnits.map(\.id), originalUnits.map(\.id))
+                XCTAssertEqual(actualUnits.map(\.projectionRange), expected.index.units.map(\.projectionRange))
+                XCTAssertEqual(actualUnits.map(\.sourceRange), expected.index.units.map(\.sourceRange))
+                XCTAssertEqual(actualUnits.map(\.segments), expected.index.units.map(\.segments))
+                XCTAssertEqual(bridge.replacementCount, replacements)
+                XCTAssertTrue(originalImage === attachment(in: bridge.markdownTextStorage, ofType: MarkdownImageAttachment.self))
+                XCTAssertTrue(tableAttachment === attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+            }
+            // A native table can append a row without changing its outer attachment range.
+            tableAttachment.controller.moveForward(from: MarkdownTableCellPosition(section: .body(row: 0), column: 0))
+            let expected = MarkdownProjectionBuilder().build(document: session.document)
+            XCTAssertEqual(session.projection.index.units.map(\.segments), expected.index.units.map(\.segments))
+            XCTAssertEqual(session.projection.source, expected.source)
+        }
+    }
+
+    func testTableEditRefreshesDeferredRichTextSourceMapsWithoutReplacingStorage() throws {
+        let document = MarkdownDocument(markdown: "**Before**\n\n| Name |\n| --- |\n| Old |\n\nAfter")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 2, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.attach(to: bridge)
+        session.selectionDidChange()
+        let originalIDs = session.projection.index.units.map(\.id)
+        let table = try XCTUnwrap(attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+        let insertion = "😀*"
+        XCTAssertTrue(session.shouldReplaceCharacters(in: NSRange(location: 2, length: 0), with: insertion))
+        bridge.replaceAttributedCharacters(
+            in: NSRange(location: 2, length: 0),
+            with: NSAttributedString(string: insertion, attributes: bridge.markdownTypingAttributes)
+        )
+        bridge.markdownSelectedRanges = [NSRange(location: 5, length: 0)]
+        session.storageDidChange()
+        let replacements = bridge.replacementCount
+        for source in ["A longer cell", "x"] {
+            table.controller.updateCell(at: MarkdownTableCellPosition(section: .body(row: 0), column: 0), source: source)
+            let expected = MarkdownProjectionBuilder().build(document: session.document)
+            XCTAssertEqual(session.projection.index.units.map(\.segments), expected.index.units.map(\.segments))
+            XCTAssertEqual(session.projection.index.units.map(\.id), originalIDs)
+            XCTAssertEqual(session.projection.source, expected.source)
+            XCTAssertEqual(session.projection.index.sourceUTF16Length, expected.index.sourceUTF16Length)
+            XCTAssertEqual(bridge.replacementCount, replacements)
+            XCTAssertTrue(table === attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+        }
+    }
+
     func testTableCellFocusAnchorsOuterSelectionAndSurvivesProjectionRebuild() throws {
         let document = MarkdownDocument(markdown: """
         Before

@@ -18,6 +18,16 @@ import XCTest
         }
     }
 
+    func testSourceIndexBuildSkipsNativeTextAndPreservesMappings() {
+        let document = MarkdownDocument(markdown: "**text** ![alt](image.png)\n\n> | Header |\n> | --- |\n> | cell |\n\n- [x] task")
+        let native = MarkdownProjectionBuilder().build(document: document)
+        let metadata = MarkdownProjectionBuilder().build(document: document, output: .sourceIndex)
+        XCTAssertEqual(metadata.attributedString.length, 0)
+        XCTAssertEqual(metadata.index.projectionUTF16Length, native.index.projectionUTF16Length)
+        XCTAssertEqual(metadata.index.units.map(\.segments), native.index.units.map(\.segments))
+        XCTAssertEqual(metadata.source, native.source)
+    }
+
     func testInactiveRichInlineHidesDelimiters() {
         let document = MarkdownDocument(blocks: [
             .paragraph([

@@ -596,7 +596,7 @@ private extension MarkdownEditingSession {
         guard let replacement = replacingBlock(at: path, with: .table(table)) else {
             return
         }
-        applyTableReplacement(replacement)
+        applyTableReplacement(replacement, at: path)
     }
 
     func replaceImage(at path: EditorNodePath, with metadata: MarkdownImageMetadata) {
@@ -661,7 +661,7 @@ private extension MarkdownEditingSession {
         registerUndo(from: after, to: before)
     }
 
-    func applyTableReplacement(_ replacement: MarkdownDocument) {
+    func applyTableReplacement(_ replacement: MarkdownDocument, at path: EditorNodePath) {
         guard replacement != document else {
             return
         }
@@ -674,9 +674,10 @@ private extension MarkdownEditingSession {
         )
         document = replacement
         pendingNativeEdits = []
-        var replacementProjection = makeProjection(document: replacement)
-        replacementProjection.attributedString = projection.attributedString
-        projection = replacementProjection
+        if !projection.reconcileTable(at: path, document: replacement) {
+            projection = makeProjection(document: replacement)
+            installProjection(projection, selectedRanges: ranges)
+        }
         publishDocumentChange()
         let after = Snapshot(
             document: document,

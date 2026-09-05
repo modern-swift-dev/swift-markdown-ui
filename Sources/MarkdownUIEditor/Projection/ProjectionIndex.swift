@@ -275,14 +275,64 @@ struct ProjectionIndex {
                 )
             ]
         )
+        return replaceUnit(replacement)
+    }
+
+    /// Refreshes deferred source maps without changing the identities in native storage.
+    mutating func refreshSourceMappings(from rebuilt: ProjectionIndex) {
+        var units = rebuilt.units
+        for index in units.indices {
+            if let oldIndex = unitIndicesByPath[units[index].path] {
+                units[index].id = baseUnits[oldIndex].id
+            }
+        }
+        self = ProjectionIndex(
+            units: units,
+            projectionUTF16Length: rebuilt.projectionUTF16Length,
+            sourceUTF16Length: rebuilt.sourceUTF16Length
+        )
+    }
+
+    /// Updates a table's source mapping while its native attachment stays in place.
+    mutating func replaceTableUnit(at path: EditorNodePath, sourceLength: Int) -> Bool {
+        guard sourceLength > 0, var unit = unit(at: path), unit.kind == .table,
+              unit.projectionRange.length == 2 else {
+            return false
+        }
+        unit.sourceRange.length = sourceLength
+        unit.segments = [
+            OffsetMapSegment(
+                projectionRange: ProjectionUTF16Range(location: unit.projectionRange.location, length: 1),
+                sourceRange: SourceUTF16Range(location: unit.sourceRange.location, length: sourceLength - 1),
+                kind: .objectReplacement
+            ),
+            OffsetMapSegment(
+                projectionRange: ProjectionUTF16Range(location: unit.projectionRange.location + 1, length: 1),
+                sourceRange: SourceUTF16Range(location: unit.sourceRange.upperBound - 1, length: 1),
+                kind: .text
+            )
+        ]
+        return replaceUnit(unit)
+    }
+
+    private mutating func replaceUnit(_ replacement: ProjectionUnit) -> Bool {
+        if let activeReplacement,
+           unitIndicesByPath[replacement.path] != activeReplacement.unitIndex {
+            materializeActiveReplacement()
+        }
+        guard let unitIndex = unitIndicesByPath[replacement.path] else {
+            return false
+        }
+        let baseUnit = baseUnits[unitIndex]
+        let previous = activeReplacement?.unit ?? baseUnit
         activeReplacement = ActiveReplacement(
             unitIndex: unitIndex,
             unit: replacement,
-            projectionDelta: projectionLength - baseUnit.projectionRange.length,
-            sourceDelta: sourceLength - baseUnit.sourceRange.length
+            projectionDelta: replacement.projectionRange.length - baseUnit.projectionRange.length,
+            sourceDelta: replacement.sourceRange.length - baseUnit.sourceRange.length
         )
-        projectionUTF16Length += projectionLength - previous.projectionRange.length
-        sourceUTF16Length += sourceLength - previous.sourceRange.length
+        projectionUTF16Length += replacement.projectionRange.length - previous.projectionRange.length
+        sourceUTF16Length += replacement.sourceRange.length - previous.sourceRange.length
         return true
     }
 
