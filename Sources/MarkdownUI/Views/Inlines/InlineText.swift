@@ -8,6 +8,7 @@ struct InlineText: View {
     @Environment(\.theme) private var theme
 
     @State private var inlineImages: [RawImageData: Image] = [:]
+    @State private var imageLoadID: ImageLoadID?
 
     private let inlines: [InlineNode]
     private let imageData: Set<RawImageData>
@@ -44,22 +45,35 @@ struct InlineText: View {
             baseURL: self.imageBaseURL,
             providerID: self.inlineImageProvider.id
         )) {
-            if !self.inlineImages.isEmpty {
-                self.inlineImages = [:]
-            }
-            guard !self.imageData.isEmpty else {
-                return
-            }
-            let images = await Self.loadInlineImages(
-                images: self.imageData,
-                baseURL: self.imageBaseURL,
-                imageProvider: self.inlineImageProvider.provider
-            )
             guard !Task.isCancelled else {
                 return
             }
+            let loadID = ImageLoadID(
+                images: self.imageData,
+                baseURL: self.imageBaseURL,
+                providerID: self.inlineImageProvider.id
+            )
+            if self.imageLoadID?.baseURL != loadID.baseURL
+                || self.imageLoadID?.providerID != loadID.providerID {
+                self.inlineImages = [:]
+            } else if self.inlineImages.keys.contains(where: { !loadID.images.contains($0) }) {
+                self.inlineImages = self.inlineImages.filter { loadID.images.contains($0.key) }
+            }
+            self.imageLoadID = loadID
+            let missingImages = loadID.images.subtracting(self.inlineImages.keys)
+            guard !missingImages.isEmpty else {
+                return
+            }
+            let images = await Self.loadInlineImages(
+                images: missingImages,
+                baseURL: self.imageBaseURL,
+                imageProvider: self.inlineImageProvider.provider
+            )
+            guard !Task.isCancelled, self.imageLoadID == loadID else {
+                return
+            }
             if !images.isEmpty {
-                self.inlineImages = images
+                self.inlineImages.merge(images) { _, new in new }
             }
         }
     }

@@ -64,6 +64,69 @@ final class InlineImageContextTests: XCTestCase {
         XCTAssertEqual(labels, ["alt", "new label"])
     }
 
+    @MainActor func testAddingImagesLoadsOnlyMissingImages() async throws {
+        let model = ImageContextModel()
+        let provider = RecordingInlineImageProvider()
+        let hostingView = NSHostingView(
+            rootView: ImageContextView(model: model).markdownInlineImageProvider(provider)
+        )
+        let window = self.host(hostingView)
+        defer { window.contentView = nil }
+        try await self.waitForRequest("https://example.com/first/logo.png", from: provider)
+        // Allow the result to reach the view before changing the requested image set.
+        try await Task.sleep(for: .milliseconds(100))
+
+        model.markdown = "before ![alt](logo.png) ![second](second.png) after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await self.waitForRequest("https://example.com/first/second.png", from: provider)
+        try await Task.sleep(for: .milliseconds(100))
+        model.markdown += " ![third](third.png)"
+        hostingView.layoutSubtreeIfNeeded()
+        try await self.waitForRequest("https://example.com/first/third.png", from: provider)
+        try await Task.sleep(for: .milliseconds(100))
+
+        let requests = await provider.requests
+        XCTAssertEqual(requests, [
+            "https://example.com/first/logo.png",
+            "https://example.com/first/second.png",
+            "https://example.com/first/third.png"
+        ])
+    }
+
+    @MainActor func testRemovedImagesAreReleasedAndLoadedAgainWhenReinserted() async throws {
+        let model = ImageContextModel()
+        let provider = RecordingInlineImageProvider()
+        let hostingView = NSHostingView(
+            rootView: ImageContextView(model: model).markdownInlineImageProvider(provider)
+        )
+        let window = self.host(hostingView)
+        defer { window.contentView = nil }
+        try await self.waitForRequest("https://example.com/first/logo.png", from: provider)
+        try await Task.sleep(for: .milliseconds(100))
+        model.markdown = "before ![alt](logo.png) ![second](second.png) after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await self.waitForRequest("https://example.com/first/second.png", from: provider)
+        try await Task.sleep(for: .milliseconds(100))
+
+        model.markdown = "before ![second](second.png) after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        model.markdown = "before ![alt](logo.png) ![second](second.png) after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let afterReinsert = await provider.labels
+        XCTAssertEqual(afterReinsert, ["alt", "second", "alt"])
+
+        model.markdown = "before no images after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        model.markdown = "before ![second](second.png) after"
+        hostingView.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let afterEmpty = await provider.labels
+        XCTAssertEqual(afterEmpty, ["alt", "second", "alt", "second"])
+    }
+
     @MainActor func testExplicitValueProviderIdentityPreservesImagesAndInvalidatesConfiguration() async throws {
         let model = ImageContextModel()
         let recording = RecordingInlineImageProvider()
