@@ -141,9 +141,8 @@ import UIKit
 
     func testNavigationFromEmptyHeaderCreatesFirstBodyRow() {
         var changes = 0
-        let controller = MarkdownTableController(table: .init(alignments: [], header: .init(cells: []), rows: [])) {
-            _ in changes += 1
-        }
+        let table = MarkdownTable(alignments: [], header: .init(cells: []), rows: [])
+        let controller = MarkdownTableController(table: table) { _ in changes += 1 }
         let header = MarkdownTableCellPosition(section: .header, column: 0)
         XCTAssertNil(controller.moveBackward(from: header))
         XCTAssertEqual(controller.moveForward(from: header), .init(section: .body(row: 0), column: 0))
@@ -224,6 +223,106 @@ import UIKit
 
         XCTAssertEqual(widths, [30, 30, 30])
         XCTAssertEqual(widths.reduce(0, +), 90, accuracy: 0.001)
+    }
+
+    func testColumnCompressionPreservesNearEqualPlateauBehavior() {
+        let preferred: [CGFloat] = [100, 99.9995, 99.9989, 80]
+        for overflow: CGFloat in [0.0005, 0.001, 0.0015, 0.0025, 0.00322, 20, 100] {
+            let available = preferred.reduce(0, +) - overflow
+            XCTAssertEqual(
+                MarkdownTableColumnLayout.widths(preferredWidths: preferred, availableWidth: available),
+                legacyColumnWidths(preferredWidths: preferred, availableWidth: available),
+                "Overflow: \(overflow)"
+            )
+        }
+    }
+
+    func testColumnCompressionMatchesLegacyAcrossDeterministicFixtures() {
+        var seed: UInt64 = 0xB4A7
+        func next() -> UInt64 {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return seed
+        }
+        for iteration in 0 ..< 512 {
+            let count = Int(next() % 33)
+            let preferred: [CGFloat] = (0 ..< count).map { column in
+                switch column % 3 {
+                    case 0: CGFloat(next() % 100_000) / 100
+                    case 1: 100 + CGFloat(Int(next() % 21) - 10) / 10000
+                    default: 44 + CGFloat(next() % 30) / 10000
+                }
+            }
+            let total = preferred.reduce(0) { $0 + max($1, 44) }
+            let available: CGFloat? = switch iteration % 7 {
+                case 0: nil
+                case 1: .infinity
+                case 2: 0
+                case 3: CGFloat(count) * 22
+                case 4: total + 1
+                case 5: total - CGFloat(next() % 40) / 10000
+                default: total * CGFloat(next() % 1000) / 1000
+            }
+            XCTAssertEqual(
+                MarkdownTableColumnLayout.widths(preferredWidths: preferred, availableWidth: available),
+                legacyColumnWidths(preferredWidths: preferred, availableWidth: available),
+                "Fixture \(iteration): \(preferred), available: \(String(describing: available))"
+            )
+        }
+    }
+
+    func testManyDistinctColumnsCompressToTheSharedPlateau() {
+        let count = 1024
+        let preferred = (0 ..< count).map { CGFloat(44 + $0) }
+        let available = CGFloat(count * 44 + 1)
+        let widths = MarkdownTableColumnLayout.widths(preferredWidths: preferred, availableWidth: available)
+        XCTAssertEqual(widths.first, 44)
+        for width in widths.dropFirst() {
+            XCTAssertEqual(width, 44 + 1 / CGFloat(count - 1), accuracy: 0.000001)
+        }
+        XCTAssertEqual(widths.reduce(0, +), available, accuracy: 0.001)
+    }
+
+    /// Preserve the original scan-based solver as a regression oracle: a simple
+    /// final cap differs when widths join a plateau within the 0.001 tolerance.
+    private func legacyColumnWidths(preferredWidths: [CGFloat], availableWidth: CGFloat?) -> [CGFloat] {
+        guard !preferredWidths.isEmpty else {
+            return []
+        }
+        let preferred = preferredWidths.map { max($0, MarkdownTableColumnLayout.minimumColumnWidth) }
+        guard let availableWidth, availableWidth.isFinite, availableWidth > 0 else {
+            return preferred
+        }
+        let minimum = min(MarkdownTableColumnLayout.minimumColumnWidth, availableWidth / CGFloat(preferred.count))
+        guard preferred.reduce(0, +) > availableWidth else {
+            return preferred
+        }
+        guard availableWidth > minimum * CGFloat(preferred.count) else {
+            return Array(repeating: availableWidth / CGFloat(preferred.count), count: preferred.count)
+        }
+        var widths = preferred
+        var overflow = widths.reduce(0, +) - availableWidth
+        while overflow > 0.001 {
+            guard let widest = widths.max() else {
+                break
+            }
+            let indices = widths.indices.filter { abs(widths[$0] - widest) < 0.001 }
+            let nextWidth = widths.indices.filter { !indices.contains($0) }.map { widths[$0] }.max() ?? minimum
+            let lowerBound = max(nextWidth, minimum)
+            let reducible = (widest - lowerBound) * CGFloat(indices.count)
+            if reducible >= overflow {
+                let reduction = overflow / CGFloat(indices.count)
+                for index in indices {
+                    widths[index] -= reduction
+                }
+                overflow = 0
+            } else {
+                for index in indices {
+                    widths[index] = lowerBound
+                }
+                overflow -= reducible
+            }
+        }
+        return widths
     }
 
     #if canImport(AppKit)

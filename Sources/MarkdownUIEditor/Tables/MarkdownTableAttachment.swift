@@ -586,29 +586,40 @@ enum MarkdownTableColumnLayout {
 
         var widths = preferred
         var overflow = widths.reduce(0, +) - availableWidth
+        guard overflow > 0.001 else {
+            return widths
+        }
+        let descendingColumns = widths.indices.sorted { preferred[$0] > preferred[$1] }
+        var widest = preferred[descendingColumns[0]]
+        var activeCount = 0
+        var leveledCount = 0
         while overflow > 0.001 {
-            guard let widest = widths.max() else {
-                break
+            while activeCount < descendingColumns.count,
+                  abs(preferred[descendingColumns[activeCount]] - widest) < 0.001 {
+                activeCount += 1
             }
-            let widestIndices = widths.indices.filter { abs(widths[$0] - widest) < 0.001 }
-            let nextWidth = widths.indices
-                .filter { !widestIndices.contains($0) }
-                .map { widths[$0] }
-                .max() ?? minimum
+            let nextWidth = activeCount < descendingColumns.count
+                ? preferred[descendingColumns[activeCount]] : minimum
             let lowerBound = max(nextWidth, minimum)
-            let reducible = (widest - lowerBound) * CGFloat(widestIndices.count)
+            let reducible = (widest - lowerBound) * CGFloat(activeCount)
             if reducible >= overflow {
-                let reduction = overflow / CGFloat(widestIndices.count)
-                for index in widestIndices {
-                    widths[index] -= reduction
+                let reduction = overflow / CGFloat(activeCount)
+                for position in 0 ..< activeCount {
+                    let column = descendingColumns[position]
+                    // Newly joined widths retain their sub-tolerance differences
+                    // unless the whole group reached a lower plateau previously.
+                    widths[column] = (position < leveledCount ? widest : preferred[column]) - reduction
                 }
-                overflow = 0
-            } else {
-                for index in widestIndices {
-                    widths[index] = lowerBound
-                }
-                overflow -= reducible
+                return widths
             }
+            // Track complete plateau reductions without rewriting the prefix on
+            // every step. Each column joins the active prefix only once.
+            widest = lowerBound
+            leveledCount = activeCount
+            overflow -= reducible
+        }
+        for position in 0 ..< leveledCount {
+            widths[descendingColumns[position]] = widest
         }
         return widths
     }
