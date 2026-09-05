@@ -4,6 +4,35 @@ import UIKit
 import XCTest
 
 @MainActor final class MarkdownTextViewTests: XCTestCase {
+    func testEditorIgnoresUnrelatedUndoNotifications() {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.document = MarkdownDocument(markdown: "text")
+        var updates = 0
+        editor.editingSession.onCommandStateChange = { updates += 1 }
+
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: UndoManager())
+        NotificationCenter.default.post(name: .NSUndoManagerDidRedoChange, object: UndoManager())
+
+        XCTAssertEqual(updates, 0)
+    }
+
+    func testUndoNotificationsFollowAttachedEditorManager() throws {
+        let editor = makeTextView()
+        editor.document = MarkdownDocument(markdown: "text")
+        editor.becomeFirstResponder()
+        let manager = try XCTUnwrap(editor.undoManager)
+        var updates = 0
+        editor.editingSession.onCommandStateChange = { updates += 1 }
+
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: UndoManager())
+        XCTAssertEqual(updates, 0)
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: manager)
+        XCTAssertGreaterThan(updates, 0)
+        updates = 0
+        NotificationCenter.default.post(name: .NSUndoManagerDidRedoChange, object: manager)
+        XCTAssertGreaterThan(updates, 0)
+    }
+
     func testEditMenuFormatsItsSelectionWithoutTableActions() throws {
         for (title, expected) in [("Bold", "**hello** world\n"), ("Italic", "*hello* world\n"), ("Strikethrough", "~~hello~~ world\n")] {
             let editor = makeTextView()

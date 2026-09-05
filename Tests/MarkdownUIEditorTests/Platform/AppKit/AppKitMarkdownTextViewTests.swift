@@ -4,6 +4,49 @@ import AppKit
 import XCTest
 
 @MainActor final class MarkdownTextViewTests: XCTestCase {
+    func testDetachedEditorIgnoresUnrelatedUndoNotifications() {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.document = MarkdownDocument(markdown: "text")
+        XCTAssertNil(editor.undoManager)
+        var updates = 0
+        editor.editingSession.onCommandStateChange = { updates += 1 }
+
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: UndoManager())
+        NotificationCenter.default.post(name: .NSUndoManagerDidRedoChange, object: UndoManager())
+
+        XCTAssertEqual(updates, 0)
+    }
+
+    func testUndoNotificationsFollowCurrentWindowManager() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        let firstWindow = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let secondWindow = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        firstWindow.contentView = editor
+        firstWindow.makeFirstResponder(editor)
+        editor.document = MarkdownDocument(markdown: "text")
+        defer {
+            firstWindow.contentView = nil
+            secondWindow.contentView = nil
+        }
+        let firstManager = try XCTUnwrap(editor.undoManager)
+        var updates = 0
+        editor.editingSession.onCommandStateChange = { updates += 1 }
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: firstManager)
+        XCTAssertGreaterThan(updates, 0)
+
+        firstWindow.contentView = nil
+        secondWindow.contentView = editor
+        secondWindow.makeFirstResponder(editor)
+        let secondManager = try XCTUnwrap(editor.undoManager)
+        XCTAssertFalse(firstManager === secondManager)
+        updates = 0
+        NotificationCenter.default.post(name: .NSUndoManagerDidUndoChange, object: firstManager)
+        XCTAssertEqual(updates, 0)
+        NotificationCenter.default.post(name: .NSUndoManagerDidRedoChange, object: secondManager)
+        XCTAssertGreaterThan(updates, 0)
+    }
+
     func testContextMenuFormatsSelectedTextWithoutTableActions() throws {
         for (title, expected) in [("Bold", "**hello** world\n"), ("Italic", "*hello* world\n"), ("Strikethrough", "~~hello~~ world\n")] {
             let editor = MarkdownTextView(usingTextLayoutManager: true)

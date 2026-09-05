@@ -266,7 +266,7 @@ private extension MarkdownTextView {
         isAutomaticDataDetectionEnabled = true
         usesFindBar = true
         delegate = coordinator
-        coordinator.observeUndoManager(undoManager)
+        coordinator.observeUndoManager()
         hasAttachedEditingSession = true
         editingSession.attach(to: self)
     }
@@ -280,23 +280,30 @@ private extension MarkdownTextView {
         self.owner = owner
     }
 
-    func observeUndoManager(_ undoManager: UndoManager?) {
+    func observeUndoManager() {
+        // Resolve the owner's current manager in the callback because attaching
+        // to a window or moving between windows can change it.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(undoManagerDidChange(_:)),
             name: .NSUndoManagerDidUndoChange,
-            object: undoManager
+            object: nil
         )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(undoManagerDidChange(_:)),
             name: .NSUndoManagerDidRedoChange,
-            object: undoManager
+            object: nil
         )
     }
 
     @objc private func undoManagerDidChange(_ notification: Notification) {
-        owner?.editingSession.undoManagerDidChange()
+        guard let owner,
+              let manager = notification.object as? UndoManager,
+              manager === owner.undoManager else {
+            return
+        }
+        owner.editingSession.undoManagerDidChange()
     }
 
     func textDidChange(_ notification: Notification) {
