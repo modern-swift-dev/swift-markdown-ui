@@ -510,6 +510,52 @@ private enum MarkdownTableCellSourceCodec {
     }
 }
 
+/// Retains cell measurements between native edits. Width changes can affect other
+/// columns when the table is constrained, so resolve all columns from cached maxima.
+struct MarkdownTableCellLayoutCache {
+    private let positionsByColumn: [[MarkdownTableCellPosition]]
+    private var preferredCellWidths: [MarkdownTableCellPosition: CGFloat] = [:]
+    private var preferredColumnWidths: [CGFloat]
+    private(set) var widths: [CGFloat] = []
+
+    init(positions: [MarkdownTableCellPosition], columnCount: Int) {
+        var columns = Array(repeating: [MarkdownTableCellPosition](), count: columnCount)
+        for position in positions {
+            columns[position.column].append(position)
+        }
+        positionsByColumn = columns
+        preferredColumnWidths = Array(repeating: MarkdownTableColumnLayout.minimumColumnWidth, count: columnCount)
+    }
+
+    /// Returns only cells whose content or resolved column width needs layout.
+    /// A nil changed cell refreshes every measurement after a configuration change.
+    mutating func update(
+        changedCell: MarkdownTableCellPosition? = nil,
+        availableWidth: CGFloat?,
+        measure: (MarkdownTableCellPosition) -> CGFloat
+    ) -> Set<MarkdownTableCellPosition> {
+        let measuredPositions = changedCell.map { [$0] } ?? positionsByColumn.flatMap(\.self)
+        for position in measuredPositions {
+            preferredCellWidths[position] = measure(position)
+        }
+        let changedColumns = changedCell.map { [$0.column] } ?? Array(positionsByColumn.indices)
+        for column in changedColumns {
+            preferredColumnWidths[column] = positionsByColumn[column]
+                .compactMap { preferredCellWidths[$0] }.max() ?? MarkdownTableColumnLayout.minimumColumnWidth
+        }
+        let resolvedWidths = MarkdownTableColumnLayout.widths(
+            preferredWidths: preferredColumnWidths,
+            availableWidth: availableWidth
+        )
+        var affected = Set(measuredPositions)
+        for column in resolvedWidths.indices where !widths.indices.contains(column) || widths[column] != resolvedWidths[column] {
+            affected.formUnion(positionsByColumn[column])
+        }
+        widths = resolvedWidths
+        return affected
+    }
+}
+
 enum MarkdownTableColumnLayout {
     static let minimumColumnWidth: CGFloat = 44
 
@@ -700,7 +746,8 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
     }
 }
 
-@MainActor private final class UIKitMarkdownTableGridView: UIView, UITextViewDelegate {
+@MainActor final class UIKitMarkdownTableGridView: UIView, UITextViewDelegate {
+    private(set) var attachmentResizeCount = 0
     private let controller: MarkdownTableController
     private var maximumWidth: CGFloat?
     private let stack = UIStackView()
@@ -709,6 +756,8 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
     private var isEditingCell = false
     private var rowStacks: [UIStackView] = []
     private var rowHeightConstraints: [NSLayoutConstraint] = []
+    private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
+    private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
 
     init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
         self.controller = controller
@@ -764,8 +813,9 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
             controller.updateRichCell(at: field.position, text: field.textStorage)
             isEditingCell = false
         }
-        updateColumnWidths()
-        resizeAttachment()
+        if updateColumnWidths(changedCell: field.position) {
+            resizeAttachment()
+        }
     }
 
     func textViewDidBeginEditing(_ textView: UITextView) {
@@ -816,11 +866,13 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
         columnWidthConstraints.removeAll()
         rowStacks.removeAll()
         rowHeightConstraints.removeAll()
+        cellHeights.removeAll()
         let count = max(controller.columnCount, 1)
         addRow(kind: .header, row: nil, columnCount: count)
         for row in controller.table.rows.indices {
             addRow(kind: .body, row: row, columnCount: count)
         }
+        cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
         updateColumnWidths()
     }
 
@@ -873,38 +925,52 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
         rowHeightConstraints.append(heightConstraint)
     }
 
-    private func updateColumnWidths() {
-        let columnCount = max(controller.columnCount, 1)
-        let preferredWidths = (0 ..< columnCount).map { column in
-            fields
-                .filter { $0.key.column == column }
-                .map { _, field in
-                    let textWidth = field.attributedText.size().width
-                    return ceil(textWidth) + field.textContainerInset.left + field.textContainerInset.right + 2
-                }
-                .max() ?? MarkdownTableColumnLayout.minimumColumnWidth
+    @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+        let fields = self.fields
+        let previousWidths = cellLayout.widths
+        let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+            guard let field = fields[position] else {
+                return MarkdownTableColumnLayout.minimumColumnWidth
+            }
+            return ceil(field.attributedText.size().width) + field.textContainerInset.left + field.textContainerInset.right + 2
         }
-        let widths = MarkdownTableColumnLayout.widths(
-            preferredWidths: preferredWidths,
-            availableWidth: maximumWidth
-        )
-        for column in widths.indices {
-            for constraint in columnWidthConstraints[column] {
+        let widths = cellLayout.widths
+        for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
+            for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
                 constraint.constant = widths[column]
             }
-            for field in fields where field.key.column == column {
-                field.value.layoutWidth = widths[column]
-                field.value.invalidateIntrinsicContentSize()
+        }
+        var affectedRows = Set<Int>()
+        for position in affected {
+            guard let field = fields[position] else {
+                continue
+            }
+            field.layoutWidth = widths[position.column]
+            let height = field.measuredHeight
+            if cellHeights[position] != height {
+                cellHeights[position] = height
+                field.invalidateIntrinsicContentSize()
+            }
+            let row = switch position.section {
+                case .header: 0
+                case let .body(row): row + 1
+            }
+            affectedRows.insert(row)
+        }
+        var heightChanged = false
+        for row in affectedRows {
+            let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
+            let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
+            if rowHeightConstraints[row].constant != height {
+                rowHeightConstraints[row].constant = height
+                heightChanged = true
             }
         }
-        for row in rowStacks.indices {
-            let height = rowStacks[row].arrangedSubviews
-                .compactMap { $0 as? MarkdownTableCellTextView }
-                .map(\.measuredHeight)
-                .max() ?? 28
-            rowHeightConstraints[row].constant = height
+        let dimensionsChanged = previousWidths != widths || heightChanged
+        if dimensionsChanged {
+            setNeedsLayout()
         }
-        setNeedsLayout()
+        return dimensionsChanged
     }
 
     func updateAvailableWidth(_ width: CGFloat?) {
@@ -917,6 +983,7 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
     }
 
     private func resizeAttachment() {
+        attachmentResizeCount += 1
         invalidateIntrinsicContentSize()
         let size = intrinsicContentSize
         if frame.size != size {
@@ -1093,13 +1160,17 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
     }
 }
 
-@MainActor private final class AppKitMarkdownTableGridView: NSView, NSTextViewDelegate {
+@MainActor final class AppKitMarkdownTableGridView: NSView, NSTextViewDelegate {
+    private(set) var attachmentResizeCount = 0
     private let controller: MarkdownTableController
     private var maximumWidth: CGFloat?
     private var gridView = NSGridView()
     private var fields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
     private var columnWidthConstraints: [[NSLayoutConstraint]] = []
     private var isEditingCell = false
+    private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
+    private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+    private var rowHeights: [MarkdownTableCellPosition.Section: CGFloat] = [:]
 
     init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
         self.controller = controller
@@ -1145,8 +1216,9 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
             controller.updateRichCell(at: field.position, text: field.attributedString())
             isEditingCell = false
         }
-        updateColumnWidths()
-        resizeAttachment()
+        if updateColumnWidths(changedCell: field.position) {
+            resizeAttachment()
+        }
     }
 
     func textDidBeginEditing(_ notification: Notification) {
@@ -1189,6 +1261,8 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
         gridView.removeFromSuperview()
         fields.removeAll()
         columnWidthConstraints.removeAll()
+        cellHeights.removeAll()
+        rowHeights.removeAll()
         let count = max(controller.columnCount, 1)
         var rows: [[NSView]] = []
         rows.append(makeRow(kind: .header, row: nil, columnCount: count))
@@ -1200,6 +1274,7 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
         gridView.columnSpacing = 0
         gridView.xPlacement = .fill
         gridView.yPlacement = .fill
+        cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
         updateColumnWidths()
         gridView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(gridView)
@@ -1249,35 +1324,51 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
         }
     }
 
-    private func updateColumnWidths() {
-        let columnCount = max(controller.columnCount, 1)
-        let preferredWidths = (0 ..< columnCount).map { column in
-            fields
-                .filter { $0.key.column == column }
-                .map { _, field in
-                    let textWidth = field.attributedString().size().width
-                    return ceil(textWidth) + 16
-                }
-                .max() ?? MarkdownTableColumnLayout.minimumColumnWidth
+    @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+        let fields = self.fields
+        let previousWidths = cellLayout.widths
+        let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+            guard let field = fields[position] else {
+                return MarkdownTableColumnLayout.minimumColumnWidth
+            }
+            return ceil(field.attributedString().size().width) + 16
         }
-        let widths = MarkdownTableColumnLayout.widths(
-            preferredWidths: preferredWidths,
-            availableWidth: maximumWidth
-        )
+        let widths = cellLayout.widths
         guard gridView.numberOfColumns == widths.count else {
-            return
+            return false
         }
-        for column in widths.indices {
+        for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
             gridView.column(at: column).width = widths[column]
-            for constraint in columnWidthConstraints[column] {
+            for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
                 constraint.constant = widths[column]
             }
-            for field in fields where field.key.column == column {
-                field.value.layoutWidth = widths[column]
-                field.value.invalidateIntrinsicContentSize()
+        }
+        var affectedRows = Set<MarkdownTableCellPosition.Section>()
+        for position in affected {
+            guard let field = fields[position] else {
+                continue
+            }
+            field.layoutWidth = widths[position.column]
+            let height = field.intrinsicContentSize.height
+            if cellHeights[position] != height {
+                cellHeights[position] = height
+                field.invalidateIntrinsicContentSize()
+            }
+            affectedRows.insert(position.section)
+        }
+        var heightChanged = false
+        for section in affectedRows {
+            let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
+            if rowHeights[section] != height {
+                rowHeights[section] = height
+                heightChanged = true
             }
         }
-        needsLayout = true
+        let dimensionsChanged = previousWidths != widths || heightChanged
+        if dimensionsChanged {
+            needsLayout = true
+        }
+        return dimensionsChanged
     }
 
     func updateAvailableWidth(_ width: CGFloat?) {
@@ -1290,6 +1381,7 @@ public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProv
     }
 
     private func resizeAttachment() {
+        attachmentResizeCount += 1
         invalidateIntrinsicContentSize()
         let size = intrinsicContentSize
         if frame.size != size {

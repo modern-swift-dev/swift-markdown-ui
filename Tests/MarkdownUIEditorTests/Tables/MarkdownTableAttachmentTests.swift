@@ -9,6 +9,69 @@ import UIKit
 #endif
 
 @MainActor final class MarkdownTableAttachmentTests: XCTestCase {
+    func testCellLayoutMeasuresOnlyEditedCellWhenColumnMaximumIsUnchanged() {
+        let positions = (0 ..< 100).flatMap { row in
+            (0 ..< 4).map { MarkdownTableCellPosition(section: .body(row: row), column: $0) }
+        }
+        let edited = positions[0]
+        var layout = MarkdownTableCellLayoutCache(positions: positions, columnCount: 4)
+        var measured: [MarkdownTableCellPosition] = []
+        XCTAssertEqual(layout.update(availableWidth: nil) { position in
+            measured.append(position)
+            return position == edited ? 50 : 100
+        }, Set(positions))
+        XCTAssertEqual(measured.count, 400)
+
+        for width in [CGFloat(60), 70, 55] {
+            measured.removeAll()
+            let affected = layout.update(changedCell: edited, availableWidth: nil) { position in
+                measured.append(position)
+                return width
+            }
+            XCTAssertEqual(measured, [edited])
+            XCTAssertEqual(affected, [edited], "Only the edited cell should need height measurement or intrinsic-size invalidation")
+            XCTAssertEqual(layout.widths, [100, 100, 100, 100])
+        }
+    }
+
+    func testCellLayoutShrinkingWidestCellReflowsOnlyItsColumn() {
+        let header = MarkdownTableCellPosition(section: .header, column: 0)
+        let body = MarkdownTableCellPosition(section: .body(row: 0), column: 0)
+        let other = MarkdownTableCellPosition(section: .header, column: 1)
+        var layout = MarkdownTableCellLayoutCache(positions: [header, body, other], columnCount: 2)
+        _ = layout.update(availableWidth: nil) { position in position == header ? 200 : 100 }
+
+        var measured: [MarkdownTableCellPosition] = []
+        let affected = layout.update(changedCell: header, availableWidth: nil) { position in
+            measured.append(position)
+            return 50
+        }
+        XCTAssertEqual(measured, [header])
+        XCTAssertEqual(layout.widths, [100, 100])
+        XCTAssertEqual(affected, [header, body], "Cached peers must determine the new maximum and rewrap when their column shrinks")
+    }
+
+    func testCellLayoutRedistributesConstrainedWidthsAndRefreshesForConfigurationChanges() {
+        let first = MarkdownTableCellPosition(section: .header, column: 0)
+        let second = MarkdownTableCellPosition(section: .header, column: 1)
+        var layout = MarkdownTableCellLayoutCache(positions: [first, second], columnCount: 2)
+        _ = layout.update(availableWidth: 200) { _ in 150 }
+        XCTAssertEqual(layout.widths, [100, 100])
+
+        let affected = layout.update(changedCell: first, availableWidth: 200) { _ in 50 }
+        XCTAssertEqual(layout.widths, [50, 150])
+        XCTAssertEqual(affected, [first, second], "A change in one column can release width for other columns")
+
+        var measured: [MarkdownTableCellPosition] = []
+        let refreshed = layout.update(availableWidth: 100) { position in
+            measured.append(position)
+            return position == first ? 50 : 150
+        }
+        XCTAssertEqual(Set(measured), [first, second])
+        XCTAssertEqual(refreshed, [first, second])
+        XCTAssertEqual(layout.widths, [50, 50])
+    }
+
     func testNavigationVisitsHeaderThenBody() {
         let controller = MarkdownTableController(table: makeTable())
 
@@ -101,6 +164,29 @@ import UIKit
     }
 
     #if canImport(AppKit)
+    func testStableCellEditsSkipAttachmentFittingUntilRowHeightChanges() throws {
+        let attachment = MarkdownTableAttachment(table: sizingTable())
+        let storage = NSTextContentStorage()
+        let container = NSTextContainer(size: NSSize(width: 240, height: 1000))
+        let provider = try XCTUnwrap(attachment.viewProvider(for: nil, location: storage.documentRange.location, textContainer: container))
+        let view = try XCTUnwrap(provider.view as? AppKitMarkdownTableGridView)
+        let grid = try XCTUnwrap(firstSubview(of: NSGridView.self, in: view))
+        let cell = try XCTUnwrap(grid.cell(atColumnIndex: 0, rowIndex: 1).contentView as? NSTextView)
+        let initialResizeCount = view.attachmentResizeCount
+        let initialHeight = view.frame.height
+
+        for text in ["a", "ab", "abc", "a\nb"] {
+            cell.string = text
+            view.textDidChange(Notification(name: NSText.didChangeNotification, object: cell))
+            XCTAssertEqual(view.attachmentResizeCount, initialResizeCount, "Unchanged column widths and row heights must skip full grid fitting")
+        }
+
+        cell.string = "a\nb\nc\nd\ne\nf\ng"
+        view.textDidChange(Notification(name: NSText.didChangeNotification, object: cell))
+        XCTAssertEqual(view.attachmentResizeCount, initialResizeCount + 1)
+        XCTAssertGreaterThan(view.frame.height, initialHeight)
+    }
+
     func testTableContextMenuTargetsClickedCellAndSupportsUndo() throws {
         let editor = MarkdownTextView(usingTextLayoutManager: true)
         editor.frame = NSRect(x: 0, y: 0, width: 620, height: 400)
@@ -447,6 +533,28 @@ import UIKit
     }
 
     #elseif canImport(UIKit)
+    func testStableCellEditsSkipAttachmentFittingUntilRowHeightChanges() throws {
+        let attachment = MarkdownTableAttachment(table: sizingTable())
+        let storage = NSTextContentStorage()
+        let container = NSTextContainer(size: CGSize(width: 240, height: 1000))
+        let provider = try XCTUnwrap(attachment.viewProvider(for: nil, location: storage.documentRange.location, textContainer: container))
+        let view = try XCTUnwrap(provider.view as? UIKitMarkdownTableGridView)
+        let cell = try XCTUnwrap(subviews(of: UITextView.self, in: view).first { $0.accessibilityLabel == "Table row 1, column 1" })
+        let initialResizeCount = view.attachmentResizeCount
+        let initialHeight = view.frame.height
+
+        for text in ["a", "ab", "abc", "a\nb"] {
+            cell.text = text
+            view.textViewDidChange(cell)
+            XCTAssertEqual(view.attachmentResizeCount, initialResizeCount, "Unchanged column widths and row heights must skip full grid fitting")
+        }
+
+        cell.text = "a\nb\nc\nd\ne\nf\ng"
+        view.textViewDidChange(cell)
+        XCTAssertEqual(view.attachmentResizeCount, initialResizeCount + 1)
+        XCTAssertGreaterThan(view.frame.height, initialHeight)
+    }
+
     func testTableEditMenuTargetsItsCellAndSupportsUndo() throws {
         let editor = MarkdownTextView(usingTextLayoutManager: true)
         editor.frame = CGRect(x: 0, y: 0, width: 358, height: 600)
@@ -727,6 +835,14 @@ import UIKit
         )
     }
     #endif
+
+    private func sizingTable() -> MarkdownTable {
+        MarkdownTable(
+            alignments: [.left, .left],
+            header: .init(cells: [.init(content: [.text("A wide header")]), .init(content: [.text("Another wide header")])]),
+            rows: [.init(cells: [.init(content: [.text("a")]), .init(content: [.text("a"), .html("<br />"), .text("b"), .html("<br />"), .text("c")])])]
+        )
+    }
 
     private func makeTable() -> MarkdownTable {
         MarkdownTable(
