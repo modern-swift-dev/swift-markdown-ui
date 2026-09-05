@@ -192,8 +192,14 @@ public struct MarkdownView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.theme.text) private var text
     @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
+    @State private var contentCache = MarkdownContentCache()
 
-    private let content: MarkdownContent
+    private enum Content {
+        case parsed(MarkdownContent)
+        case markdown(String)
+    }
+
+    private let content: Content
     private let baseURL: URL?
     private let imageBaseURL: URL?
 
@@ -205,14 +211,15 @@ public struct MarkdownView: View {
     ///   - imageBaseURL: The base URL to use when resolving Markdown image URLs. If this value is `nil`, the initializer will
     ///                   determine image URLs using the `baseURL` parameter. The default is `nil`.
     public init(_ content: MarkdownContent, baseURL: URL? = nil, imageBaseURL: URL? = nil) {
-        self.content = content
+        self.content = .parsed(content)
         self.baseURL = baseURL
         self.imageBaseURL = imageBaseURL ?? baseURL
     }
 
     public var body: some View {
-        TextStyleAttributesReader { attributes in
-            BlockSequence(self.blocks, renderingMode: self.blockRenderingMode)
+        let blocks = self.blocks
+        return TextStyleAttributesReader { attributes in
+            BlockSequence(blocks, renderingMode: self.blockRenderingMode)
                 .foregroundColor(attributes.foregroundColor)
                 .background(attributes.backgroundColor)
                 .modifier(ScaledFontSizeModifier(attributes.fontProperties?.size))
@@ -223,12 +230,21 @@ public struct MarkdownView: View {
     }
 
     private var blocks: [BlockNode] {
-        self.content.blocks(matching: self.colorScheme)
+        switch self.content {
+            case let .parsed(content):
+                self.contentCache.clear()
+                return content.blocks(matching: self.colorScheme)
+            case let .markdown(source):
+                return self.contentCache.content(for: source).blocks(matching: self.colorScheme)
+        }
     }
 }
 
 public extension MarkdownView {
     /// Creates a Markdown view from a Markdown-formatted string.
+    ///
+    /// Parsing occurs synchronously when the view renders. The mounted view reuses
+    /// its last parsed content while the source remains unchanged.
     /// - Parameters:
     ///   - markdown: The string that contains the Markdown formatting.
     ///   - baseURL: The base URL to use when resolving Markdown URLs. If this value is `nil`, the initializer will consider all
@@ -236,7 +252,9 @@ public extension MarkdownView {
     ///   - imageBaseURL: The base URL to use when resolving Markdown image URLs. If this value is `nil`, the initializer will
     ///                   determine image URLs using the `baseURL` parameter. The default is `nil`.
     init(_ markdown: String, baseURL: URL? = nil, imageBaseURL: URL? = nil) {
-        self.init(MarkdownContent(markdown), baseURL: baseURL, imageBaseURL: imageBaseURL)
+        self.content = .markdown(markdown)
+        self.baseURL = baseURL
+        self.imageBaseURL = imageBaseURL ?? baseURL
     }
 
     /// Creates a Markdown view composed of any number of blocks.
