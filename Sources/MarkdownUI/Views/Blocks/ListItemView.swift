@@ -41,7 +41,8 @@ struct ListItemView: View {
             self.markerStyle
                 .makeBody(configuration: .init(listLevel: self.listLevel, itemNumber: self.number))
                 .textStyleFont()
-                .readWidth(column: 0)
+                .fixedSize(horizontal: true, vertical: false)
+                .readMarkerWidth()
                 .frame(width: self.markerWidth, alignment: .trailing)
         }
         #if os(visionOS)
