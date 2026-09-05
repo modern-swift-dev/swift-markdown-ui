@@ -115,7 +115,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
 
     /// Number of columns after considering every row and alignment marker.
     public var columnCount: Int {
-        max(1, table.alignments.count, table.header.cells.count, table.rows.map(\.cells.count).max() ?? 0)
+        max(1, table.alignments.count, table.header.cells.count, table.rows.lazy.map(\.cells.count).max() ?? 0)
     }
 
     /// Returns normalized Markdown source for one cell.
@@ -153,24 +153,46 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
 
     /// Returns the next editable cell in reading order, appending a row at the end.
     @discardableResult public func moveForward(from position: MarkdownTableCellPosition) -> MarkdownTableCellPosition? {
-        let positions = allPositions
-        guard let index = positions.firstIndex(of: position) else {
-            return positions.first
+        let count = columnCount
+        guard position.column >= 0, position.column < count else {
+            return .init(section: .header, column: 0)
         }
-        if index + 1 < positions.count {
-            return positions[index + 1]
+        if case let .body(row) = position.section, !table.rows.indices.contains(row) {
+            return .init(section: .header, column: 0)
         }
-        appendRow()
-        return MarkdownTableCellPosition(section: .body(row: table.rows.count - 1), column: 0)
+        if position.column + 1 < count {
+            return .init(section: position.section, column: position.column + 1)
+        }
+        let nextRow = switch position.section {
+            case .header: 0
+            case let .body(row): row + 1
+        }
+        if nextRow == table.rows.count {
+            appendRow()
+        }
+        return .init(section: .body(row: nextRow), column: 0)
     }
 
     /// Returns the preceding editable cell in reading order.
     public func moveBackward(from position: MarkdownTableCellPosition) -> MarkdownTableCellPosition? {
-        let positions = allPositions
-        guard let index = positions.firstIndex(of: position), index > 0 else {
+        let count = columnCount
+        guard position.column >= 0, position.column < count else {
             return nil
         }
-        return positions[index - 1]
+        if case let .body(row) = position.section, !table.rows.indices.contains(row) {
+            return nil
+        }
+        if position.column > 0 {
+            return .init(section: position.section, column: position.column - 1)
+        }
+        switch position.section {
+            case .header:
+                return nil
+            case .body(row: 0):
+                return .init(section: .header, column: count - 1)
+            case let .body(row):
+                return .init(section: .body(row: row - 1), column: count - 1)
+        }
     }
 
     /// Returns the cell below the supplied position, appending a row if needed.
@@ -296,21 +318,6 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
             case .header: .header
             case .body: .body
         }
-    }
-
-    private var allPositions: [MarkdownTableCellPosition] {
-        guard columnCount > 0 else {
-            return []
-        }
-        var result = (0 ..< columnCount).map {
-            MarkdownTableCellPosition(section: .header, column: $0)
-        }
-        for row in table.rows.indices {
-            result.append(contentsOf: (0 ..< columnCount).map {
-                MarkdownTableCellPosition(section: .body(row: row), column: $0)
-            })
-        }
-        return result
     }
 
     private func cell(at position: MarkdownTableCellPosition) -> MarkdownTableCell? {

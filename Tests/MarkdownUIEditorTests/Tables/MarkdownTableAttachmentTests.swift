@@ -104,6 +104,69 @@ import UIKit
         XCTAssertEqual(changes.last, controller.table)
     }
 
+    func testNavigationPreservesReadingOrderForRaggedTablesAndInvalidPositions() {
+        let cell = MarkdownTableCell(content: [])
+        let table = MarkdownTable(
+            alignments: [.left, .right],
+            header: .init(cells: [cell]),
+            rows: [.init(cells: [cell, cell, cell]), .init(cells: []), .init(cells: [cell])]
+        )
+        var changes = 0
+        let controller = MarkdownTableController(table: table) { _ in changes += 1 }
+        let sections: [MarkdownTableCellPosition.Section] = [.header, .body(row: 0), .body(row: 1), .body(row: 2)]
+        let positions = sections.flatMap { section in
+            (0 ..< 3).map { MarkdownTableCellPosition(section: section, column: $0) }
+        }
+        for index in positions.indices {
+            XCTAssertEqual(controller.moveBackward(from: positions[index]), index > 0 ? positions[index - 1] : nil)
+            if index + 1 < positions.count {
+                XCTAssertEqual(controller.moveForward(from: positions[index]), positions[index + 1])
+            }
+        }
+        let invalid: [MarkdownTableCellPosition] = [
+            .init(section: .header, column: -1),
+            .init(section: .header, column: 3),
+            .init(section: .body(row: -1), column: 0),
+            .init(section: .body(row: 3), column: 0),
+            .init(section: .body(row: Int.max), column: 0),
+            .init(section: .body(row: 0), column: Int.max)
+        ]
+        for position in invalid {
+            XCTAssertEqual(controller.moveForward(from: position), positions.first)
+            XCTAssertNil(controller.moveBackward(from: position))
+        }
+        XCTAssertEqual(controller.table, table)
+        XCTAssertEqual(changes, 0)
+    }
+
+    func testNavigationFromEmptyHeaderCreatesFirstBodyRow() {
+        var changes = 0
+        let controller = MarkdownTableController(table: .init(alignments: [], header: .init(cells: []), rows: [])) {
+            _ in changes += 1
+        }
+        let header = MarkdownTableCellPosition(section: .header, column: 0)
+        XCTAssertNil(controller.moveBackward(from: header))
+        XCTAssertEqual(controller.moveForward(from: header), .init(section: .body(row: 0), column: 0))
+        XCTAssertEqual(controller.table.header.cells.count, 1)
+        XCTAssertEqual(controller.table.rows.map(\.cells.count), [1])
+        XCTAssertEqual(changes, 1)
+    }
+
+    func testNavigationWithinTallWideTableDoesNotChangeItsStructure() {
+        let row = MarkdownTableRow(cells: Array(repeating: .init(content: []), count: 64))
+        let table = MarkdownTable(alignments: [], header: row, rows: Array(repeating: row, count: 4096))
+        let controller = MarkdownTableController(table: table)
+        XCTAssertEqual(
+            controller.moveForward(from: .init(section: .body(row: 2048), column: 63)),
+            .init(section: .body(row: 2049), column: 0)
+        )
+        XCTAssertEqual(
+            controller.moveBackward(from: .init(section: .body(row: 2048), column: 0)),
+            .init(section: .body(row: 2047), column: 63)
+        )
+        XCTAssertEqual(controller.table, table)
+    }
+
     func testCellAndStructuralChangesReturnTypedTable() {
         var changes: [MarkdownTable] = []
         let controller = MarkdownTableController(table: makeTable()) { changes.append($0) }
