@@ -16,12 +16,14 @@ extension Sequence<InlineNode> {
             attributes: attributes
         )
         renderer.render(self)
-        return renderer.result
+        return renderer.finish()
     }
 }
 
-private struct TextInlineRenderer {
-    var result = Text("")
+struct TextInlineRenderer {
+    private var result = Text("")
+    private var pendingText = AttributedString()
+    private(set) var textChunkCount = 0
 
     private let baseURL: URL?
     private let textStyles: InlineTextStyles
@@ -48,6 +50,11 @@ private struct TextInlineRenderer {
         for inline in inlines {
             self.render(inline)
         }
+    }
+
+    mutating func finish() -> Text {
+        self.flushText()
+        return self.result
     }
 
     private mutating func render(_ inline: InlineNode) {
@@ -141,6 +148,7 @@ private struct TextInlineRenderer {
 
         if let image = self.images[data] {
             self.shouldSkipNextWhitespace = false
+            self.flushText()
             self.result = self.result.appending(Text(image))
         } else {
             self.renderText(data.alt)
@@ -148,8 +156,16 @@ private struct TextInlineRenderer {
     }
 
     private mutating func append(_ text: String) {
-        let attributedString = AttributedString(text, attributes: self.attributes).resolvingFonts()
-        self.result = self.result.appending(Text(attributedString))
+        self.pendingText.append(AttributedString(text, attributes: self.attributes))
+    }
+
+    private mutating func flushText() {
+        guard !self.pendingText.characters.isEmpty else {
+            return
+        }
+        self.result = self.result.appending(Text(self.pendingText.resolvingFonts()))
+        self.pendingText = AttributedString()
+        self.textChunkCount += 1
     }
 }
 
