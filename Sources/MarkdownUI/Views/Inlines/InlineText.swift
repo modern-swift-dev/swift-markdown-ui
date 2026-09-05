@@ -66,23 +66,35 @@ struct InlineText: View {
         }
 
         return await withTaskGroup(of: (RawImageData, Image?).self) { taskGroup in
-            for image in images {
-                guard let url = URL(string: image.source, relativeTo: baseURL) else {
-                    continue
+            var pending = images.makeIterator()
+            func enqueueNext() {
+                guard !Task.isCancelled else {
+                    return
                 }
-
-                taskGroup.addTask {
-                    do {
-                        return (image, try await imageProvider.image(with: url, label: image.alt))
-                    } catch {
-                        return (image, nil)
+                while let image = pending.next() {
+                    guard let url = URL(string: image.source, relativeTo: baseURL) else {
+                        continue
                     }
+                    taskGroup.addTask {
+                        do {
+                            try Task.checkCancellation()
+                            return (image, try await imageProvider.image(with: url, label: image.alt))
+                        } catch {
+                            return (image, nil)
+                        }
+                    }
+                    return
                 }
+            }
+            // Bound task creation as well as the default provider's shared network/decode work.
+            for _ in 0 ..< 4 {
+                enqueueNext()
             }
 
             var inlineImages: [RawImageData: Image] = [:]
 
             for await (data, image) in taskGroup {
+                enqueueNext()
                 if let image {
                     inlineImages[data] = image
                 }

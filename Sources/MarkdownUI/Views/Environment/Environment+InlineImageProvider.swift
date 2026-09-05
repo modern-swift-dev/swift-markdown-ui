@@ -18,7 +18,7 @@ extension EnvironmentValues {
 
 struct InlineImageProviderContext: Sendable {
     enum ID: Equatable, Sendable {
-        case defaultProvider
+        case defaultProvider(DefaultInlineImageProvider.Resolution)
         case reference(ObjectIdentifier)
         case value(UUID)
     }
@@ -28,8 +28,8 @@ struct InlineImageProviderContext: Sendable {
 
     init(provider: any InlineImageProvider) {
         self.provider = provider
-        if provider is DefaultInlineImageProvider {
-            self.id = .defaultProvider
+        if let provider = provider as? DefaultInlineImageProvider {
+            self.id = .defaultProvider(provider.resolution)
         } else if let asset = provider as? AssetInlineImageProvider {
             self.id = .value(asset.id)
         } else if let reference = provider as? any InlineImageProvider & AnyObject {
