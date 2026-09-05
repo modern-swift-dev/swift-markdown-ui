@@ -195,3 +195,20 @@ extension Theme {
     // More block styles...
 }
 ```
+
+### Limiting decoded image size
+
+The default block and inline image providers share downloads and decoded images for
+matching URLs and resolutions. Both preserve original resolution by default. For
+large source images, configure a maximum decoded pixel dimension:
+
+```swift
+MarkdownView(markdownString)
+  .markdownImageProvider(DefaultImageProvider(resolution: .maximumPixelDimension(1200)))
+  .markdownInlineImageProvider(DefaultInlineImageProvider(resolution: .maximumPixelDimension(1200)))
+```
+
+The limit applies to the longest decoded dimension and also changes the image's
+intrinsic layout size. Choose it with the desired display size and screen scale in
+mind. The decoded-image cache budget does not include images retained by visible
+views, downloads in progress, or active decoding allocations.

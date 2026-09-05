@@ -293,24 +293,43 @@ actor InlineImageLoader {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw URLError(.cannotDecodeContentData)
         }
-        let image: CGImage? = switch resolution {
+        let image: CGImage?
+        switch resolution {
             case .original:
-                CGImageSourceCreateImageAtIndex(source, 0, [
-                    kCGImageSourceShouldCacheImmediately: true
-                ] as CFDictionary)
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+                let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)
+                    .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+                if orientation != .up {
+                    guard let width = properties?[kCGImagePropertyPixelWidth] as? NSNumber,
+                          let height = properties?[kCGImagePropertyPixelHeight] as? NSNumber,
+                          width.intValue > 0, height.intValue > 0 else {
+                        throw URLError(.cannotDecodeContentData)
+                    }
+                    // CGImage has no orientation metadata. Normalize the pixels while
+                    // retaining the source resolution, without first decoding a second bitmap.
+                    image = thumbnail(source, maximumPixelDimension: max(width.intValue, height.intValue))
+                } else {
+                    image = CGImageSourceCreateImageAtIndex(source, 0, [
+                        kCGImageSourceShouldCacheImmediately: true
+                    ] as CFDictionary)
+                }
             case let .maximumPixelDimension(dimension):
-                CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceThumbnailMaxPixelSize: dimension
-                ] as CFDictionary)
+                image = thumbnail(source, maximumPixelDimension: dimension)
         }
         try Task.checkCancellation()
         guard let image else {
             throw URLError(.cannotDecodeContentData)
         }
         return image
+    }
+
+    private static func thumbnail(_ source: CGImageSource, maximumPixelDimension: Int) -> CGImage? {
+        CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension
+        ] as CFDictionary)
     }
 }
 
