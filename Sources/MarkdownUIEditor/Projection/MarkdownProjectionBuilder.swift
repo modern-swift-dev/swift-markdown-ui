@@ -277,21 +277,22 @@ private struct BlockPresentation {
                 render(list: list, path: path, prefix: firstPrefix, presentation: presentation)
             case let .codeBlock(info, content):
                 renderLeaf(path: path, kind: .codeBlock, presentation: presentation) {
+                    let codeAttributes = attributes(for: InlineStyle().withCode())
                     let fence = Self.codeFence(for: content)
                     appendHidden(firstPrefix + fence + (info.map { " " + $0 } ?? "") + "\n")
                     let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
                     for (index, line) in lines.enumerated() {
                         if index > 0 {
-                            appendMapped(source: "\n", projection: "\n", attributes: attributes(for: InlineStyle().withCode()))
+                            appendMapped(source: "\n", projection: "\n", attributes: codeAttributes)
                         }
                         if index > 0 || !line.isEmpty {
                             appendHidden(continuationPrefix)
                         }
                         let value = String(line)
-                        appendMapped(source: value, projection: value, attributes: attributes(for: InlineStyle().withCode()))
+                        appendMapped(source: value, projection: value, attributes: codeAttributes)
                     }
                     if !content.hasSuffix("\n") {
-                        appendMapped(source: "\n", projection: "\n", attributes: attributes(for: InlineStyle().withCode()))
+                        appendMapped(source: "\n", projection: "\n", attributes: codeAttributes)
                     }
                     appendHidden(continuationPrefix + fence)
                 }
