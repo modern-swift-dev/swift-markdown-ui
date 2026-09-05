@@ -1,20 +1,20 @@
 import SwiftUI
 
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) struct ImageFlow: View {
-    private enum Item: Hashable {
+    private enum Item {
         case image(RawImageData)
         case lineBreak
     }
 
-    private let items: [Indexed<Item>]
+    private let items: [Item]
 
     var body: some View {
         TextStyleAttributesReader { attributes in
             let spacing = RelativeSize.rem(0.25).points(relativeTo: attributes.fontProperties)
 
             FlowLayout(horizontalSpacing: spacing, verticalSpacing: spacing) {
-                ForEach(self.items, id: \.self) { item in
-                    switch item.value {
+                ForEach(self.items.indices, id: \.self) { index in
+                    switch self.items[index] {
                         case let .image(data):
                             ImageView(data: data)
                         case .lineBreak:
@@ -51,6 +51,6 @@ import SwiftUI
             }
         }
 
-        self.items = items.indexed()
+        self.items = items
     }
 }
