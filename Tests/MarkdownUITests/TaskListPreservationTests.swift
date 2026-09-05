@@ -73,6 +73,41 @@ final class TaskListPreservationTests: XCTestCase {
         XCTAssertEqual(inlineRewrite, content.blocks)
     }
 
+    func testNestedOrderedTaskSerializationPreservesNumbersAndCompletion() {
+        let innerList = BlockNode.numberedList(isTight: true, start: 7, items: [
+            .init(children: [.paragraph(content: [
+                .link(destination: "https://example.com", children: [.emphasis(children: [.text("inner")])])
+            ])], isCompleted: true),
+            .init(children: [.paragraph(content: [.text("ordinary")])])
+        ])
+        let content = MarkdownContent(blocks: [.blockquote(children: [
+            .numberedList(isTight: true, start: 3, items: [
+                .init(children: [
+                    .paragraph(content: [.strong(children: [.text("outer")])]),
+                    .bulletedList(isTight: true, items: [
+                        .init(children: [
+                            .paragraph(content: [.text("ordinary")]),
+                            .blockquote(children: [innerList])
+                        ])
+                    ])
+                ], isCompleted: false),
+                .init(children: [.paragraph(content: [.text("ordinary")])])
+            ])
+        ])])
+        let markdown = content.renderMarkdown()
+        let plainText = content.renderPlainText()
+        let html = content.renderHTML()
+
+        XCTAssertTrue(markdown.contains("3.  [ ] **outer**"), markdown)
+        XCTAssertTrue(markdown.contains("7.  [x] [*inner*](https://example.com)"), markdown)
+        XCTAssertTrue(markdown.contains("8.  ordinary"), markdown)
+        XCTAssertTrue(plainText.contains("3.  [ ] outer"), plainText)
+        XCTAssertTrue(plainText.contains("7.  [x] inner"), plainText)
+        XCTAssertTrue(html.contains("<ol start=\"7\">"))
+        XCTAssertTrue(html.contains("<input type=\"checkbox\" checked=\"\" disabled=\"\" />"))
+        XCTAssertTrue(html.contains("<em>inner</em>"))
+    }
+
     #if os(macOS)
     @MainActor func testOrderedTasksRenderBothNumbersAndCheckboxes() async throws {
         let markers = RecordedListMarkers()

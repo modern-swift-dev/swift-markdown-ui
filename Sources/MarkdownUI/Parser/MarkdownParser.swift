@@ -184,23 +184,35 @@ private enum TextRenderingFormat {
 
 private extension UnsafeNode {
     func prepareOrderedTasksForTextRendering(_ format: TextRenderingFormat) {
-        // cmark's task-list text renderer always emits a bullet, even in an ordered list.
-        // Render these as ordinary numbered items with a literal checkbox prefix instead.
-        if self.isTaskListItem,
-           let parent = cmark_node_parent(self), parent.listType == CMARK_ORDERED_LIST,
-           let paragraph = cmark_node_first_child(self), paragraph.nodeType == .paragraph {
-            let prefix = self.isTaskListItemChecked ? "[x] " : "[ ] "
-            let type = format == .markdown ? CMARK_NODE_CUSTOM_INLINE : CMARK_NODE_TEXT
-            if let marker = cmark_node_new(type) {
-                switch format {
-                    case .markdown:
-                        cmark_node_set_on_enter(marker, prefix)
-                    case .plainText:
-                        cmark_node_set_literal(marker, prefix)
+        switch cmark_node_get_type(self) {
+            case CMARK_NODE_DOCUMENT,
+                 CMARK_NODE_BLOCK_QUOTE,
+                 CMARK_NODE_LIST:
+                break
+            case CMARK_NODE_ITEM:
+                // Only task items receive a syntax extension when constructing this tree.
+                // cmark renders them as bullets even inside ordered lists, so use an
+                // ordinary numbered item with a literal checkbox prefix instead.
+                if cmark_node_get_syntax_extension(self) != nil,
+                   let parent = cmark_node_parent(self), parent.listType == CMARK_ORDERED_LIST,
+                   let paragraph = cmark_node_first_child(self),
+                   cmark_node_get_type(paragraph) == CMARK_NODE_PARAGRAPH {
+                    let prefix = self.isTaskListItemChecked ? "[x] " : "[ ] "
+                    let type = format == .markdown ? CMARK_NODE_CUSTOM_INLINE : CMARK_NODE_TEXT
+                    if let marker = cmark_node_new(type) {
+                        switch format {
+                            case .markdown:
+                                cmark_node_set_on_enter(marker, prefix)
+                            case .plainText:
+                                cmark_node_set_literal(marker, prefix)
+                        }
+                        cmark_node_prepend_child(paragraph, marker)
+                        cmark_node_set_syntax_extension(self, nil)
+                    }
                 }
-                cmark_node_prepend_child(paragraph, marker)
-                cmark_node_set_syntax_extension(self, nil)
-            }
+            default:
+                // Paragraphs, headings and tables cannot contain nested list blocks.
+                return
         }
         for child in self.children {
             child.prepareOrderedTasksForTextRendering(format)
