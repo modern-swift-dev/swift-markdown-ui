@@ -182,7 +182,7 @@ struct DocumentProjection {
             index: ProjectionIndex(
                 units: state.units,
                 projectionUTF16Length: state.projectionLength,
-                sourceUTF16Length: state.source.length
+                sourceUTF16Length: state.sourceLength
             )
         )
     }
@@ -216,8 +216,8 @@ private struct BlockPresentation {
 
 /// Mutable state used only while one full projection is built.
 @MainActor private final class BuildState {
-    /// Accumulated Markdown source.
-    let source = NSMutableString()
+    /// Source offsets need only a length; canonical source is serialized from the document.
+    private(set) var sourceLength = 0
     /// Accumulated native attributed text.
     let projection = NSMutableAttributedString(string: "")
     /// Completed replaceable leaf units.
@@ -385,7 +385,7 @@ private struct BlockPresentation {
         presentation: BlockPresentation,
         body: () -> Void
     ) {
-        let sourceStart = source.length
+        let sourceStart = self.sourceLength
         let projectionStart = projectionLength
         let segmentStart = allSegments.count
 
@@ -400,7 +400,7 @@ private struct BlockPresentation {
         )
         let sourceRange = SourceUTF16Range(
             location: sourceStart,
-            length: source.length - sourceStart
+            length: self.sourceLength - sourceStart
         )
         let segments = Array(allSegments[segmentStart...])
         units.append(
@@ -582,8 +582,8 @@ private struct BlockPresentation {
         guard !value.isEmpty else {
             return
         }
-        let sourceStart = source.length
-        source.append(value)
+        let sourceStart = self.sourceLength
+        sourceLength += value.utf16.count
         allSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionLength, length: 0),
@@ -597,12 +597,31 @@ private struct BlockPresentation {
         _ value: String,
         attributes: [NSAttributedString.Key: Any]
     ) {
-        for character in value {
-            let string = String(character)
-            if Self.markdownEscapablePunctuation.contains(character) {
+        var runStart = value.startIndex
+        for index in value.indices {
+            let character = value[index]
+            let needsEscape = Self.markdownEscapablePunctuation.contains(character)
+            // Preserve the distinct mapping kind of a literal object-replacement character.
+            let isObject = character == "\u{fffc}"
+            guard needsEscape || isObject else {
+                continue
+            }
+            if runStart < index {
+                let run = String(value[runStart ..< index])
+                appendMapped(source: run, projection: run, attributes: attributes)
+            }
+            if needsEscape {
                 appendHidden("\\")
             }
-            appendMapped(source: string, projection: string, attributes: attributes)
+            runStart = index
+            if isObject {
+                appendMapped(source: "\u{fffc}", projection: "\u{fffc}", attributes: attributes)
+                runStart = value.index(after: index)
+            }
+        }
+        if runStart < value.endIndex {
+            let run = String(value[runStart...])
+            appendMapped(source: run, projection: run, attributes: attributes)
         }
     }
 
@@ -614,13 +633,13 @@ private struct BlockPresentation {
         guard !sourceValue.isEmpty || !projectionValue.isEmpty else {
             return
         }
-        let sourceStart = source.length
+        let sourceStart = self.sourceLength
         let projectionStart = projectionLength
-        source.append(sourceValue)
         if output == .nativeText {
             projection.append(NSAttributedString(string: projectionValue, attributes: attributes))
         }
         let sourceLength = sourceValue.utf16.count
+        self.sourceLength += sourceLength
         let projectionLength = projectionValue.utf16.count
         self.projectionLength += projectionLength
         let kind: OffsetMapSegment.Kind = projectionLength == 1 && projectionValue == "\u{fffc}"
@@ -641,9 +660,9 @@ private struct BlockPresentation {
         kind: String,
         attributes: [NSAttributedString.Key: Any] = [:]
     ) {
-        let sourceStart = source.length
+        let sourceStart = self.sourceLength
         let projectionStart = projectionLength
-        source.append(sourceValue)
+        sourceLength += sourceValue.utf16.count
         let attributedString = NSMutableAttributedString(attachment: attachment)
         attributedString.addAttributes(
             theme.objectPlaceholderAttributes
@@ -663,9 +682,9 @@ private struct BlockPresentation {
     }
 
     private func appendObjectPlaceholder(source sourceValue: String, kind: String) {
-        let sourceStart = source.length
+        let sourceStart = self.sourceLength
         let projectionStart = projectionLength
-        source.append(sourceValue)
+        sourceLength += sourceValue.utf16.count
         if output == .nativeText {
             projection.append(
                 NSAttributedString(

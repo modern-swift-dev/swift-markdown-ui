@@ -28,6 +28,46 @@ import XCTest
         XCTAssertEqual(metadata.source, native.source)
     }
 
+    func testLongPlainTextUsesOneMappingRun() {
+        let value = String(repeating: "text e\u{301} 👩‍👩‍👧‍👦 ", count: 1000)
+        let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph([.text(value)])]))
+        let segments = projection.index.units.flatMap(\.segments)
+        XCTAssertEqual(segments.count, 2, "One text run and the terminating newline")
+        XCTAssertEqual(segments.first?.projectionRange.length, value.utf16.count)
+        XCTAssertEqual(segments.first?.sourceRange.length, value.utf16.count)
+        XCTAssertEqual(projection.string, value + "\n")
+    }
+
+    func testBatchedTextPreservesEscapeAffinitiesAndUTF16Boundaries() {
+        let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph([.text("ab😀*cd")])]))
+        XCTAssertEqual(projection.string, "ab😀*cd\n")
+        XCTAssertEqual(projection.source, "ab😀\\*cd\n")
+        XCTAssertEqual(projection.index.units[0].segments.count, 4)
+        for offset in 0 ... 8 {
+            XCTAssertEqual(
+                projection.index.sourceAnchor(atProjectionUTF16Offset: offset, affinity: .downstream)?.utf16Offset,
+                offset + (offset >= 4 ? 1 : 0)
+            )
+            XCTAssertEqual(
+                projection.index.sourceAnchor(atProjectionUTF16Offset: offset, affinity: .upstream)?.utf16Offset,
+                offset + (offset > 4 ? 1 : 0)
+            )
+        }
+        for offset in 0 ... 9 {
+            for affinity in [SourceAnchor.Affinity.upstream, .downstream] {
+                XCTAssertEqual(
+                    projection.index.projectionUTF16Offset(for: SourceAnchor(utf16Offset: offset, affinity: affinity)),
+                    offset - (offset >= 5 ? 1 : 0)
+                )
+            }
+        }
+    }
+
+    func testBatchedTextKeepsLiteralObjectMappingSeparate() {
+        let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph([.text("before\u{fffc}after")])]))
+        XCTAssertEqual(projection.index.units[0].segments.map(\.kind), [.text, .objectReplacement, .text, .text])
+    }
+
     func testInactiveRichInlineHidesDelimiters() {
         let document = MarkdownDocument(blocks: [
             .paragraph([
