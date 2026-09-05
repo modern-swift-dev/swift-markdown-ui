@@ -21,6 +21,7 @@ public struct CachedCodeSyntaxHighlighter<Base: CodeSyntaxHighlighter>: CodeSynt
     private struct State {
         var values: [Key: Text] = [:]
         var insertionOrder: [Key] = []
+        var nextEvictionIndex = 0
     }
 
     private let base: Base
@@ -64,9 +65,12 @@ public struct CachedCodeSyntaxHighlighter<Base: CodeSyntaxHighlighter>: CodeSynt
                 return cached
             }
             if state.insertionOrder.count == self.maximumEntryCount {
-                state.values.removeValue(forKey: state.insertionOrder.removeFirst())
+                state.values.removeValue(forKey: state.insertionOrder[state.nextEvictionIndex])
+                state.insertionOrder[state.nextEvictionIndex] = key
+                state.nextEvictionIndex = (state.nextEvictionIndex + 1) % state.insertionOrder.count
+            } else {
+                state.insertionOrder.append(key)
             }
-            state.insertionOrder.append(key)
             state.values[key] = result
             return result
         }

@@ -51,6 +51,59 @@ final class CodeSyntaxHighlighterCacheTests: XCTestCase {
         XCTAssertEqual(base.callCount, 4)
     }
 
+    func testEvictionKeepsNewestEntriesAcrossMultipleRotations() {
+        let base = CountingHighlighter()
+        let cached = base.cached(maximumEntryCount: 3)
+
+        for index in 0 ..< 20 {
+            _ = cached.highlightCode("code \(index)", language: nil)
+            let callsAfterInsertion = base.callCount
+            for retained in max(0, index - 2) ... index {
+                _ = cached.highlightCode("code \(retained)", language: nil)
+            }
+            XCTAssertEqual(base.callCount, callsAfterInsertion)
+        }
+
+        XCTAssertEqual(base.callCount, 20)
+        _ = cached.highlightCode("code 16", language: nil)
+        XCTAssertEqual(base.callCount, 21)
+        _ = cached.highlightCode("code 17", language: nil)
+        XCTAssertEqual(base.callCount, 22)
+    }
+
+    func testSingleEntryCapacityReplacesPreviousEntry() {
+        let base = CountingHighlighter()
+        let cached = base.cached(maximumEntryCount: 1)
+        for code in ["one", "two", "three", "one"] {
+            _ = cached.highlightCode(code, language: nil)
+            let callsAfterInsertion = base.callCount
+            _ = cached.highlightCode(code, language: nil)
+            XCTAssertEqual(base.callCount, callsAfterInsertion)
+        }
+        XCTAssertEqual(base.callCount, 4)
+    }
+
+    func testConcurrentEvictionLeavesCacheReusable() {
+        let base = CountingHighlighter()
+        let cached = base.cached(maximumEntryCount: 8)
+        DispatchQueue.concurrentPerform(iterations: 256) { index in
+            XCTAssertEqual(
+                cached.highlightCode("code \(index)", language: "swift"),
+                Text(verbatim: "swift:code \(index)").bold()
+            )
+        }
+        XCTAssertEqual(base.callCount, 256)
+
+        for index in 0 ..< 8 {
+            _ = cached.highlightCode("retained \(index)", language: "swift")
+        }
+        let callsAfterRefilling = base.callCount
+        for index in 0 ..< 8 {
+            _ = cached.highlightCode("retained \(index)", language: "swift")
+        }
+        XCTAssertEqual(base.callCount, callsAfterRefilling)
+    }
+
     func testAdmissionCountsUTF8CodeAndLanguageBytes() {
         let base = CountingHighlighter()
         let cached = base.cached(maximumSourceByteCount: 5)
