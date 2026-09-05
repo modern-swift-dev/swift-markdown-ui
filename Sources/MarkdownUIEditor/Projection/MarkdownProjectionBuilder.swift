@@ -453,7 +453,7 @@ private struct BlockPresentation {
                 appendHidden("](" + Self.linkDestination(destination) + Self.titleSuffix(title) + ")")
             case let .image(source, title, children):
                 let alt = Self.inlineMarkdown(children)
-                let metadata = MarkdownImageMetadata(source: source, title: title, altText: alt)
+                let metadata = MarkdownImageMetadata(source: source, title: title, altText: MarkdownImageMetadata.altText(for: children))
                 let attachment = MarkdownImageAttachment(
                     metadata: metadata,
                     baseURL: baseURL,
@@ -461,6 +461,7 @@ private struct BlockPresentation {
                 ) { [onImageChange] metadata in
                     onImageChange?(path, metadata)
                 }
+                attachment.altContent = children
                 appendAttachment(
                     attachment,
                     source: "![" + alt + "](" + Self.linkDestination(source) + Self.titleSuffix(title) + ")",

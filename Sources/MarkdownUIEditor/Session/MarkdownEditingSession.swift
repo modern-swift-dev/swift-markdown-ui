@@ -1447,13 +1447,13 @@ private extension MarkdownEditingSession {
         }
         var updated = inlines
         if components.isEmpty {
-            guard case .image = updated[index] else {
+            guard case let .image(_, _, children) = updated[index] else {
                 return nil
             }
             updated[index] = .image(
                 source: metadata.source,
                 title: metadata.title,
-                children: [.text(metadata.altText)]
+                children: MarkdownImageMetadata.altText(for: children) == metadata.altText ? children : [.text(metadata.altText)]
             )
             return updated
         }

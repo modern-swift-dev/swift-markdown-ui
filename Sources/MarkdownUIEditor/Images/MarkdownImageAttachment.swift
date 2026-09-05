@@ -27,6 +27,23 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         self.title = title
         self.altText = altText
     }
+
+    static func altText(for content: [MarkdownInline]) -> String {
+        content.map { inline in
+            switch inline {
+                case let .text(value),
+                     let .code(value),
+                     let .html(value): value
+                case .softBreak,
+                     .lineBreak: "\n"
+                case let .emphasis(children),
+                     let .strong(children),
+                     let .strikethrough(children),
+                     let .link(_, _, children),
+                     let .image(_, _, children): altText(for: children)
+            }
+        }.joined()
+    }
 }
 
 #if canImport(UIKit) || canImport(AppKit)
@@ -66,6 +83,8 @@ public enum MarkdownEditorImageProviderError: Error, Hashable, Sendable {
 public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendable {
     /// Current Markdown metadata for the attachment.
     public private(set) var metadata: MarkdownImageMetadata
+    /// Original inline alt content, retained independently of its accessible text.
+    var altContent: [MarkdownInline]
     /// Base URL used to resolve relative image destinations.
     public let baseURL: URL?
     /// Optional asynchronous loader for the resolved URL.
@@ -86,6 +105,7 @@ public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendabl
         onChange: ((MarkdownImageMetadata) -> Void)? = nil
     ) {
         self.metadata = metadata
+        self.altContent = [.text(metadata.altText)]
         self.baseURL = baseURL
         self.imageProvider = imageProvider
         self.onChange = onChange
@@ -97,6 +117,7 @@ public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendabl
     /// Restores an empty attachment from an archive. Metadata is not archived.
     public required init?(coder: NSCoder) {
         self.metadata = MarkdownImageMetadata(source: "", altText: "")
+        self.altContent = []
         self.baseURL = nil
         self.imageProvider = nil
         self.onChange = nil
@@ -108,6 +129,9 @@ public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendabl
     public func updateMetadata(_ metadata: MarkdownImageMetadata) {
         guard self.metadata != metadata else {
             return
+        }
+        if self.metadata.altText != metadata.altText {
+            altContent = [.text(metadata.altText)]
         }
         self.metadata = metadata
         onChange?(metadata)

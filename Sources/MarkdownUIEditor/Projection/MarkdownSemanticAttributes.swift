@@ -42,7 +42,7 @@ enum MarkdownAttributedInlineDecoder {
                         .image(
                             source: metadata.source,
                             title: metadata.title,
-                            children: [.text(metadata.altText)]
+                            children: attachment.altContent
                         ),
                         attributes: attributes
                     ),

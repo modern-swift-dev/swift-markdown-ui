@@ -38,6 +38,38 @@ import UIKit
         XCTAssertEqual(received, replacement)
     }
 
+    func testFormattedAltContentSurvivesEditingNeighboringText() throws {
+        for source in ["![*cat*](cat.png) tail", "![a `b` and **c**](cat.png) tail", "![a \\* b](cat.png) tail"] {
+            let document = MarkdownDocument(markdown: source)
+            let projection = MarkdownProjectionBuilder().build(document: document)
+            let content = NSMutableAttributedString(attributedString: projection.attributedString.attributedSubstring(
+                from: NSRange(location: 0, length: projection.attributedString.length - 1)
+            ))
+            let attachment = try XCTUnwrap(content.attribute(.attachment, at: 0, effectiveRange: nil) as? MarkdownImageAttachment)
+            XCTAssertEqual(attachment.metadata.altText, MarkdownImageMetadata.altText(for: attachment.altContent))
+            content.append(NSAttributedString(string: "!"))
+            let decoded = MarkdownDocument(blocks: [.paragraph(MarkdownAttributedInlineDecoder.decode(content))])
+            XCTAssertEqual(decoded, MarkdownDocument(markdown: source + "!"))
+            XCTAssertEqual(MarkdownDocument(markdown: decoded.markdown), decoded)
+        }
+    }
+
+    func testImageMetadataChangesPreserveAltFormattingUntilAltTextChanges() throws {
+        let document = MarkdownDocument(markdown: "![*cat*](cat.png)")
+        let session = MarkdownEditingSession(document: document)
+        let projection = session.projection
+        let attachment = try XCTUnwrap(projection.attributedString.attribute(.attachment, at: 0, effectiveRange: nil) as? MarkdownImageAttachment)
+        XCTAssertEqual(attachment.metadata.altText, "cat")
+
+        attachment.updateMetadata(.init(source: "new.png", title: "New", altText: "cat"))
+        XCTAssertEqual(attachment.altContent, [.emphasis([.text("cat")])])
+        XCTAssertEqual(session.document, MarkdownDocument(markdown: "![*cat*](new.png \"New\")"))
+
+        attachment.updateMetadata(.init(source: "new.png", title: "New", altText: "*literal*"))
+        XCTAssertEqual(attachment.altContent, [.text("*literal*")])
+        XCTAssertEqual(session.document, MarkdownDocument(markdown: "![\\*literal\\*](new.png \"New\")"))
+    }
+
     #if canImport(AppKit)
     func testAppKitViewProviderConstructsAccessibleImageView() throws {
         let attachment = MarkdownImageAttachment(
