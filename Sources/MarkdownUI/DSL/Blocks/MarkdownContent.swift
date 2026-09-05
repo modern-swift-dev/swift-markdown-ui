@@ -75,9 +75,12 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
     }
 
     let blocks: [BlockNode]
+    /// Top-level branches that need the color-scheme image pass.
+    let colorSchemeImageBlockIndices: [Int]
 
     init(blocks: [BlockNode] = []) {
         self.blocks = blocks
+        self.colorSchemeImageBlockIndices = blocks.indices.filter { blocks[$0].containsColorSchemeImages }
     }
 
     init(block: BlockNode) {

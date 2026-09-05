@@ -222,7 +222,7 @@ public struct MarkdownView: View {
     }
 
     private var blocks: [BlockNode] {
-        self.content.blocks.filterImagesMatching(colorScheme: self.colorScheme)
+        self.content.blocks(matching: self.colorScheme)
     }
 }
 
