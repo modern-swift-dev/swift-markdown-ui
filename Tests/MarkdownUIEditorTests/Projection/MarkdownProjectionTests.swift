@@ -38,6 +38,25 @@ import XCTest
         XCTAssertEqual(projection.string, value + "\n")
     }
 
+    func testManyLeavesKeepIndependentMappingSegments() {
+        let values = (0 ..< 1000).map { "Paragraph \($0) 😀" }
+        let document = MarkdownDocument(blocks: values.map { .paragraph([.text($0)]) })
+        let projection = MarkdownProjectionBuilder().build(document: document)
+        let units = projection.index.units
+        XCTAssertEqual(units.count, values.count)
+        var offset = 0
+        for (unit, value) in zip(units, values) {
+            let length = value.utf16.count
+            XCTAssertEqual(unit.segments.count, 2)
+            XCTAssertEqual(unit.segments.first?.projectionRange, ProjectionUTF16Range(location: offset, length: length))
+            XCTAssertEqual(unit.segments.last?.sourceRange, SourceUTF16Range(location: offset + length, length: 1))
+            XCTAssertEqual(projection.index.sourceAnchor(atProjectionUTF16Offset: offset)?.utf16Offset, offset)
+            offset += length + 1
+        }
+        XCTAssertEqual(projection.index.projectionUTF16Length, offset)
+        XCTAssertEqual(projection.index.sourceUTF16Length, offset)
+    }
+
     func testBatchedTextPreservesEscapeAffinitiesAndUTF16Boundaries() {
         let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph([.text("ab😀*cd")])]))
         XCTAssertEqual(projection.string, "ab😀*cd\n")

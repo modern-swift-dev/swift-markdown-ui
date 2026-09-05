@@ -387,7 +387,6 @@ private struct BlockPresentation {
     ) {
         let sourceStart = self.sourceLength
         let projectionStart = projectionLength
-        let segmentStart = allSegments.count
 
         body()
 
@@ -402,7 +401,8 @@ private struct BlockPresentation {
             location: sourceStart,
             length: self.sourceLength - sourceStart
         )
-        let segments = Array(allSegments[segmentStart...])
+        let segments = pendingSegments
+        pendingSegments = []
         units.append(
             ProjectionUnit(
                 id: id,
@@ -470,8 +470,8 @@ private struct BlockPresentation {
         return textList
     }
 
-    /// Mapping segments accumulated in rendering order.
-    private var allSegments: [OffsetMapSegment] = []
+    /// Mapping segments owned by the current leaf until they move into its unit.
+    private var pendingSegments: [OffsetMapSegment] = []
 
     private func render(
         inlines: [MarkdownInline],
@@ -584,7 +584,7 @@ private struct BlockPresentation {
         }
         let sourceStart = self.sourceLength
         sourceLength += value.utf16.count
-        allSegments.append(
+        pendingSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionLength, length: 0),
                 sourceRange: SourceUTF16Range(location: sourceStart, length: value.utf16.count),
@@ -645,7 +645,7 @@ private struct BlockPresentation {
         let kind: OffsetMapSegment.Kind = projectionLength == 1 && projectionValue == "\u{fffc}"
             ? .objectReplacement
             : .text
-        allSegments.append(
+        pendingSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionStart, length: projectionLength),
                 sourceRange: SourceUTF16Range(location: sourceStart, length: sourceLength),
@@ -672,7 +672,7 @@ private struct BlockPresentation {
         )
         projection.append(attributedString)
         projectionLength += 1
-        allSegments.append(
+        pendingSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionStart, length: 1),
                 sourceRange: SourceUTF16Range(location: sourceStart, length: sourceValue.utf16.count),
@@ -694,7 +694,7 @@ private struct BlockPresentation {
             )
         }
         projectionLength += 1
-        allSegments.append(
+        pendingSegments.append(
             OffsetMapSegment(
                 projectionRange: ProjectionUTF16Range(location: projectionStart, length: 1),
                 sourceRange: SourceUTF16Range(location: sourceStart, length: sourceValue.utf16.count),
