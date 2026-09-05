@@ -133,6 +133,21 @@ import XCTest
         }
     }
 
+    func testHTMLCommentsContainingBreakTagsRemainVerbatim() {
+        let comment = "<!-- <br> -->"
+        let content = MarkdownContent("before \(comment)  after")
+        guard case let .paragraph(inlines) = content.blocks.first else {
+            return XCTFail("Expected an inline comment inside a paragraph")
+        }
+        XCTAssertTrue(inlines.contains(.html(comment)))
+        var renderer = makeRenderer()
+        renderer.render(inlines)
+        let expected = AttributedString(
+            "before \(comment)  after", attributes: attributes
+        ).resolvingFonts()
+        XCTAssertEqual(renderer.finish(), Text("") + Text(expected))
+    }
+
     func testCustomFontsPreserveFontPropertiesPrecedenceAndStyleRestoration() throws {
         let customStyles = InlineTextStyles(
             code: FontFamilyVariant(.monospaced),

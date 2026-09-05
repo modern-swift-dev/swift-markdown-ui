@@ -36,4 +36,11 @@ final class HTMLTagTests: XCTestCase {
     func testSelfClosingTag() {
         XCTAssertEqual("br", HTMLTag("<br />")?.name)
     }
+
+    func testEmbeddedTagsInCommentsAndDeclarationsAreNotTags() {
+        XCTAssertNil(HTMLTag("<!-- <br> -->"))
+        XCTAssertNil(HTMLTag("<![CDATA[<br>]]>"))
+        XCTAssertNil(HTMLTag("<?instruction <br> ?>"))
+        XCTAssertNil(HTMLTag("text <br>"))
+    }
 }
