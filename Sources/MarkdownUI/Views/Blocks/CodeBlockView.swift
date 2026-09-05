@@ -23,8 +23,11 @@ struct CodeBlockView: View {
     }
 
     private var label: some View {
-        self.codeSyntaxHighlighter.highlightCode(self.content, language: self.fenceInfo)
-            .textStyleFont()
-            .textStyleForegroundColor()
+        let text = self.codeSyntaxHighlighter.highlightCode(self.content, language: self.fenceInfo)
+        return TextStyleAttributesReader { attributes in
+            Group { text }
+                .font(attributes.fontProperties.map(Font.withProperties))
+                .foregroundColor(attributes.foregroundColor)
+        }
     }
 }
