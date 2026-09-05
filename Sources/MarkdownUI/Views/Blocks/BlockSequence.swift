@@ -27,7 +27,8 @@ struct BlockSequence<Data: Sequence, Content: View>: View {
                     VStack(alignment: self.textAlignment.alignment.horizontal, spacing: 0) {
                         self.rows
                     }
-                case .lazy:
+                case .lazy,
+                     .lazyContainers:
                     LazyVStack(alignment: self.textAlignment.alignment.horizontal, spacing: 0) {
                         self.rows
                     }

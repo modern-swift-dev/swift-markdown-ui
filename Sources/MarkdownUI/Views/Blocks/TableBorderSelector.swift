@@ -4,20 +4,38 @@ import SwiftUI
 ///
 /// You use a table border selector to select the visible borders when creating a ``TableBorderStyle``.
 public struct TableBorderSelector: Sendable {
+    struct Components: OptionSet, Sendable {
+        let rawValue: Int
+
+        static let outside = Self(rawValue: 1 << 0)
+        static let insideHorizontal = Self(rawValue: 1 << 1)
+        static let insideVertical = Self(rawValue: 1 << 2)
+        static let outsideHorizontal = Self(rawValue: 1 << 3)
+    }
+
+    let components: Components?
     var rectangles: @Sendable (_ tableBounds: TableBounds, _ borderWidth: CGFloat) -> [CGRect]
+
+    init(
+        components: Components? = nil,
+        rectangles: @escaping @Sendable (_ tableBounds: TableBounds, _ borderWidth: CGFloat) -> [CGRect]
+    ) {
+        self.components = components
+        self.rectangles = rectangles
+    }
 }
 
 public extension TableBorderSelector {
     /// A table border selector that selects the outside borders of a table.
     static var outsideBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, _ in
+        TableBorderSelector(components: [.outside]) { tableBounds, _ in
             [tableBounds.bounds]
         }
     }
 
     /// A table border selector that selects the inside borders of a table.
     static var insideBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.insideHorizontal, .insideVertical]) { tableBounds, borderWidth in
             Self.insideHorizontalBorders.rectangles(tableBounds, borderWidth)
                 + Self.insideVerticalBorders.rectangles(tableBounds, borderWidth)
         }
@@ -25,7 +43,7 @@ public extension TableBorderSelector {
 
     /// A table border selector that selects the inside horizontal borders of a table.
     static var insideHorizontalBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.insideHorizontal]) { tableBounds, borderWidth in
             (0 ..< tableBounds.rowCount - 1)
                 .map {
                     tableBounds.bounds(forRow: $0)
@@ -42,7 +60,7 @@ public extension TableBorderSelector {
 
     /// A table border selector that selects the inside vertical borders of a table.
     static var insideVerticalBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.insideVertical]) { tableBounds, borderWidth in
             (0 ..< tableBounds.columnCount - 1)
                 .map {
                     tableBounds.bounds(forColumn: $0)
@@ -59,7 +77,7 @@ public extension TableBorderSelector {
 
     /// A table border selector that selects the horizontal borders of a table.
     static var horizontalBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.outsideHorizontal, .insideHorizontal]) { tableBounds, borderWidth in
             Self.outsideHorizontalBorders.rectangles(tableBounds, borderWidth)
                 + Self.insideHorizontalBorders.rectangles(tableBounds, borderWidth)
         }
@@ -67,7 +85,7 @@ public extension TableBorderSelector {
 
     /// A table border selector that selects all the borders of a table.
     static var allBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.insideHorizontal, .insideVertical, .outside]) { tableBounds, borderWidth in
             Self.insideBorders.rectangles(tableBounds, borderWidth)
                 + Self.outsideBorders.rectangles(tableBounds, borderWidth)
         }
@@ -76,7 +94,7 @@ public extension TableBorderSelector {
 
 private extension TableBorderSelector {
     static var outsideHorizontalBorders: TableBorderSelector {
-        TableBorderSelector { tableBounds, borderWidth in
+        TableBorderSelector(components: [.outsideHorizontal]) { tableBounds, borderWidth in
             [
                 CGRect(
                     origin: .init(x: tableBounds.bounds.minX, y: tableBounds.bounds.minY),

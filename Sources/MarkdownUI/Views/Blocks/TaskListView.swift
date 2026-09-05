@@ -3,6 +3,7 @@ import SwiftUI
 struct TaskListView: View {
     @Environment(\.theme.list) private var list
     @Environment(\.listLevel) private var listLevel
+    @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
 
     private let isTight: Bool
     private let items: [RawTaskListItem]
@@ -22,7 +23,7 @@ struct TaskListView: View {
     }
 
     private var label: some View {
-        BlockSequence(self.items) { _, item in
+        BlockSequence(self.items, renderingMode: self.blockRenderingMode.nestedRenderingMode) { _, item in
             TaskListItemView(item: item)
         }
         .labelStyle(.titleAndIcon)

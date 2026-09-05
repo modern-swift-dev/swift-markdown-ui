@@ -22,12 +22,13 @@ struct TaskListItemView: View {
 
 struct TaskListItemLabel: View {
     @Environment(\.theme.taskListMarker) private var taskListMarker
+    @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
 
     let item: RawTaskListItem
 
     var body: some View {
         Label {
-            BlockSequence(self.item.children)
+            BlockSequence(self.item.children, renderingMode: self.blockRenderingMode.nestedRenderingMode)
         } icon: {
             self.taskListMarker.makeBody(configuration: .init(isCompleted: self.item.isCompleted))
                 .textStyleFont()

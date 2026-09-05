@@ -212,3 +212,25 @@ The limit applies to the longest decoded dimension and also changes the image's
 intrinsic layout size. Choose it with the desired display size and screen scale in
 mind. The decoded-image cache budget does not include images retained by visible
 views, downloads in progress, or active decoding allocations.
+
+### Rendering large containers lazily
+
+Use `.lazyContainers` inside a scroll view to defer offscreen list items and nested
+blocks. Tables can also defer rows when their column widths are explicit:
+
+```swift
+ScrollView {
+  MarkdownView(markdownString)
+    .markdownBlockRenderingMode(.lazyContainers)
+    .markdownTableColumnWidths([160, 240])
+}
+```
+
+Column widths include the theme's cell padding. Tables with a different column
+count, or without valid explicit widths, retain their content-sized eager layout.
+Matching explicit widths also apply in eager mode. Lazy tables require standard
+solid borders with positive, whole-point widths. Dashed/custom strokes and
+fractional border widths retain eager rendering to preserve their appearance.
+Lazy row heights and numbered
+marker widths are estimated until measured, so scrolling can adjust layout.
+The existing `.lazy` mode continues to defer only top-level blocks.

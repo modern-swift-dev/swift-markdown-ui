@@ -3,6 +3,7 @@ import SwiftUI
 struct ListItemView: View {
     @Environment(\.theme.listItem) private var listItem
     @Environment(\.listLevel) private var listLevel
+    @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
 
     private let item: RawListItem
     private let number: Int
@@ -35,7 +36,7 @@ struct ListItemView: View {
             if let isCompleted = self.item.isCompleted {
                 TaskListItemLabel(item: .init(isCompleted: isCompleted, children: self.item.children))
             } else {
-                BlockSequence(self.item.children)
+                BlockSequence(self.item.children, renderingMode: self.blockRenderingMode.nestedRenderingMode)
             }
         } icon: {
             self.markerStyle

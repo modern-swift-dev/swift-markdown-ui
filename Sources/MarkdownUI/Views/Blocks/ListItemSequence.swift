@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ListItemSequence: View {
+    @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
+
     private let items: [RawListItem]
     private let start: Int
     private let markerStyle: BlockStyle<ListMarkerConfiguration>
@@ -19,7 +21,7 @@ struct ListItemSequence: View {
     }
 
     var body: some View {
-        BlockSequence(self.items) { index, item in
+        BlockSequence(self.items, renderingMode: self.blockRenderingMode.nestedRenderingMode) { index, item in
             ListItemView(
                 item: item,
                 number: self.start + index,
