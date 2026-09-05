@@ -101,6 +101,38 @@ import XCTest
         }
     }
 
+    func testLineBreakTrimsUnicodeWhitespaceScalarsOnlyFromTheNextTextNode() {
+        let samples: [(source: String, expected: String)] = [
+            ("", ""),
+            ("unchanged", "unchanged"),
+            (" \t\n\r\u{000B}\u{000C}text", "text"),
+            ("\u{0085}\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}text", "text"),
+            ("\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}text", "text"),
+            ("\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}text", "text"),
+            (" \u{0301}text", "\u{0301}text"),
+            ("\u{200B} text", "\u{200B} text"),
+            ("\u{FEFF} text", "\u{FEFF} text"),
+            (" \t\u{00A0}", "")
+        ]
+
+        for sample in samples {
+            // ICU's previous regex removes whitespace scalars even when they form
+            // a grapheme with a combining mark. Character.isWhitespace does not.
+            XCTAssertEqual(
+                sample.source.replacingOccurrences(of: "^\\s+", with: "", options: .regularExpression),
+                sample.expected
+            )
+            var renderer = makeRenderer()
+            renderer.render([
+                .text("before"), .lineBreak, .text(sample.source), .text("  subsequent")
+            ])
+            let expected = AttributedString(
+                "before\n" + sample.expected + "  subsequent", attributes: attributes
+            ).resolvingFonts()
+            XCTAssertEqual(renderer.finish(), Text("") + Text(expected))
+        }
+    }
+
     func testCustomFontsPreserveFontPropertiesPrecedenceAndStyleRestoration() throws {
         let customStyles = InlineTextStyles(
             code: FontFamilyVariant(.monospaced),

@@ -87,7 +87,9 @@ struct TextInlineRenderer {
 
         if self.shouldSkipNextWhitespace {
             self.shouldSkipNextWhitespace = false
-            text = text.replacingOccurrences(of: "^\\s+", with: "", options: .regularExpression)
+            if text.unicodeScalars.first?.properties.isWhitespace == true {
+                text = String(text.unicodeScalars.drop(while: { $0.properties.isWhitespace }))
+            }
         }
 
         self.append(text)
