@@ -76,6 +76,66 @@ import UIKit
         try await wait { provider.cancellations == 1 }
     }
 
+    func testLargeQueueCompactsCancelledRequestsAndDrainsSurvivors() async throws {
+        let probe = NativeImageProbe()
+        let loader = MarkdownEditorImageLoader(maximumCacheCost: 0, load: probe.load)
+        let baseURL = try imageURL()
+        let active = (0 ..< 4).map { index in
+            Task { try await loader.image(for: baseURL.appendingPathComponent("active-\(index)")) }
+        }
+        try await wait { probe.started == 4 }
+        let queued = (0 ..< 256).map { index in
+            Task { try await loader.image(for: baseURL.appendingPathComponent("queued-\(index)")) }
+        }
+        try await wait { loader.pendingLoadCount == queued.count }
+        for request in queued.prefix(192) {
+            request.cancel()
+        }
+        for request in queued.prefix(192) {
+            do { _ = try await request.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { throw error }
+        }
+        XCTAssertEqual(loader.pendingLoadCount, 64)
+        XCTAssertLessThanOrEqual(loader.pendingStorageCount, 128)
+        probe.suspended = false
+        for request in active + queued.suffix(64) {
+            _ = try await request.value
+        }
+        XCTAssertEqual(Set(probe.startedNames), Set(
+            (0 ..< 4).map { "active-\($0)" } + (192 ..< 256).map { "queued-\($0)" }
+        ))
+        XCTAssertEqual(loader.pendingStorageCount, 0)
+    }
+
+    func testCancellingEntireQueueReleasesStorageBeforeActiveRequestsFinish() async throws {
+        let probe = NativeImageProbe()
+        let loader = MarkdownEditorImageLoader(maximumCacheCost: 0, load: probe.load)
+        let baseURL = try imageURL()
+        let active = (0 ..< 4).map { index in
+            Task { try await loader.image(for: baseURL.appendingPathComponent("active-\(index)")) }
+        }
+        try await wait { probe.started == 4 }
+        let queued = (0 ..< 256).map { index in
+            Task { try await loader.image(for: baseURL.appendingPathComponent("cancelled-\(index)")) }
+        }
+        try await wait { loader.pendingLoadCount == queued.count }
+        for request in queued {
+            request.cancel()
+        }
+        for request in queued {
+            do { _ = try await request.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { throw error }
+        }
+        XCTAssertEqual(loader.pendingStorageCount, 0)
+        XCTAssertEqual(loader.pendingLoadCount, 0)
+        let replacement = Task { try await loader.image(for: baseURL.appendingPathComponent("replacement")) }
+        try await wait { loader.pendingLoadCount == 1 }
+        probe.suspended = false
+        for request in active + [replacement] {
+            _ = try await request.value
+        }
+        XCTAssertEqual(Set(probe.startedNames), Set((0 ..< 4).map { "active-\($0)" } + ["replacement"]))
+        XCTAssertEqual(loader.pendingStorageCount, 0)
+    }
+
     func testCancelledUncooperativeProviderCannotApplyLateResult() async throws {
         let provider = UncooperativeNativeProvider()
         let loader = MarkdownImageViewLoader(provider: provider, url: try imageURL())
@@ -183,11 +243,13 @@ import UIKit
 
 @MainActor private final class NativeImageProbe {
     var started = 0
+    var startedNames: [String] = []
     var cancellations = 0
     var suspended = true
 
     func load(_ url: URL) async throws -> MarkdownEditorImageLoader.Resource {
         started += 1
+        startedNames.append(url.lastPathComponent)
         do {
             while suspended {
                 try await Task.sleep(for: .milliseconds(5))

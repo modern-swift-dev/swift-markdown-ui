@@ -34,7 +34,13 @@ import AppKit
     private var jobs: [UUID: Job] = [:]
     private var jobForURL: [URL: UUID] = [:]
     private var pending: [UUID] = []
+    private var pendingHead = 0
+    private(set) var pendingLoadCount = 0
     private var running: [UUID: Task<Void, Never>] = [:]
+
+    var pendingStorageCount: Int {
+        pending.count
+    }
 
     init(
         maximumCacheCost: Int = 64 * 1024 * 1024,
@@ -69,6 +75,7 @@ import AppKit
                     jobs[jobID] = Job(url: url, waiters: [waiterID: continuation])
                     jobForURL[url] = jobID
                     pending.append(jobID)
+                    pendingLoadCount += 1
                     startPendingLoads()
                 }
             }
@@ -86,17 +93,23 @@ import AppKit
         if jobs[jobID]?.waiters.isEmpty == true {
             jobs.removeValue(forKey: jobID)
             jobForURL.removeValue(forKey: url)
-            pending.removeAll { $0 == jobID }
+            if running[jobID] == nil {
+                pendingLoadCount -= 1
+                compactPendingIfNeeded()
+            }
+            // Cancellation keeps its slot occupied until the load actually finishes.
             running[jobID]?.cancel()
         }
     }
 
     private func startPendingLoads() {
-        while running.count < 4, !pending.isEmpty {
-            let jobID = pending.removeFirst()
+        while running.count < 4, pendingHead < pending.count {
+            let jobID = pending[pendingHead]
+            pendingHead += 1
             guard let job = jobs[jobID] else {
                 continue
             }
+            pendingLoadCount -= 1
             let load = self.load
             running[jobID] = Task { @MainActor in
                 let result: Result<Resource, any Error>
@@ -110,6 +123,19 @@ import AppKit
                 }
                 self.finish(jobID: jobID, result: result)
             }
+        }
+        compactPendingIfNeeded()
+    }
+
+    /// Reclaim consumed and cancelled entries only after at least half the
+    /// storage is unused, keeping queue bookkeeping amortized linear.
+    private func compactPendingIfNeeded() {
+        if pendingLoadCount == 0 {
+            pending.removeAll(keepingCapacity: false)
+            pendingHead = 0
+        } else if pending.count >= 64, pendingLoadCount <= pending.count / 2 {
+            pending = pending[pendingHead...].filter { jobs[$0] != nil }
+            pendingHead = 0
         }
     }
 
