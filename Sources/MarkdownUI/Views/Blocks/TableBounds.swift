@@ -13,12 +13,25 @@ struct TableBounds: Sendable {
 
     private let rows: [(minY: CGFloat, height: CGFloat)]
     private let columns: [(minX: CGFloat, width: CGFloat)]
+    private let columnExtent: (minX: CGFloat, maxX: CGFloat)
+    private let rowExtent: (minY: CGFloat, maxY: CGFloat)
 
     fileprivate init(
         rowCount: Int,
         columnCount: Int,
         anchors: [TableCellIndex: Anchor<CGRect>],
         proxy: GeometryProxy
+    ) {
+        self.init(rowCount: rowCount, columnCount: columnCount, bounds: proxy.frame(in: .local)) { row, column in
+            anchors[TableCellIndex(row: row, column: column)].map { proxy[$0] }
+        }
+    }
+
+    init(
+        rowCount: Int,
+        columnCount: Int,
+        bounds: CGRect,
+        cellBounds: (_ row: Int, _ column: Int) -> CGRect?
     ) {
         var rows = Array(
             repeating: (minY: CGFloat.greatestFiniteMagnitude, height: CGFloat(0)),
@@ -31,11 +44,9 @@ struct TableBounds: Sendable {
 
         for row in 0 ..< rowCount {
             for column in 0 ..< columnCount {
-                guard let anchor = anchors[TableCellIndex(row: row, column: column)] else {
+                guard let bounds = cellBounds(row, column) else {
                     continue
                 }
-
-                let bounds = proxy[anchor]
 
                 rows[row].minY = min(rows[row].minY, bounds.minY)
                 rows[row].height = max(rows[row].height, bounds.height)
@@ -45,9 +56,15 @@ struct TableBounds: Sendable {
             }
         }
 
-        self.bounds = proxy.frame(in: .local)
+        self.bounds = bounds
         self.rows = rows
         self.columns = columns
+        self.columnExtent = columns.reduce((minX: CGFloat.greatestFiniteMagnitude, maxX: -CGFloat.greatestFiniteMagnitude)) {
+            (min($0.minX, $1.minX), max($0.maxX, $1.minX + $1.width))
+        }
+        self.rowExtent = rows.reduce((minY: CGFloat.greatestFiniteMagnitude, maxY: -CGFloat.greatestFiniteMagnitude)) {
+            (min($0.minY, $1.minY), max($0.maxY, $1.minY + $1.height))
+        }
     }
 
     func bounds(forRow row: Int, column: Int) -> CGRect {
@@ -58,15 +75,27 @@ struct TableBounds: Sendable {
     }
 
     func bounds(forRow row: Int) -> CGRect {
-        (0 ..< self.columnCount)
-            .map { self.bounds(forRow: row, column: $0) }
-            .reduce(.null, CGRectUnion)
+        guard !self.columns.isEmpty else {
+            return .null
+        }
+        return CGRect(
+            x: self.columnExtent.minX,
+            y: self.rows[row].minY,
+            width: self.columnExtent.maxX - self.columnExtent.minX,
+            height: self.rows[row].height
+        )
     }
 
     func bounds(forColumn column: Int) -> CGRect {
-        (0 ..< self.rowCount)
-            .map { self.bounds(forRow: $0, column: column) }
-            .reduce(.null, CGRectUnion)
+        guard !self.rows.isEmpty else {
+            return .null
+        }
+        return CGRect(
+            x: self.columns[column].minX,
+            y: self.rowExtent.minY,
+            width: self.columns[column].width,
+            height: self.rowExtent.maxY - self.rowExtent.minY
+        )
     }
 }
 
@@ -86,34 +115,41 @@ extension View {
         self
             .backgroundPreferenceValue(TableCellBoundsPreference.self) { anchors in
                 GeometryReader { proxy in
-                    background(
-                        .init(
-                            rowCount: rowCount,
-                            columnCount: columnCount,
-                            anchors: anchors,
-                            proxy: proxy
-                        )
+                    let bounds = TableBounds(
+                        rowCount: rowCount,
+                        columnCount: columnCount,
+                        anchors: anchors,
+                        proxy: proxy
                     )
+                    background(bounds)
+                        .preference(key: ResolvedTableBoundsPreference.self, value: bounds)
                 }
             }
-            .overlayPreferenceValue(TableCellBoundsPreference.self) { anchors in
-                GeometryReader { proxy in
-                    overlay(
-                        .init(
-                            rowCount: rowCount,
-                            columnCount: columnCount,
-                            anchors: anchors,
-                            proxy: proxy
-                        )
-                    )
+            .overlayPreferenceValue(ResolvedTableBoundsPreference.self) { bounds in
+                if let bounds {
+                    GeometryReader { _ in
+                        overlay(bounds)
+                    }
                 }
             }
+            // Resolved coordinates belong to this table, not an enclosing decoration.
+            .transformPreference(ResolvedTableBoundsPreference.self) { $0 = nil }
     }
 }
 
 private struct TableCellIndex: Hashable {
     var row: Int
     var column: Int
+}
+
+private struct ResolvedTableBoundsPreference: PreferenceKey {
+    static let defaultValue: TableBounds? = nil
+
+    static func reduce(value: inout TableBounds?, nextValue: () -> TableBounds?) {
+        if let next = nextValue() {
+            value = next
+        }
+    }
 }
 
 private struct TableCellBoundsPreference: PreferenceKey {
