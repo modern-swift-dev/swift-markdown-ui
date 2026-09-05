@@ -4,15 +4,43 @@ import SwiftUI
     let horizontalSpacing: CGFloat
     let verticalSpacing: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
-        let rows = self.computeLayout(for: proposal, subviews: subviews)
+    struct Cache {
+        struct Key: Equatable {
+            let proposal: ProposedViewSize
+            let horizontalSpacing: CGFloat
+            let verticalSpacing: CGFloat
+        }
+
+        private var key: Key?
+        private var rows: [Row] = []
+
+        mutating func rows(for key: Key, compute: () -> [Row]) -> [Row] {
+            if self.key != key {
+                self.rows = compute()
+                self.key = key
+            }
+            return self.rows
+        }
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        // Loaded images and environment changes may alter intrinsic size at the same proposal.
+        cache = Cache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let rows = self.rows(for: proposal, subviews: subviews, cache: &cache)
         return self.sizeThatFits(rows: rows)
     }
 
     func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache
     ) {
-        let rows = self.computeLayout(for: proposal, subviews: subviews)
+        let rows = self.rows(for: proposal, subviews: subviews, cache: &cache)
         var position = bounds.origin
 
         for row in rows {
@@ -31,14 +59,20 @@ import SwiftUI
 }
 
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) extension FlowLayout {
-    private struct Item {
+    struct Item {
         let index: Int
         let size: CGSize
     }
 
-    private struct Row {
+    struct Row {
         var size: CGSize = .zero
         var items: [Item] = []
+    }
+
+    private func rows(for proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> [Row] {
+        cache.rows(for: .init(proposal: proposal, horizontalSpacing: horizontalSpacing, verticalSpacing: verticalSpacing)) {
+            self.computeLayout(for: proposal, subviews: subviews)
+        }
     }
 
     private func computeLayout(for proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
