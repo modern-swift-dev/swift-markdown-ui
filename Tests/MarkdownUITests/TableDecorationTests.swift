@@ -34,6 +34,26 @@ import XCTest
         XCTAssertTrue(noRows.bounds(forColumn: 0).isNull)
     }
 
+    func testEmptyTableDimensionsHaveNoInternalBorders() {
+        for (rowCount, columnCount) in [(0, 0), (0, 3), (3, 0), (1, 1)] {
+            let bounds = TableBounds(rowCount: rowCount, columnCount: columnCount, bounds: .zero) { _, _ in .zero }
+            XCTAssertTrue(TableBorderSelector.insideHorizontalBorders.rectangles(bounds, 1).isEmpty)
+            XCTAssertTrue(TableBorderSelector.insideVerticalBorders.rectangles(bounds, 1).isEmpty)
+            XCTAssertTrue(TableBorderSelector.insideBorders.rectangles(bounds, 1).isEmpty)
+        }
+    }
+
+    func testPublicTableBuilderAcceptsNoColumns() throws {
+        let view = MarkdownView {
+            TextTable([1, 2, 3]) {
+                if false {
+                    TextTableColumn(title: "Value") { (value: Int) in String(value) }
+                }
+            }
+        }
+        _ = try render(view)
+    }
+
     func testOnlyBuiltInClearSkipsCellBackgrounds() {
         guard case .clear = TableBackgroundStyle.clear.background else {
             return XCTFail("The built-in clear style must bypass cell background construction")
