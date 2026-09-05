@@ -13,12 +13,16 @@ struct ResizeToFit<Content: View>: View {
 }
 
 private struct ResizeToFitLayout: Layout {
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let view = subviews.first else {
-            return .zero
-        }
+    func makeCache(subviews: Subviews) -> CGSize {
+        subviews.first?.sizeThatFits(.unspecified) ?? .zero
+    }
 
-        var size = view.sizeThatFits(.unspecified)
+    func updateCache(_ cache: inout CGSize, subviews: Subviews) {
+        cache = self.makeCache(subviews: subviews)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
+        var size = cache
 
         if let width = proposal.width, size.width > width {
             let aspectRatio = size.width / size.height
@@ -29,7 +33,7 @@ private struct ResizeToFitLayout: Layout {
     }
 
     func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize
     ) {
         guard let view = subviews.first else {
             return
