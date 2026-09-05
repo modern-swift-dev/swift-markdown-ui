@@ -12,19 +12,31 @@ extension [BlockNode] {
 
     func renderMarkdown() -> String {
         UnsafeNode.makeDocument(self) { document in
-            String(cString: cmark_render_commonmark(document, CMARK_OPT_DEFAULT, 0))
+            guard let buffer = cmark_render_commonmark(document, CMARK_OPT_DEFAULT, 0) else {
+                return ""
+            }
+            defer { cmark_get_default_mem_allocator().pointee.free(buffer) }
+            return String(cString: buffer)
         } ?? ""
     }
 
     func renderPlainText() -> String {
         UnsafeNode.makeDocument(self) { document in
-            String(cString: cmark_render_plaintext(document, CMARK_OPT_DEFAULT, 0))
+            guard let buffer = cmark_render_plaintext(document, CMARK_OPT_DEFAULT, 0) else {
+                return ""
+            }
+            defer { cmark_get_default_mem_allocator().pointee.free(buffer) }
+            return String(cString: buffer)
         } ?? ""
     }
 
     func renderHTML() -> String {
         UnsafeNode.makeDocument(self) { document in
-            String(cString: cmark_render_html(document, CMARK_OPT_DEFAULT, nil))
+            guard let buffer = cmark_render_html(document, CMARK_OPT_DEFAULT, nil) else {
+                return ""
+            }
+            defer { cmark_get_default_mem_allocator().pointee.free(buffer) }
+            return String(cString: buffer)
         } ?? ""
     }
 }
