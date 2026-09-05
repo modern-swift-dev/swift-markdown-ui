@@ -5,6 +5,16 @@ struct BlockMargin: Equatable {
     var bottom: CGFloat?
 
     static let unspecified = BlockMargin()
+
+    static func maximum(_ lhs: CGFloat?, _ rhs: CGFloat?) -> CGFloat? {
+        guard let lhs else {
+            return rhs
+        }
+        guard let rhs else {
+            return lhs
+        }
+        return lhs < rhs ? rhs : lhs
+    }
 }
 
 public extension View {
@@ -93,8 +103,8 @@ public extension View {
         self.transformPreference(BlockMarginsPreference.self) { value in
             let newValue = BlockMargin(top: top, bottom: bottom)
 
-            value.top = [value.top, newValue.top].compactMap(\.self).max()
-            value.bottom = [value.bottom, newValue.bottom].compactMap(\.self).max()
+            value.top = BlockMargin.maximum(value.top, newValue.top)
+            value.bottom = BlockMargin.maximum(value.bottom, newValue.bottom)
         }
     }
 }
@@ -105,7 +115,7 @@ struct BlockMarginsPreference: PreferenceKey {
     static func reduce(value: inout BlockMargin, nextValue: () -> BlockMargin) {
         let newValue = nextValue()
 
-        value.top = [value.top, newValue.top].compactMap(\.self).max()
-        value.bottom = [value.bottom, newValue.bottom].compactMap(\.self).max()
+        value.top = BlockMargin.maximum(value.top, newValue.top)
+        value.bottom = BlockMargin.maximum(value.bottom, newValue.bottom)
     }
 }

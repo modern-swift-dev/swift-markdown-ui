@@ -60,9 +60,7 @@ struct BlockSequence<Data: Sequence, Content: View>: View {
         let predecessorBottomSpacing =
             self.tightSpacingEnabled ? 0 : self.blockMargins[index - 1]?.bottom
 
-        return [topSpacing, predecessorBottomSpacing]
-            .compactMap(\.self)
-            .max()
+        return BlockMargin.maximum(topSpacing, predecessorBottomSpacing)
     }
 }
 
