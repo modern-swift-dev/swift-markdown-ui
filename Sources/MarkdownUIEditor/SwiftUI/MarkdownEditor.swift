@@ -221,9 +221,7 @@ private struct PlatformMarkdownEditor: UIViewRepresentable {
                 return
             }
             lastBindingValue = incoming
-            if textView.document != incoming {
-                textView.document = incoming
-            }
+            textView.editingSession.replaceDocumentFromBinding(incoming)
         }
 
         func markdownTextView(_ textView: MarkdownTextView, didChange document: MarkdownDocument) {
@@ -233,6 +231,7 @@ private struct PlatformMarkdownEditor: UIViewRepresentable {
             // Read back the binding's representation, which may normalize the
             // published document. Repeated view updates are not external edits.
             lastBindingValue = self.document.wrappedValue
+            textView.editingSession.acknowledgeBindingDocument(lastBindingValue)
         }
     }
 }
@@ -321,9 +320,7 @@ private struct PlatformMarkdownEditor: NSViewRepresentable {
                 return
             }
             lastBindingValue = incoming
-            if textView.document != incoming {
-                textView.document = incoming
-            }
+            textView.editingSession.replaceDocumentFromBinding(incoming)
         }
 
         func markdownTextView(_ textView: MarkdownTextView, didChange document: MarkdownDocument) {
@@ -333,6 +330,7 @@ private struct PlatformMarkdownEditor: NSViewRepresentable {
             // Read back the binding's representation, which may normalize the
             // published document. Repeated view updates are not external edits.
             lastBindingValue = self.document.wrappedValue
+            textView.editingSession.acknowledgeBindingDocument(lastBindingValue)
         }
     }
 }

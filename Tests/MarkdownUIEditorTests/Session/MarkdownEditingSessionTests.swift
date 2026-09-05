@@ -344,7 +344,7 @@ import UIKit
         guard let listExit = publishedDocument else {
             return XCTFail("Expected the list exit to publish a document")
         }
-        session.replaceDocument(MarkdownDocument(markdown: listExit.markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: listExit.markdown))
         XCTAssertEqual(session.document, expected)
         XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 6, length: 0)])
 
@@ -370,7 +370,7 @@ import UIKit
         guard let secondParagraph = publishedDocument else {
             return XCTFail("Expected the additional paragraph to publish a document")
         }
-        session.replaceDocument(MarkdownDocument(markdown: secondParagraph.markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: secondParagraph.markdown))
         XCTAssertEqual(session.document, expectedAfterAnotherReturn)
         XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 7, length: 0)])
     }
@@ -396,7 +396,7 @@ import UIKit
         guard let itemCreation = publishedDocuments.last else {
             return XCTFail("Expected the new task item to publish a document")
         }
-        session.replaceDocument(MarkdownDocument(markdown: itemCreation.markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: itemCreation.markdown))
         XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 6, length: 0), with: "\n"))
 
         let expected = MarkdownDocument(blocks: [
@@ -422,7 +422,7 @@ import UIKit
         guard let listExit = publishedDocuments.last else {
             return XCTFail("Expected the task list exit to publish a document")
         }
-        session.replaceDocument(MarkdownDocument(markdown: listExit.markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: listExit.markdown))
         XCTAssertEqual(session.document, expected)
         XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 6, length: 0)])
     }
@@ -457,7 +457,7 @@ import UIKit
         XCTAssertNotEqual(bindingEcho, publishedDocument)
         let replacementCount = bridge.replacementCount
 
-        session.replaceDocument(bindingEcho)
+        session.replaceDocumentFromBinding(bindingEcho)
 
         XCTAssertEqual(session.document, publishedDocument)
         XCTAssertEqual(bridge.replacementCount, replacementCount)
@@ -655,10 +655,40 @@ import UIKit
 
         session.perform(.toggleInline(.strong))
         let replacementsAfterCommand = bridge.replacementCount
-        session.replaceDocument(try XCTUnwrap(emitted))
+        session.replaceDocumentFromBinding(try XCTUnwrap(emitted))
 
         XCTAssertGreaterThan(replacementsAfterCommand, replacementsBeforeCommand)
         XCTAssertEqual(bridge.replacementCount, replacementsAfterCommand)
+    }
+
+    func testExplicitReplacementRestoresPreviouslyPublishedDocument() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "original"))
+        session.attach(to: bridge)
+        session.perform(.convertBlock(.heading(.one)))
+        let saved = session.document
+        session.perform(.convertBlock(.heading(.two)))
+
+        session.replaceDocument(saved)
+
+        XCTAssertEqual(session.document, saved)
+        XCTAssertEqual(session.document.markdown, "# original\n")
+        XCTAssertEqual(bridge.markdownTextStorage.string, "original\n")
+    }
+
+    func testAcknowledgedBindingValueCanBeRestoredAfterFurtherEdits() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "original"))
+        session.attach(to: bridge)
+        session.perform(.convertBlock(.heading(.one)))
+        let saved = session.document
+        XCTAssertTrue(session.acknowledgeBindingDocument(MarkdownDocument(markdown: saved.markdown)))
+        session.perform(.convertBlock(.heading(.two)))
+        XCTAssertTrue(session.acknowledgeBindingDocument(session.document))
+
+        session.replaceDocumentFromBinding(saved)
+
+        XCTAssertEqual(session.document, saved)
     }
 
     func testExternalReplacementClampsSelection() {
@@ -827,12 +857,12 @@ import UIKit
         XCTAssertEqual(emitted.count, 2)
         let replacementCount = bridge.replacementCount
 
-        session.replaceDocument(MarkdownDocument(markdown: emitted[0].markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: emitted[0].markdown))
 
         XCTAssertEqual(session.document, emitted[1])
         XCTAssertEqual(bridge.replacementCount, replacementCount)
 
-        session.replaceDocument(MarkdownDocument(markdown: emitted[1].markdown))
+        session.replaceDocumentFromBinding(MarkdownDocument(markdown: emitted[1].markdown))
 
         XCTAssertEqual(session.document, emitted[1])
         XCTAssertEqual(bridge.replacementCount, replacementCount)

@@ -53,6 +53,28 @@ import UIKit
         }
     }
 
+    func testSourceBindingCanRestoreAnEarlierPublishedDocument() async throws {
+        let state = SourceState()
+        state.markdown = "original"
+        let host = makeHost(state)
+        defer { closeHost(host) }
+        try await Task.sleep(for: .milliseconds(100))
+        let textView = try XCTUnwrap(findEditor(in: hostView(host)))
+        focus(textView, in: host)
+        textView.perform(.convertBlock(.heading(.one)))
+        let saved = state.markdown
+        XCTAssertEqual(saved, "# original\n")
+        textView.perform(.convertBlock(.heading(.two)))
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(state.markdown, "## original\n")
+
+        state.markdown = saved
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(textView.document, MarkdownDocument(markdown: saved))
+        XCTAssertEqual(textView.document.markdown, state.markdown)
+    }
+
     @MainActor private final class SourceState: ObservableObject {
         @Published var markdown = "Intro\n\n## Lists\n\n1. Existing"
         @Published var refresh = 0

@@ -172,19 +172,33 @@ private struct ActiveTableSelection: Equatable, Sendable {
         return true
     }
 
-    /// Replaces the document from an external owner, preserving selection where possible.
-    func replaceDocument(_ replacement: MarkdownDocument) {
-        if let echoIndex = pendingLocalEchoes.lastIndex(where: {
-            replacement == $0 || replacement == MarkdownDocument(markdown: $0.markdown)
-        }) {
-            pendingLocalEchoes.removeFirst(echoIndex + 1)
+    /// Acknowledges a value read back from a binding after publication.
+    /// Once acknowledged, the same value can later be restored intentionally.
+    @discardableResult func acknowledgeBindingDocument(_ value: MarkdownDocument) -> Bool {
+        guard let echoIndex = pendingLocalEchoes.lastIndex(where: {
+            value == $0 || value == MarkdownDocument(markdown: $0.markdown)
+        }) else {
+            return false
+        }
+        pendingLocalEchoes.removeFirst(echoIndex + 1)
+        return true
+    }
+
+    /// Synchronizes a binding without letting delayed echoes overwrite newer edits.
+    func replaceDocumentFromBinding(_ replacement: MarkdownDocument) {
+        guard !acknowledgeBindingDocument(replacement) else {
             return
         }
+        replaceDocument(replacement)
+    }
+
+    /// Replaces the document from an external owner, preserving selection where possible.
+    func replaceDocument(_ replacement: MarkdownDocument) {
+        pendingLocalEchoes.removeAll()
 
         guard Self.editableDocument(replacement) != document else {
             return
         }
-        pendingLocalEchoes.removeAll()
         needsCompositionFlush = false
         pendingNativeEdits = []
         document = Self.editableDocument(replacement)
