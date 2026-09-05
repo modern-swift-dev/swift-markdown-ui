@@ -38,6 +38,64 @@ import XCTest
         XCTAssertEqual(started, 1)
     }
 
+    func testLargeQueueCompactsCancelledJobsAndDrainsSurvivors() async throws {
+        let probe = LoaderProbe()
+        let loader = InlineImageLoader(maximumConcurrentLoads: 1, maximumCacheCost: 0, load: { try await probe.load($0) })
+        let active = Task { try await loader.image(for: key("active")) }
+        try await wait { await probe.started == 1 }
+        let queued = (0 ..< 256).map { index in
+            Task { try await loader.image(for: key("queued-\(index)")) }
+        }
+        try await wait { await loader.pendingLoadCount == queued.count }
+        for task in queued.prefix(192) {
+            task.cancel()
+        }
+        for task in queued.prefix(192) {
+            do { _ = try await task.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { throw error }
+        }
+        let remaining = await loader.pendingLoadCount
+        let storage = await loader.pendingStorageCount
+        XCTAssertEqual(remaining, 64)
+        XCTAssertLessThanOrEqual(storage, 128, "Cancelled entries should compact while the active slot is occupied")
+        await probe.release()
+        _ = try await active.value
+        for task in queued.suffix(64) {
+            _ = try await task.value
+        }
+        let names = await probe.startedNames
+        XCTAssertEqual(Set(names), Set(["active"] + (192 ..< 256).map { "queued-\($0)" }))
+        let drainedStorage = await loader.pendingStorageCount
+        XCTAssertEqual(drainedStorage, 0)
+    }
+
+    func testCancellingEntireLargeQueueReleasesStorageBeforeActiveLoadFinishes() async throws {
+        let probe = LoaderProbe()
+        let loader = InlineImageLoader(maximumConcurrentLoads: 1, maximumCacheCost: 0, load: { try await probe.load($0) })
+        let active = Task { try await loader.image(for: key("active")) }
+        try await wait { await probe.started == 1 }
+        let queued = (0 ..< 256).map { index in
+            Task { try await loader.image(for: key("cancelled-\(index)")) }
+        }
+        try await wait { await loader.pendingLoadCount == queued.count }
+        for task in queued {
+            task.cancel()
+        }
+        for task in queued {
+            do { _ = try await task.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { throw error }
+        }
+        let storage = await loader.pendingStorageCount
+        let remaining = await loader.pendingLoadCount
+        XCTAssertEqual(storage, 0)
+        XCTAssertEqual(remaining, 0)
+        let replacement = Task { try await loader.image(for: key("replacement")) }
+        try await wait { await loader.pendingLoadCount == 1 }
+        await probe.release()
+        _ = try await active.value
+        _ = try await replacement.value
+        let names = await probe.startedNames
+        XCTAssertEqual(names, ["active", "replacement"])
+    }
+
     func testCancellingOneWaiterKeepsSharedLoadAlive() async throws {
         let probe = LoaderProbe()
         let loader = InlineImageLoader(load: { try await probe.load($0) })
@@ -207,6 +265,7 @@ import XCTest
 
 private actor LoaderProbe {
     private(set) var started = 0
+    private(set) var startedNames: [String] = []
     private(set) var cancellations = 0
     private var suspended: Bool
 
@@ -220,6 +279,7 @@ private actor LoaderProbe {
 
     func load(_ key: InlineImageLoader.Key) async throws -> InlineImageLoader.Resource {
         started += 1
+        startedNames.append(key.url.lastPathComponent)
         do {
             while suspended {
                 try await Task.sleep(for: .milliseconds(5))

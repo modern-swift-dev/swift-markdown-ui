@@ -40,6 +40,13 @@ actor InlineImageLoader {
     private var jobs: [UUID: Job] = [:]
     private var jobForKey: [Key: UUID] = [:]
     private var pending: [UUID] = []
+    private var pendingHead = 0
+    private(set) var pendingLoadCount = 0
+
+    var pendingStorageCount: Int {
+        pending.count
+    }
+
     private var running: [UUID: Task<Void, Never>] = [:]
     private var cache: [Key: CachedImage] = [:]
     private var cacheCost = 0
@@ -93,6 +100,7 @@ actor InlineImageLoader {
                     jobs[jobID] = Job(key: key, waiters: [waiterID: continuation])
                     jobForKey[key] = jobID
                     pending.append(jobID)
+                    pendingLoadCount += 1
                     startPendingLoads()
                 }
             }
@@ -110,18 +118,23 @@ actor InlineImageLoader {
         if jobs[jobID]?.waiters.isEmpty == true {
             jobs.removeValue(forKey: jobID)
             jobForKey.removeValue(forKey: key)
-            pending.removeAll { $0 == jobID }
+            if running[jobID] == nil {
+                pendingLoadCount -= 1
+                compactPendingIfNeeded()
+            }
             // Keep the running slot occupied until cancellation has actually completed.
             running[jobID]?.cancel()
         }
     }
 
     private func startPendingLoads() {
-        while running.count < maximumConcurrentLoads, !pending.isEmpty {
-            let jobID = pending.removeFirst()
+        while running.count < maximumConcurrentLoads, pendingHead < pending.count {
+            let jobID = pending[pendingHead]
+            pendingHead += 1
             guard let job = jobs[jobID] else {
                 continue
             }
+            pendingLoadCount -= 1
             let load = self.load
             running[jobID] = Task.detached {
                 let result: Result<Resource, any Error>
@@ -135,6 +148,19 @@ actor InlineImageLoader {
                 }
                 await self.finish(jobID: jobID, result: result)
             }
+        }
+        compactPendingIfNeeded()
+    }
+
+    /// Compact only after consuming/cancelling at least half the storage, so total
+    /// bookkeeping stays amortized linear even if every running slot is occupied.
+    private func compactPendingIfNeeded() {
+        if pendingLoadCount == 0 {
+            pending.removeAll(keepingCapacity: false)
+            pendingHead = 0
+        } else if pending.count >= 64, pendingLoadCount <= pending.count / 2 {
+            pending = pending[pendingHead...].filter { jobs[$0] != nil }
+            pendingHead = 0
         }
     }
 
