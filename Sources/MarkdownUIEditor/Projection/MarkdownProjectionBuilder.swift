@@ -13,15 +13,16 @@ extension NSAttributedString.Key {
     static let markdownEditorTaskChecked = NSAttributedString.Key("MarkdownUIEditor.TaskChecked")
 }
 
-/// The native attributed text, cmark-gfm source output, and offset index for a document.
+/// The native attributed text, source snapshot, and offset index for a document.
 ///
 /// `attributedString` normally aliases the text view's storage after attachment.
-/// `sourceChunks` avoids rebuilding a whole source string for each keystroke.
+/// Canonical source is serialized only when requested, keeping native rendering and
+/// table edits from building an unused cmark tree and Markdown string.
 struct DocumentProjection {
     /// Attributed text shown by the native editor.
     var attributedString: NSAttributedString
-    /// cmark-gfm serialization captured when the full projection was built.
-    private var serializedSource: String
+    /// A value snapshot sharing the document's unchanged blocks and inline storage.
+    private var sourceDocument: MarkdownDocument
     /// Mapping between visible TextKit positions and Markdown source positions.
     var index: ProjectionIndex
     /// Native typing defers source mapping reconstruction until it is needed.
@@ -32,7 +33,7 @@ struct DocumentProjection {
     }
 
     var source: String {
-        serializedSource
+        sourceDocument.markdown
     }
 
     var sourceUTF16Length: Int {
@@ -41,11 +42,11 @@ struct DocumentProjection {
 
     init(
         attributedString: NSAttributedString,
-        serializedSource: String,
+        sourceDocument: MarkdownDocument,
         index: ProjectionIndex
     ) {
         self.attributedString = attributedString
-        self.serializedSource = serializedSource
+        self.sourceDocument = sourceDocument
         self.index = index
     }
 
@@ -54,7 +55,7 @@ struct DocumentProjection {
         if hasUnreconciledSource {
             let rebuilt = MarkdownProjectionBuilder().build(document: document, output: .sourceIndex)
             index.refreshSourceMappings(from: rebuilt.index)
-            serializedSource = rebuilt.source
+            sourceDocument = document
             hasUnreconciledSource = false
             return true
         }
@@ -62,7 +63,7 @@ struct DocumentProjection {
               index.replaceTableUnit(at: path, sourceLength: sourceLength) else {
             return false
         }
-        serializedSource = document.markdown
+        sourceDocument = document
         return true
     }
 
@@ -178,7 +179,7 @@ struct DocumentProjection {
         let attributedString: NSAttributedString = state.projection
         return DocumentProjection(
             attributedString: attributedString,
-            serializedSource: document.markdown,
+            sourceDocument: document,
             index: ProjectionIndex(
                 units: state.units,
                 projectionUTF16Length: state.projectionLength,
