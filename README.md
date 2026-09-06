@@ -241,8 +241,10 @@ extension Theme {
 
 ## Documentation
 
-Read the [MarkdownUI guides](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/)
-or browse the [API documentation](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/markdownui/).
+Documentation sources stay in this repository. The [central documentation repository](https://github.com/modern-swift-dev/docs) builds and publishes the site daily. Run `make site-build` to generate a local preview in `.build/site`, then `make site-preview` to serve it.
+
+Read the [MarkdownUI guides](https://modern-swift-dev.github.io/docs/swift-markdown-ui/documentation/)
+or browse the [API documentation](https://modern-swift-dev.github.io/docs/swift-markdown-ui/documentation/markdownui/).
 
 ### Editing Markdown
 
@@ -272,7 +274,7 @@ The binding receives normalized Markdown after edits. Use
 content. The editor includes formatting controls; image loading is opt-in through
 `markdownEditorImageProvider(_:)`.
 
-Read the [editor guide and API reference](https://modern-swift-dev.github.io/swift-markdown-ui/documentation/markdownuieditor/)
+Read the [editor guide and API reference](https://modern-swift-dev.github.io/docs/swift-markdown-ui/documentation/markdownuieditor/)
 for document bindings, themes, images, and native text-view integration.
 
 ### Related content

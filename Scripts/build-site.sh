@@ -5,7 +5,7 @@ set -euo pipefail
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 website_dir="$repository_root/Website"
 astro_output="$website_dir/dist"
-published_output="$repository_root/docs"
+published_output="$repository_root/.build/site"
 work_dir=$(mktemp -d "$repository_root/.site-build.XXXXXX")
 staged_output="$work_dir/docs"
 docc_output="$work_dir/MarkdownLibraries.doccarchive"
@@ -64,7 +64,7 @@ xcrun docc merge \
     --synthesized-landing-page-name "Markdown Libraries" \
     --output-path "$docc_output"
 xcrun docc process-archive transform-for-static-hosting "$docc_output" \
-    --hosting-base-path swift-markdown-ui
+    --hosting-base-path docs/swift-markdown-ui
 
 for asset_directory in css data downloads images img index js videos; do
     if [[ -d "$docc_output/$asset_directory" ]]; then
@@ -97,4 +97,5 @@ if [[ -e "$published_output" ]]; then
     mv "$published_output" "$previous_output"
 fi
 
+mkdir -p "$(dirname "$published_output")"
 mv "$staged_output" "$published_output"

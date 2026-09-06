@@ -2,14 +2,19 @@
 
 ## Publishing the documentation site
 
-The documentation is a static Astro and DocC build committed in `docs/`. A release update is manual:
+Keep documentation sources in this repository. The [central documentation repository](https://github.com/modern-swift-dev/docs)
+builds the Astro and DocC site daily and publishes it at
+https://modern-swift-dev.github.io/docs/swift-markdown-ui/.
 
-1. Publish the GitHub release.
-2. Run `make site-build` from the repository root. The build fetches the latest published release and replaces `docs/`.
-3. Review the release details and DocC changes in the generated output.
-4. Run `make site-validate`, then commit `docs/` with the related source changes.
+After changing documentation or publishing a GitHub release, validate the site locally:
 
-GitHub Pages needs one repository setting before the first publication. In **Settings > Pages**, choose
-**Deploy from a branch**, select `main` and `/docs`, then save. Do not automate this repository setting.
-See GitHub's [branch publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
-for the current interface.
+```sh
+make site-validate
+```
+
+The build fetches the latest published release and writes the assembled site to `.build/site/`.
+Review the generated release information and DocC output, and commit only the source changes.
+Generated HTML is ignored and is not committed to this module.
+
+Preview the assembled site with `make site-preview` and open the URL printed by the command.
+Pages deployment is configured in the central documentation repository.

@@ -32,7 +32,7 @@ site-build:
 site-validate: site-setup
 	npm --prefix Website run check
 	SITE_SKIP_INSTALL=1 ./Scripts/build-site.sh
-	./Scripts/check-links.py docs --base-path /swift-markdown-ui
+	./Scripts/check-links.py .build/site --base-path /docs/swift-markdown-ui
 
 SCHEME := MarkdownUI
 IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5

@@ -90,3 +90,6 @@ fastlane/test_output
 iOSInjectionProject/
 
 .DS_Store
+
+# Documentation is published by modern-swift-dev/docs.
+/docs/
