@@ -197,11 +197,10 @@ private extension MarkdownTextViewSnapshotTests {
             }
         }
         #elseif os(macOS)
-        .image(
+        Snapshotting<NSImage, NSImage>.image(
             options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
-            size: CGSize(width: 620, height: height),
             isOpaque: true
-        )
+        ).pullback { Self.snapshotImage($0, size: CGSize(width: 620, height: height)) }
         #endif
     }
 
@@ -322,15 +321,43 @@ private extension MarkdownTextViewSnapshotTests {
             }
         }
         #elseif os(macOS)
-        .image(
+        Snapshotting<NSImage, NSImage>.image(
             options: ImageSnapshotOptions()
                 .requiringPixelPrecision(0.999)
                 .requiringPerceptualPrecision(0.98),
-            size: CGSize(width: 620, height: 400),
             isOpaque: true
-        )
+        ).pullback { Self.snapshotImage($0, size: CGSize(width: 620, height: 400)) }
         #endif
     }
+
+    #if os(macOS)
+    static func snapshotImage(_ view: NSView, size: CGSize) -> NSImage {
+        let initialSize = view.frame.size
+        defer { view.setFrameSize(initialSize) }
+        view.setFrameSize(size)
+        view.layoutSubtreeIfNeeded()
+        // Render at a fixed scale in sRGB instead of inheriting the host monitor's color profile.
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(view.bounds.width * 2),
+            pixelsHigh: Int(view.bounds.height * 2),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )?.retagging(with: .sRGB) else {
+            preconditionFailure("Could not create the snapshot bitmap")
+        }
+        bitmap.size = view.bounds.size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let image = NSImage(size: view.bounds.size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+    #endif
 
     func makeAttachmentHostView() throws -> AttachmentHostView {
         let table = MarkdownTable(
