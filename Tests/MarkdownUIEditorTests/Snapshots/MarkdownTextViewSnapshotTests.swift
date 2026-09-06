@@ -21,6 +21,22 @@ private typealias AttachmentHostView = NSView
     private var retainedObjects: [AnyObject] = []
     private var retainedImageAttachmentView: AttachmentHostView?
 
+    #if os(macOS)
+    private var previousAppearance: NSAppearance?
+
+    override func setUp() async throws {
+        try await super.setUp()
+        previousAppearance = NSApplication.shared.appearance
+        // Resolve colors used by layers and generated images in light mode, too.
+        NSApplication.shared.appearance = NSAppearance(named: .aqua)
+    }
+
+    override func tearDown() async throws {
+        NSApplication.shared.appearance = previousAppearance
+        try await super.tearDown()
+    }
+    #endif
+
     func testRichDocumentVisuals() {
         let textView = makeTextView(document: Self.richDocument, height: 520)
         host(textView)
@@ -228,27 +244,29 @@ private extension MarkdownTextViewSnapshotTests {
     }
 
     func makeTextView(document: MarkdownDocument, height: CGFloat) -> MarkdownTextView {
-        let textView = MarkdownTextView(usingTextLayoutManager: true)
-        textView.editorTheme = .basic
-        textView.baseURL = URL(string: "snapshot://editor/")
-        textView.imageProvider = SnapshotImageProvider()
-        textView.document = document
+        withSnapshotAppearance {
+            let textView = MarkdownTextView(usingTextLayoutManager: true)
+            textView.editorTheme = .basic
+            textView.baseURL = URL(string: "snapshot://editor/")
+            textView.imageProvider = SnapshotImageProvider()
+            textView.document = document
 
-        #if os(iOS)
-        textView.frame = CGRect(x: 0, y: 0, width: 390, height: height)
-        textView.backgroundColor = .white
-        textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
-        textView.isScrollEnabled = false
-        textView.overrideUserInterfaceStyle = .light
-        #elseif os(macOS)
-        textView.frame = NSRect(x: 0, y: 0, width: 620, height: height)
-        textView.backgroundColor = .white
-        textView.drawsBackground = true
-        textView.textContainerInset = NSSize(width: 16, height: 20)
-        textView.appearance = NSAppearance(named: .aqua)
-        #endif
+            #if os(iOS)
+            textView.frame = CGRect(x: 0, y: 0, width: 390, height: height)
+            textView.backgroundColor = .white
+            textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
+            textView.isScrollEnabled = false
+            textView.overrideUserInterfaceStyle = .light
+            #elseif os(macOS)
+            textView.frame = NSRect(x: 0, y: 0, width: 620, height: height)
+            textView.backgroundColor = .white
+            textView.drawsBackground = true
+            textView.textContainerInset = NSSize(width: 16, height: 20)
+            textView.appearance = NSAppearance(named: .aqua)
+            #endif
 
-        return textView
+            return textView
+        }
     }
 
     func host(_ textView: MarkdownTextView) {
@@ -289,22 +307,24 @@ private extension MarkdownTextViewSnapshotTests {
     }
 
     func prepareForSnapshot(_ textView: MarkdownTextView) {
-        if let textLayoutManager = textView.textLayoutManager {
-            textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        withSnapshotAppearance {
+            if let textLayoutManager = textView.textLayoutManager {
+                textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+            }
+            #if os(iOS)
+            textView.setNeedsLayout()
+            textView.layoutIfNeeded()
+            textView.setContentOffset(.zero, animated: false)
+            #elseif os(macOS)
+            textView.needsLayout = true
+            textView.layoutSubtreeIfNeeded()
+            textView.selectedRange = textView.selectedRange.length == 0
+                ? NSRange(location: 0, length: 0)
+                : textView.selectedRange
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+            textView.displayIfNeeded()
+            #endif
         }
-        #if os(iOS)
-        textView.setNeedsLayout()
-        textView.layoutIfNeeded()
-        textView.setContentOffset(.zero, animated: false)
-        #elseif os(macOS)
-        textView.needsLayout = true
-        textView.layoutSubtreeIfNeeded()
-        textView.selectedRange = textView.selectedRange.length == 0
-            ? NSRange(location: 0, length: 0)
-            : textView.selectedRange
-        textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-        textView.displayIfNeeded()
-        #endif
     }
 
     var attachmentSnapshotStrategy: Snapshotting<AttachmentHostView, MarkdownEditorPlatformImage> {
@@ -332,30 +352,32 @@ private extension MarkdownTextViewSnapshotTests {
 
     #if os(macOS)
     static func snapshotImage(_ view: NSView, size: CGSize) -> NSImage {
-        let initialSize = view.frame.size
-        defer { view.setFrameSize(initialSize) }
-        view.setFrameSize(size)
-        view.layoutSubtreeIfNeeded()
-        // Render at a fixed scale in sRGB instead of inheriting the host monitor's color profile.
-        guard let bitmap = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(view.bounds.width * 2),
-            pixelsHigh: Int(view.bounds.height * 2),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )?.retagging(with: .sRGB) else {
-            preconditionFailure("Could not create the snapshot bitmap")
+        withSnapshotAppearance {
+            let initialSize = view.frame.size
+            defer { view.setFrameSize(initialSize) }
+            view.setFrameSize(size)
+            view.layoutSubtreeIfNeeded()
+            // Render at a fixed scale in sRGB instead of inheriting the host monitor's color profile.
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(view.bounds.width * 2),
+                pixelsHigh: Int(view.bounds.height * 2),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )?.retagging(with: .sRGB) else {
+                preconditionFailure("Could not create the snapshot bitmap")
+            }
+            bitmap.size = view.bounds.size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let image = NSImage(size: view.bounds.size)
+            image.addRepresentation(bitmap)
+            return image
         }
-        bitmap.size = view.bounds.size
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        let image = NSImage(size: view.bounds.size)
-        image.addRepresentation(bitmap)
-        return image
     }
     #endif
 
@@ -379,11 +401,13 @@ private extension MarkdownTextViewSnapshotTests {
         )
         let contentStorage = NSTextContentStorage()
         let tableAttachment = MarkdownTableAttachment(table: table)
-        let tableProvider = try XCTUnwrap(tableAttachment.viewProvider(
-            for: nil,
-            location: contentStorage.documentRange.location,
-            textContainer: nil
-        ))
+        let tableProvider = try XCTUnwrap(withSnapshotAppearance {
+            tableAttachment.viewProvider(
+                for: nil,
+                location: contentStorage.documentRange.location,
+                textContainer: nil
+            )
+        })
         let imageAttachment = MarkdownImageAttachment(
             metadata: MarkdownImageMetadata(source: "image", altText: "Native image attachment"),
             baseURL: URL(string: "snapshot://editor/"),
@@ -394,7 +418,7 @@ private extension MarkdownTextViewSnapshotTests {
             location: contentStorage.documentRange.location,
             textContainer: nil
         ))
-        let tableView = try XCTUnwrap(tableProvider.view)
+        let tableView = try XCTUnwrap(withSnapshotAppearance { tableProvider.view })
         let imageView = try XCTUnwrap(imageProvider.view)
         retainedObjects = [contentStorage, tableAttachment, tableProvider, imageAttachment, imageProvider]
         retainedImageAttachmentView = imageView
@@ -445,6 +469,24 @@ private extension MarkdownTextViewSnapshotTests {
     }
 }
 
+@MainActor private func withSnapshotAppearance<Value>(_ body: () -> Value) -> Value {
+    #if os(macOS)
+    guard let appearance = NSAppearance(named: .aqua) else {
+        preconditionFailure("Could not create the snapshot appearance")
+    }
+    var result: Value?
+    appearance.performAsCurrentDrawingAppearance {
+        result = body()
+    }
+    guard let result else {
+        preconditionFailure("The snapshot drawing closure did not run")
+    }
+    return result
+    #else
+    return body()
+    #endif
+}
+
 @MainActor private final class SnapshotImageProvider: MarkdownEditorImageProvider {
     func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
         #if os(iOS)
@@ -458,10 +500,12 @@ private extension MarkdownTextViewSnapshotTests {
         #elseif os(macOS)
         let image = NSImage(size: NSSize(width: 240, height: 160))
         image.lockFocus()
-        NSColor.systemIndigo.setFill()
-        NSRect(x: 0, y: 0, width: 240, height: 160).fill()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 76, y: 36, width: 88, height: 88)).fill()
+        withSnapshotAppearance {
+            NSColor.systemIndigo.setFill()
+            NSRect(x: 0, y: 0, width: 240, height: 160).fill()
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 76, y: 36, width: 88, height: 88)).fill()
+        }
         image.unlockFocus()
         return image
         #endif
