@@ -320,3 +320,27 @@ Finally, add `import MarkdownUI` to your source code.
 1. Enter `https://github.com/modern-swift-dev/swift-markdown-ui` into the
    *Search or Enter Package URL* search field
 1. Link **MarkdownUI** to your application target
+
+## Development
+
+Use Xcode 26.6 with the bundled 26.5 SDKs. After cloning, install the development
+tools and Git hooks:
+
+```sh
+brew bundle install
+mint bootstrap
+lefthook install
+```
+
+The pre-commit hook formats staged Swift files, applies SwiftLint fixes, and
+stages those fixes. Remaining lint violations block the commit.
+
+Run `make format-check` and `make lint` for the same read-only style checks as CI,
+or `make format` to apply fixes. Run `make build-all` to build MarkdownUI for all
+supported platforms. To build the editor, use `make build-ios SCHEME=MarkdownUIEditor`,
+`make build-macos SCHEME=MarkdownUIEditor`, or
+`make build-maccatalyst SCHEME=MarkdownUIEditor`.
+
+CI runs on pull requests and pushes to `main`, using Xcode 26.6 and explicit 26.5
+SDKs. It builds both libraries on their supported platforms and runs macOS and
+iOS tests, demo checks, documentation builds, formatting checks, and lint checks.

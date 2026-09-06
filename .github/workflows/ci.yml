@@ -4,26 +4,66 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
 jobs:
+  build:
+    name: Build ${{ matrix.scheme }} (${{ matrix.platform }})
+    runs-on: blacksmith-6vcpu-macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [MarkdownUI]
+        platform: [ios, macos, tvos, visionos, watchos, maccatalyst]
+        include:
+          - scheme: MarkdownUIEditor
+            platform: ios
+          - scheme: MarkdownUIEditor
+            platform: macos
+          - scheme: MarkdownUIEditor
+            platform: maccatalyst
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+      - name: Build library
+        run: make build-${{ matrix.platform }} SCHEME=${{ matrix.scheme }}
+
   tests:
+    name: Test ${{ matrix.scheme }} (${{ matrix.platform }})
+    runs-on: blacksmith-6vcpu-macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [MarkdownUI, MarkdownUIEditor]
+        platform: [macos, ios]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: make test-${{ matrix.platform }} SCHEME=${{ matrix.scheme }}
+
+  demo:
     runs-on: blacksmith-6vcpu-macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
-      - name: Run semantic tests on macOS
-        run: make test-macos
-      - name: Run semantic tests on iOS
-        run: make test-ios
-      - name: Build package for Apple platforms
-        run: make build-all
       - name: Build Demo
-        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphoneos26.5 -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
       - name: Test Demo UI
-        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
+        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphonesimulator26.5 -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
+
+  documentation:
+    runs-on: blacksmith-6vcpu-macos-26
+    steps:
+      - uses: actions/checkout@v4
       - name: Build documentation
         run: |
-          xcodebuild docbuild -scheme MarkdownUI -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
-          xcodebuild docbuild -scheme MarkdownUIEditor -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
+          xcodebuild docbuild -scheme MarkdownUI -sdk macosx26.5 -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
+          xcodebuild docbuild -scheme MarkdownUIEditor -sdk macosx26.5 -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'

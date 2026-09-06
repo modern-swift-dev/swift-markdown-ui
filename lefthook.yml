@@ -5,5 +5,5 @@ pre-commit:
       run: >
         mint run --no-install nicklockwood/SwiftFormat {staged_files} --config .swiftformat --quiet &&
         mint run --no-install realm/SwiftLint lint --fix --config .swiftlint.yml --force-exclude --quiet {staged_files} &&
-        mint run --no-install realm/SwiftLint lint --config .swiftlint.yml --force-exclude --quiet {staged_files}
+        mint run --no-install realm/SwiftLint lint --config .swiftlint.yml --force-exclude --strict --quiet {staged_files}
       stage_fixed: true
