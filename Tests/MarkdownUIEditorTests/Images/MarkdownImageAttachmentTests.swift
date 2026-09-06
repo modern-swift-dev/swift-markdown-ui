@@ -3,9 +3,9 @@ import Foundation
 import XCTest
 
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 #elseif canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 @MainActor final class MarkdownImageAttachmentTests: XCTestCase {
@@ -71,42 +71,42 @@ import UIKit
     }
 
     #if canImport(AppKit)
-    func testAppKitViewProviderConstructsAccessibleImageView() throws {
-        let attachment = MarkdownImageAttachment(
-            metadata: MarkdownImageMetadata(source: "image.png", altText: "Diagram alt")
-        )
-        let contentStorage = NSTextContentStorage()
-        let provider = try XCTUnwrap(
-            attachment.viewProvider(
-                for: nil,
-                location: contentStorage.documentRange.location,
-                textContainer: nil
+        func testAppKitViewProviderConstructsAccessibleImageView() throws {
+            let attachment = MarkdownImageAttachment(
+                metadata: MarkdownImageMetadata(source: "image.png", altText: "Diagram alt")
             )
-        )
+            let contentStorage = NSTextContentStorage()
+            let provider = try XCTUnwrap(
+                attachment.viewProvider(
+                    for: nil,
+                    location: contentStorage.documentRange.location,
+                    textContainer: nil
+                )
+            )
 
-        XCTAssertTrue(provider is MarkdownImageAttachmentViewProvider)
-        let view = try XCTUnwrap(provider.view)
-        XCTAssertEqual(view.accessibilityLabel(), "Diagram alt")
-        XCTAssertTrue(provider.tracksTextAttachmentViewBounds)
-    }
+            XCTAssertTrue(provider is MarkdownImageAttachmentViewProvider)
+            let view = try XCTUnwrap(provider.view)
+            XCTAssertEqual(view.accessibilityLabel(), "Diagram alt")
+            XCTAssertTrue(provider.tracksTextAttachmentViewBounds)
+        }
     #elseif canImport(UIKit)
-    func testUIKitViewProviderConstructsAccessibleImageView() throws {
-        let attachment = MarkdownImageAttachment(
-            metadata: MarkdownImageMetadata(source: "image.png", altText: "Diagram alt")
-        )
-        let contentStorage = NSTextContentStorage()
-        let provider = try XCTUnwrap(
-            attachment.viewProvider(
-                for: nil,
-                location: contentStorage.documentRange.location,
-                textContainer: nil
+        func testUIKitViewProviderConstructsAccessibleImageView() throws {
+            let attachment = MarkdownImageAttachment(
+                metadata: MarkdownImageMetadata(source: "image.png", altText: "Diagram alt")
             )
-        )
+            let contentStorage = NSTextContentStorage()
+            let provider = try XCTUnwrap(
+                attachment.viewProvider(
+                    for: nil,
+                    location: contentStorage.documentRange.location,
+                    textContainer: nil
+                )
+            )
 
-        XCTAssertTrue(provider is MarkdownImageAttachmentViewProvider)
-        let view = try XCTUnwrap(provider.view)
-        XCTAssertEqual(view.accessibilityLabel, "Diagram alt")
-        XCTAssertTrue(provider.tracksTextAttachmentViewBounds)
-    }
+            XCTAssertTrue(provider is MarkdownImageAttachmentViewProvider)
+            let view = try XCTUnwrap(provider.view)
+            XCTAssertEqual(view.accessibilityLabel, "Diagram alt")
+            XCTAssertTrue(provider.tracksTextAttachmentViewBounds)
+        }
     #endif
 }

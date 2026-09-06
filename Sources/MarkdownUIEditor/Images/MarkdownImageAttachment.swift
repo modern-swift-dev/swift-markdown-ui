@@ -1,15 +1,15 @@
 import Foundation
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 
-/// The image type returned by image providers on UIKit platforms.
-public typealias MarkdownEditorPlatformImage = UIImage
+    /// The image type returned by image providers on UIKit platforms.
+    public typealias MarkdownEditorPlatformImage = UIImage
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 
-/// The image type returned by image providers on AppKit.
-public typealias MarkdownEditorPlatformImage = NSImage
+    /// The image type returned by image providers on AppKit.
+    public typealias MarkdownEditorPlatformImage = NSImage
 #endif
 
 /// The Markdown fields that describe an image reference.
@@ -47,326 +47,326 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
 }
 
 #if canImport(UIKit) || canImport(AppKit)
-@MainActor public protocol MarkdownEditorImageProvider: AnyObject, Sendable {
-    /// Loads a platform image for a resolved image URL.
-    func image(for url: URL) async throws -> MarkdownEditorPlatformImage
-}
-
-/// Loads remote image data with `URLSession` and decodes it as a platform image.
-@MainActor public final class MarkdownURLSessionImageProvider: MarkdownEditorImageProvider {
-    private let loader: MarkdownEditorImageLoader
-
-    /// Creates the provider.
-    public init() {
-        self.loader = MarkdownEditorImageLoader()
+    @MainActor public protocol MarkdownEditorImageProvider: AnyObject, Sendable {
+        /// Loads a platform image for a resolved image URL.
+        func image(for url: URL) async throws -> MarkdownEditorPlatformImage
     }
 
-    init(loader: MarkdownEditorImageLoader) {
-        self.loader = loader
-    }
+    /// Loads remote image data with `URLSession` and decodes it as a platform image.
+    @MainActor public final class MarkdownURLSessionImageProvider: MarkdownEditorImageProvider {
+        private let loader: MarkdownEditorImageLoader
 
-    /// Downloads and decodes an image, sharing fresh decoded resources within this provider.
-    public func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
-        try await loader.image(for: url.absoluteURL)
-    }
-
-}
-
-/// Errors raised by built-in image providers.
-public enum MarkdownEditorImageProviderError: Error, Hashable, Sendable {
-    /// Downloaded data could not be decoded as an image.
-    case invalidImageData
-}
-
-/// Owns a native view's request, retaining a completed image across detach/reattach cycles.
-@MainActor final class MarkdownImageViewLoader {
-    private let provider: (any MarkdownEditorImageProvider)?
-    private let url: URL?
-    private var task: Task<Void, Never>?
-    private var image: MarkdownEditorPlatformImage?
-
-    init(provider: (any MarkdownEditorImageProvider)?, url: URL?) {
-        self.provider = provider
-        self.url = url
-    }
-
-    deinit { task?.cancel() }
-
-    func start(onLoad: @escaping @MainActor (MarkdownEditorPlatformImage) -> Void) {
-        if let image {
-            onLoad(image); return
+        /// Creates the provider.
+        public init() {
+            self.loader = MarkdownEditorImageLoader()
         }
-        guard task == nil, let provider, let url else {
-            return
+
+        init(loader: MarkdownEditorImageLoader) {
+            self.loader = loader
         }
-        task = Task { @MainActor [weak self] in
-            do {
-                let image = try await provider.image(for: url)
-                try Task.checkCancellation()
-                self?.image = image
-                self?.task = nil
-                onLoad(image)
-            } catch {
-                guard !Task.isCancelled else {
-                    return
+
+        /// Downloads and decodes an image, sharing fresh decoded resources within this provider.
+        public func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
+            try await loader.image(for: url.absoluteURL)
+        }
+
+    }
+
+    /// Errors raised by built-in image providers.
+    public enum MarkdownEditorImageProviderError: Error, Hashable, Sendable {
+        /// Downloaded data could not be decoded as an image.
+        case invalidImageData
+    }
+
+    /// Owns a native view's request, retaining a completed image across detach/reattach cycles.
+    @MainActor final class MarkdownImageViewLoader {
+        private let provider: (any MarkdownEditorImageProvider)?
+        private let url: URL?
+        private var task: Task<Void, Never>?
+        private var image: MarkdownEditorPlatformImage?
+
+        init(provider: (any MarkdownEditorImageProvider)?, url: URL?) {
+            self.provider = provider
+            self.url = url
+        }
+
+        deinit { task?.cancel() }
+
+        func start(onLoad: @escaping @MainActor (MarkdownEditorPlatformImage) -> Void) {
+            if let image {
+                onLoad(image); return
+            }
+            guard task == nil, let provider, let url else {
+                return
+            }
+            task = Task { @MainActor [weak self] in
+                do {
+                    let image = try await provider.image(for: url)
+                    try Task.checkCancellation()
+                    self?.image = image
+                    self?.task = nil
+                    onLoad(image)
+                } catch {
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    self?.task = nil
                 }
-                self?.task = nil
             }
         }
-    }
 
-    func cancel() {
-        task?.cancel()
-        task = nil
-    }
-}
-
-/// A TextKit attachment that owns image metadata and creates a native image view.
-public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendable {
-    /// Current Markdown metadata for the attachment.
-    public private(set) var metadata: MarkdownImageMetadata
-    /// Original inline alt content, retained independently of its accessible text.
-    var altContent: [MarkdownInline]
-    /// Base URL used to resolve relative image destinations.
-    public let baseURL: URL?
-    /// Optional asynchronous loader for the resolved URL.
-    public let imageProvider: (any MarkdownEditorImageProvider)?
-    /// Callback invoked when a native view changes the image metadata.
-    public var onChange: ((MarkdownImageMetadata) -> Void)?
-
-    /// Absolute image URL after resolving `metadata.source` against `baseURL`.
-    public var resolvedURL: URL? {
-        URL(string: metadata.source, relativeTo: baseURL)?.absoluteURL
-    }
-
-    /// Creates an attachment from Markdown metadata and optional URL resolution support.
-    public init(
-        metadata: MarkdownImageMetadata,
-        baseURL: URL? = nil,
-        imageProvider: (any MarkdownEditorImageProvider)? = nil,
-        onChange: ((MarkdownImageMetadata) -> Void)? = nil
-    ) {
-        self.metadata = metadata
-        self.altContent = [.text(metadata.altText)]
-        self.baseURL = baseURL
-        self.imageProvider = imageProvider
-        self.onChange = onChange
-        super.init(data: nil, ofType: "com.modernswiftdev.markdown-ui-editor.url-image")
-        allowsTextAttachmentView = true
-        lineLayoutPadding = 2
-    }
-
-    /// Restores an empty attachment from an archive. Metadata is not archived.
-    public required init?(coder: NSCoder) {
-        self.metadata = MarkdownImageMetadata(source: "", altText: "")
-        self.altContent = []
-        self.baseURL = nil
-        self.imageProvider = nil
-        self.onChange = nil
-        super.init(coder: coder)
-        allowsTextAttachmentView = true
-    }
-
-    /// Replaces image metadata and notifies the projection owner when it changes.
-    public func updateMetadata(_ metadata: MarkdownImageMetadata) {
-        guard self.metadata != metadata else {
-            return
+        func cancel() {
+            task?.cancel()
+            task = nil
         }
-        if self.metadata.altText != metadata.altText {
-            altContent = [.text(metadata.altText)]
-        }
-        self.metadata = metadata
-        onChange?(metadata)
     }
 
-    #if canImport(UIKit)
-    /// Returns a UIKit attachment view provider for this image.
-    override public func viewProvider(
-        for parentView: UIView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        MarkdownImageAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
+    /// A TextKit attachment that owns image metadata and creates a native image view.
+    public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendable {
+        /// Current Markdown metadata for the attachment.
+        public private(set) var metadata: MarkdownImageMetadata
+        /// Original inline alt content, retained independently of its accessible text.
+        var altContent: [MarkdownInline]
+        /// Base URL used to resolve relative image destinations.
+        public let baseURL: URL?
+        /// Optional asynchronous loader for the resolved URL.
+        public let imageProvider: (any MarkdownEditorImageProvider)?
+        /// Callback invoked when a native view changes the image metadata.
+        public var onChange: ((MarkdownImageMetadata) -> Void)?
+
+        /// Absolute image URL after resolving `metadata.source` against `baseURL`.
+        public var resolvedURL: URL? {
+            URL(string: metadata.source, relativeTo: baseURL)?.absoluteURL
+        }
+
+        /// Creates an attachment from Markdown metadata and optional URL resolution support.
+        public init(
+            metadata: MarkdownImageMetadata,
+            baseURL: URL? = nil,
+            imageProvider: (any MarkdownEditorImageProvider)? = nil,
+            onChange: ((MarkdownImageMetadata) -> Void)? = nil
+        ) {
+            self.metadata = metadata
+            self.altContent = [.text(metadata.altText)]
+            self.baseURL = baseURL
+            self.imageProvider = imageProvider
+            self.onChange = onChange
+            super.init(data: nil, ofType: "com.modernswiftdev.markdown-ui-editor.url-image")
+            allowsTextAttachmentView = true
+            lineLayoutPadding = 2
+        }
+
+        /// Restores an empty attachment from an archive. Metadata is not archived.
+        public required init?(coder: NSCoder) {
+            self.metadata = MarkdownImageMetadata(source: "", altText: "")
+            self.altContent = []
+            self.baseURL = nil
+            self.imageProvider = nil
+            self.onChange = nil
+            super.init(coder: coder)
+            allowsTextAttachmentView = true
+        }
+
+        /// Replaces image metadata and notifies the projection owner when it changes.
+        public func updateMetadata(_ metadata: MarkdownImageMetadata) {
+            guard self.metadata != metadata else {
+                return
+            }
+            if self.metadata.altText != metadata.altText {
+                altContent = [.text(metadata.altText)]
+            }
+            self.metadata = metadata
+            onChange?(metadata)
+        }
+
+        #if canImport(UIKit)
+            /// Returns a UIKit attachment view provider for this image.
+            override public func viewProvider(
+                for parentView: UIView?,
+                location: any NSTextLocation,
+                textContainer: NSTextContainer?
+            ) -> NSTextAttachmentViewProvider? {
+                MarkdownImageAttachmentViewProvider(
+                    textAttachment: self,
+                    parentView: parentView,
+                    textLayoutManager: textContainer?.textLayoutManager,
+                    location: location
+                )
+            }
+        #elseif canImport(AppKit)
+            /// Returns an AppKit attachment view provider for this image.
+            override public func viewProvider(
+                for parentView: NSView?,
+                location: any NSTextLocation,
+                textContainer: NSTextContainer?
+            ) -> NSTextAttachmentViewProvider? {
+                MarkdownImageAttachmentViewProvider(
+                    textAttachment: self,
+                    parentView: parentView,
+                    textLayoutManager: textContainer?.textLayoutManager,
+                    location: location
+                )
+            }
+        #endif
     }
-    #elseif canImport(AppKit)
-    /// Returns an AppKit attachment view provider for this image.
-    override public func viewProvider(
-        for parentView: NSView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        MarkdownImageAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
-    }
-    #endif
-}
 #endif
 
 #if canImport(UIKit)
-/// Creates the UIKit view for a `MarkdownImageAttachment` and starts image loading.
-public final class MarkdownImageAttachmentViewProvider: NSTextAttachmentViewProvider {
-    /// Creates and starts loading the native UIKit image view.
-    override public func loadView() {
-        guard let attachment = textAttachment as? MarkdownImageAttachment else {
-            view = nil
-            return
+    /// Creates the UIKit view for a `MarkdownImageAttachment` and starts image loading.
+    public final class MarkdownImageAttachmentViewProvider: NSTextAttachmentViewProvider {
+        /// Creates and starts loading the native UIKit image view.
+        override public func loadView() {
+            guard let attachment = textAttachment as? MarkdownImageAttachment else {
+                view = nil
+                return
+            }
+            let altText = attachment.metadata.altText
+            let provider = attachment.imageProvider
+            let url = attachment.resolvedURL
+            let imageView = MainActor.assumeIsolated {
+                UIKitMarkdownImageView(altText: altText, provider: provider, url: url)
+            }
+            tracksTextAttachmentViewBounds = true
+            view = imageView
         }
-        let altText = attachment.metadata.altText
-        let provider = attachment.imageProvider
-        let url = attachment.resolvedURL
-        let imageView = MainActor.assumeIsolated {
-            UIKitMarkdownImageView(altText: altText, provider: provider, url: url)
-        }
-        tracksTextAttachmentViewBounds = true
-        view = imageView
-    }
-}
-
-@MainActor private final class UIKitMarkdownImageView: UIView {
-    private let imageView = UIImageView()
-    private let altLabel = UILabel()
-    private let loader: MarkdownImageViewLoader
-
-    init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
-        loader = MarkdownImageViewLoader(provider: provider, url: url)
-        super.init(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
-        isAccessibilityElement = true
-        accessibilityLabel = altText
-        accessibilityTraits = .image
-
-        imageView.contentMode = .scaleAspectFit
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        altLabel.text = altText
-        altLabel.textColor = .secondaryLabel
-        altLabel.font = .preferredFont(forTextStyle: .caption1)
-        altLabel.textAlignment = .center
-        altLabel.numberOfLines = 2
-        altLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-        addSubview(altLabel)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 240),
-            heightAnchor.constraint(equalToConstant: 160),
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            altLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            altLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            altLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
-        loadImage()
     }
 
-    required init?(coder: NSCoder) {
-        nil
-    }
+    @MainActor private final class UIKitMarkdownImageView: UIView {
+        private let imageView = UIImageView()
+        private let altLabel = UILabel()
+        private let loader: MarkdownImageViewLoader
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil {
-            loader.cancel()
-        } else {
+        init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
+            loader = MarkdownImageViewLoader(provider: provider, url: url)
+            super.init(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
+            isAccessibilityElement = true
+            accessibilityLabel = altText
+            accessibilityTraits = .image
+
+            imageView.contentMode = .scaleAspectFit
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            altLabel.text = altText
+            altLabel.textColor = .secondaryLabel
+            altLabel.font = .preferredFont(forTextStyle: .caption1)
+            altLabel.textAlignment = .center
+            altLabel.numberOfLines = 2
+            altLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(imageView)
+            addSubview(altLabel)
+            NSLayoutConstraint.activate([
+                widthAnchor.constraint(equalToConstant: 240),
+                heightAnchor.constraint(equalToConstant: 160),
+                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                imageView.topAnchor.constraint(equalTo: topAnchor),
+                imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                altLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+                altLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                altLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
             loadImage()
         }
-    }
 
-    private func loadImage() {
-        loader.start { [weak self] image in self?.show(image) }
-    }
+        required init?(coder: NSCoder) {
+            nil
+        }
 
-    func show(_ image: UIImage) {
-        imageView.image = image
-        altLabel.isHidden = true
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil {
+                loader.cancel()
+            } else {
+                loadImage()
+            }
+        }
+
+        private func loadImage() {
+            loader.start { [weak self] image in self?.show(image) }
+        }
+
+        func show(_ image: UIImage) {
+            imageView.image = image
+            altLabel.isHidden = true
+        }
     }
-}
 #elseif canImport(AppKit)
-/// Creates the AppKit view for a `MarkdownImageAttachment` and starts image loading.
-public final class MarkdownImageAttachmentViewProvider: NSTextAttachmentViewProvider {
-    /// Creates and starts loading the native AppKit image view.
-    override public func loadView() {
-        guard let attachment = textAttachment as? MarkdownImageAttachment else {
-            view = nil
-            return
+    /// Creates the AppKit view for a `MarkdownImageAttachment` and starts image loading.
+    public final class MarkdownImageAttachmentViewProvider: NSTextAttachmentViewProvider {
+        /// Creates and starts loading the native AppKit image view.
+        override public func loadView() {
+            guard let attachment = textAttachment as? MarkdownImageAttachment else {
+                view = nil
+                return
+            }
+            let altText = attachment.metadata.altText
+            let provider = attachment.imageProvider
+            let url = attachment.resolvedURL
+            let imageView = MainActor.assumeIsolated {
+                AppKitMarkdownImageView(altText: altText, provider: provider, url: url)
+            }
+            tracksTextAttachmentViewBounds = true
+            view = imageView
         }
-        let altText = attachment.metadata.altText
-        let provider = attachment.imageProvider
-        let url = attachment.resolvedURL
-        let imageView = MainActor.assumeIsolated {
-            AppKitMarkdownImageView(altText: altText, provider: provider, url: url)
-        }
-        tracksTextAttachmentViewBounds = true
-        view = imageView
-    }
-}
-
-@MainActor private final class AppKitMarkdownImageView: NSView {
-    private let imageView = NSImageView()
-    private let altLabel = NSTextField(labelWithString: "")
-    private let loader: MarkdownImageViewLoader
-
-    init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
-        loader = MarkdownImageViewLoader(provider: provider, url: url)
-        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        setAccessibilityElement(true)
-        setAccessibilityRole(.image)
-        setAccessibilityLabel(altText)
-
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        altLabel.stringValue = altText
-        altLabel.textColor = .secondaryLabelColor
-        altLabel.font = .preferredFont(forTextStyle: .caption1)
-        altLabel.alignment = .center
-        altLabel.maximumNumberOfLines = 2
-        altLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-        addSubview(altLabel)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 240),
-            heightAnchor.constraint(equalToConstant: 160),
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            altLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            altLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            altLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
-        loadImage()
     }
 
-    required init?(coder: NSCoder) {
-        nil
-    }
+    @MainActor private final class AppKitMarkdownImageView: NSView {
+        private let imageView = NSImageView()
+        private let altLabel = NSTextField(labelWithString: "")
+        private let loader: MarkdownImageViewLoader
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil {
-            loader.cancel()
-        } else {
+        init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
+            loader = MarkdownImageViewLoader(provider: provider, url: url)
+            super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
+            setAccessibilityElement(true)
+            setAccessibilityRole(.image)
+            setAccessibilityLabel(altText)
+
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            altLabel.stringValue = altText
+            altLabel.textColor = .secondaryLabelColor
+            altLabel.font = .preferredFont(forTextStyle: .caption1)
+            altLabel.alignment = .center
+            altLabel.maximumNumberOfLines = 2
+            altLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(imageView)
+            addSubview(altLabel)
+            NSLayoutConstraint.activate([
+                widthAnchor.constraint(equalToConstant: 240),
+                heightAnchor.constraint(equalToConstant: 160),
+                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                imageView.topAnchor.constraint(equalTo: topAnchor),
+                imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                altLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+                altLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                altLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
             loadImage()
         }
-    }
 
-    private func loadImage() {
-        loader.start { [weak self] image in self?.show(image) }
-    }
+        required init?(coder: NSCoder) {
+            nil
+        }
 
-    func show(_ image: NSImage) {
-        imageView.image = image
-        altLabel.isHidden = true
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                loader.cancel()
+            } else {
+                loadImage()
+            }
+        }
+
+        private func loadImage() {
+            loader.start { [weak self] image in self?.show(image) }
+        }
+
+        func show(_ image: NSImage) {
+            imageView.image = image
+            altLabel.isHidden = true
+        }
     }
-}
 #endif
 // Creates an image attachment and configures its native view support.
 // Restores an empty attachment from an archive. Metadata is not archived.

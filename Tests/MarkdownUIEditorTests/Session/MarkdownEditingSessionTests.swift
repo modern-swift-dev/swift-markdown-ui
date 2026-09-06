@@ -3,9 +3,9 @@ import Foundation
 import XCTest
 
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 #elseif canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 @MainActor final class MarkdownEditingSessionTests: XCTestCase {

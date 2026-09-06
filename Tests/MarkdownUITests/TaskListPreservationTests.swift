@@ -1,8 +1,8 @@
 @testable import MarkdownUI
 import XCTest
 #if os(macOS)
-import AppKit
-import SwiftUI
+    import AppKit
+    import SwiftUI
 #endif
 
 final class TaskListPreservationTests: XCTestCase {
@@ -214,49 +214,49 @@ final class TaskListPreservationTests: XCTestCase {
     }
 
     #if os(macOS)
-    @MainActor func testOrderedTasksRenderBothNumbersAndCheckboxes() async throws {
-        let markers = RecordedListMarkers()
-        let view = MarkdownView("3. [ ] todo\n4. [x] done\n5. ordinary")
-            .markdownBlockStyle(\.numberedListMarker) { configuration in
-                markers.numberedMarker(configuration.itemNumber)
+        @MainActor func testOrderedTasksRenderBothNumbersAndCheckboxes() async throws {
+            let markers = RecordedListMarkers()
+            let view = MarkdownView("3. [ ] todo\n4. [x] done\n5. ordinary")
+                .markdownBlockStyle(\.numberedListMarker) { configuration in
+                    markers.numberedMarker(configuration.itemNumber)
+                }
+                .markdownBlockStyle(\.taskListMarker) { configuration in
+                    markers.taskMarker(configuration.isCompleted)
+                }
+            let hostingView = NSHostingView(rootView: view)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+                styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            window.contentView = hostingView
+            defer { window.contentView = nil }
+            hostingView.layoutSubtreeIfNeeded()
+            for _ in 0 ..< 100 {
+                if markers.numbers == [3, 4, 5], markers.completion == [false, true] {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(20))
             }
-            .markdownBlockStyle(\.taskListMarker) { configuration in
-                markers.taskMarker(configuration.isCompleted)
-            }
-        let hostingView = NSHostingView(rootView: view)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.contentView = hostingView
-        defer { window.contentView = nil }
-        hostingView.layoutSubtreeIfNeeded()
-        for _ in 0 ..< 100 {
-            if markers.numbers == [3, 4, 5], markers.completion == [false, true] {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
 
-        XCTAssertEqual(markers.numbers, [3, 4, 5])
-        XCTAssertEqual(markers.completion, [false, true])
-    }
+            XCTAssertEqual(markers.numbers, [3, 4, 5])
+            XCTAssertEqual(markers.completion, [false, true])
+        }
     #endif
 }
 
 #if os(macOS)
-@MainActor private final class RecordedListMarkers {
-    var numbers: Set<Int> = []
-    var completion: Set<Bool> = []
+    @MainActor private final class RecordedListMarkers {
+        var numbers: Set<Int> = []
+        var completion: Set<Bool> = []
 
-    func numberedMarker(_ number: Int) -> Text {
-        numbers.insert(number)
-        return Text("\(number).")
-    }
+        func numberedMarker(_ number: Int) -> Text {
+            numbers.insert(number)
+            return Text("\(number).")
+        }
 
-    func taskMarker(_ isCompleted: Bool) -> Text {
-        completion.insert(isCompleted)
-        return Text(isCompleted ? "[x]" : "[ ]")
+        func taskMarker(_ isCompleted: Bool) -> Text {
+            completion.insert(isCompleted)
+            return Text(isCompleted ? "[x]" : "[ ]")
+        }
     }
-}
 #endif

@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 
 #if os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 @MainActor final class MarkdownParsingCacheTests: XCTestCase {
@@ -48,55 +48,55 @@ import AppKit
     }
 
     #if os(macOS)
-    func testMountedViewUpdatesAcrossStringParsedAndBuilderInitializers() async throws {
-        let recorder = ParagraphRecorder()
-        let host = NSHostingView(rootView: view(MarkdownView("**first**"), recorder: recorder))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.contentView = host
-        defer { window.contentView = nil }
-        host.layoutSubtreeIfNeeded()
-        XCTAssertEqual(recorder.lastText, "first", "Initial rendering must be synchronous")
-
-        let updates: [(MarkdownView, String)] = [
-            (MarkdownView("**first**"), "first"),
-            (MarkdownView("second"), "second"),
-            (MarkdownView(MarkdownContent("preparsed")), "preparsed"),
-            (MarkdownView { Paragraph { "builder" } }, "builder"),
-            (MarkdownView("**first**"), "first")
-        ]
-        for (markdown, expected) in updates {
-            host.rootView = view(markdown, recorder: recorder)
+        func testMountedViewUpdatesAcrossStringParsedAndBuilderInitializers() async throws {
+            let recorder = ParagraphRecorder()
+            let host = NSHostingView(rootView: view(MarkdownView("**first**"), recorder: recorder))
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+                styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            window.contentView = host
+            defer { window.contentView = nil }
             host.layoutSubtreeIfNeeded()
-            try await Task.sleep(for: .milliseconds(20))
-            XCTAssertEqual(recorder.lastText, expected)
+            XCTAssertEqual(recorder.lastText, "first", "Initial rendering must be synchronous")
+
+            let updates: [(MarkdownView, String)] = [
+                (MarkdownView("**first**"), "first"),
+                (MarkdownView("second"), "second"),
+                (MarkdownView(MarkdownContent("preparsed")), "preparsed"),
+                (MarkdownView { Paragraph { "builder" } }, "builder"),
+                (MarkdownView("**first**"), "first")
+            ]
+            for (markdown, expected) in updates {
+                host.rootView = view(markdown, recorder: recorder)
+                host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(20))
+                XCTAssertEqual(recorder.lastText, expected)
+            }
+
+            let freshRecorder = ParagraphRecorder()
+            let fresh = NSHostingView(rootView: view(MarkdownView("recreated"), recorder: freshRecorder))
+            window.contentView = fresh
+            fresh.layoutSubtreeIfNeeded()
+            XCTAssertEqual(freshRecorder.lastText, "recreated")
         }
 
-        let freshRecorder = ParagraphRecorder()
-        let fresh = NSHostingView(rootView: view(MarkdownView("recreated"), recorder: freshRecorder))
-        window.contentView = fresh
-        fresh.layoutSubtreeIfNeeded()
-        XCTAssertEqual(freshRecorder.lastText, "recreated")
-    }
-
-    private func view(_ markdown: MarkdownView, recorder: ParagraphRecorder) -> some View {
-        markdown.markdownBlockStyle(\.paragraph) { configuration in
-            recorder.record(configuration.content.renderPlainText())
-            configuration.label
+        private func view(_ markdown: MarkdownView, recorder: ParagraphRecorder) -> some View {
+            markdown.markdownBlockStyle(\.paragraph) { configuration in
+                recorder.record(configuration.content.renderPlainText())
+                configuration.label
+            }
         }
-    }
     #endif
 }
 
 #if os(macOS)
-@MainActor private final class ParagraphRecorder {
-    var lastText: String?
+    @MainActor private final class ParagraphRecorder {
+        var lastText: String?
 
-    func record(_ text: String) -> EmptyView {
-        self.lastText = text
-        return EmptyView()
+        func record(_ text: String) -> EmptyView {
+            self.lastText = text
+            return EmptyView()
+        }
     }
-}
 #endif

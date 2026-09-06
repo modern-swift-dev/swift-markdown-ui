@@ -28,18 +28,17 @@ opt_in_rules:
   - direct_return
   - prefer_self_type_over_type_of_self
   - shorthand_operator
-#  - multiline_function_chains
 
 cyclomatic_complexity:
   warning: 20
   error: 50
 switch_case_alignment:
-    indented_cases: true
+  indented_cases: true
 large_tuple: 5
 function_parameter_count:
-    warning: 8
-    error: 10
-    ignores_default_parameters: true
+  warning: 8
+  error: 10
+  ignores_default_parameters: true
 xctfail_message:
   severity: error
 orphaned_doc_comment:

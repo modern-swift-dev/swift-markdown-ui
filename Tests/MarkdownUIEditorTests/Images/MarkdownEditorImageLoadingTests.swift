@@ -3,9 +3,9 @@ import Foundation
 import XCTest
 
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 #elseif canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 @MainActor final class MarkdownEditorImageLoadingTests: XCTestCase {
@@ -287,25 +287,25 @@ import UIKit
     }
 
     #if canImport(AppKit)
-    func testNativeViewDetachCancelsAndReattachRestarts() async throws {
-        let provider = SuspendedNativeProvider()
-        let attachment = MarkdownImageAttachment(metadata: .init(source: "https://example.com/image.png", altText: "image"), imageProvider: provider)
-        let storage = NSTextContentStorage()
-        let viewProvider = try XCTUnwrap(attachment.viewProvider(for: nil, location: storage.documentRange.location, textContainer: nil))
-        let imageView = try XCTUnwrap(viewProvider.view)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
-        let container = NSView(frame: window.frame)
-        window.contentView = container
-        defer { window.contentView = nil }
-        container.addSubview(imageView)
-        try await wait { provider.started == 1 }
-        imageView.removeFromSuperview()
-        try await wait { provider.cancellations == 1 }
-        container.addSubview(imageView)
-        try await wait { provider.started == 2 }
-        imageView.removeFromSuperview()
-        try await wait { provider.cancellations == 2 }
-    }
+        func testNativeViewDetachCancelsAndReattachRestarts() async throws {
+            let provider = SuspendedNativeProvider()
+            let attachment = MarkdownImageAttachment(metadata: .init(source: "https://example.com/image.png", altText: "image"), imageProvider: provider)
+            let storage = NSTextContentStorage()
+            let viewProvider = try XCTUnwrap(attachment.viewProvider(for: nil, location: storage.documentRange.location, textContainer: nil))
+            let imageView = try XCTUnwrap(viewProvider.view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+            let container = NSView(frame: window.frame)
+            window.contentView = container
+            defer { window.contentView = nil }
+            container.addSubview(imageView)
+            try await wait { provider.started == 1 }
+            imageView.removeFromSuperview()
+            try await wait { provider.cancellations == 1 }
+            container.addSubview(imageView)
+            try await wait { provider.started == 2 }
+            imageView.removeFromSuperview()
+            try await wait { provider.cancellations == 2 }
+        }
     #endif
 
     private func imageURL() throws -> URL {
@@ -368,9 +368,9 @@ import UIKit
 
 @MainActor private func nativeImage() -> MarkdownEditorPlatformImage {
     #if canImport(AppKit)
-    NSImage(size: NSSize(width: 4, height: 4))
+        NSImage(size: NSSize(width: 4, height: 4))
     #else
-    UIImage()
+        UIImage()
     #endif
 }
 

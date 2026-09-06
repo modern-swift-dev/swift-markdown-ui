@@ -1,9 +1,9 @@
 import Foundation
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 private let tableContextCommands: [(String, MarkdownEditorCommand)] = [
@@ -469,1072 +469,1072 @@ private enum MarkdownTableCellSourceCodec {
 }
 
 #if canImport(UIKit) || canImport(AppKit)
-@MainActor private extension MarkdownTableController {
-    func richText(at position: MarkdownTableCellPosition) -> NSAttributedString {
-        let content = (cell(at: position)?.content ?? []).map(MarkdownTableCellSourceCodec.editableInline)
-        let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]))
-        let result = NSMutableAttributedString(attributedString: projection.attributedString)
-        if result.string.hasSuffix("\n") {
-            result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
-        }
-        if position.section == .header {
-            result.enumerateAttribute(.font, in: NSRange(location: 0, length: result.length)) { value, range, _ in
-                #if canImport(UIKit)
-                let font = value as? UIFont ?? .preferredFont(forTextStyle: .body)
-                if let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitBold)) {
-                    result.addAttribute(.font, value: UIFont(descriptor: descriptor, size: font.pointSize), range: range)
+    @MainActor private extension MarkdownTableController {
+        func richText(at position: MarkdownTableCellPosition) -> NSAttributedString {
+            let content = (cell(at: position)?.content ?? []).map(MarkdownTableCellSourceCodec.editableInline)
+            let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]))
+            let result = NSMutableAttributedString(attributedString: projection.attributedString)
+            if result.string.hasSuffix("\n") {
+                result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
+            }
+            if position.section == .header {
+                result.enumerateAttribute(.font, in: NSRange(location: 0, length: result.length)) { value, range, _ in
+                    #if canImport(UIKit)
+                        let font = value as? UIFont ?? .preferredFont(forTextStyle: .body)
+                        if let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitBold)) {
+                            result.addAttribute(.font, value: UIFont(descriptor: descriptor, size: font.pointSize), range: range)
+                        }
+                    #elseif canImport(AppKit)
+                        let font = value as? NSFont ?? .preferredFont(forTextStyle: .body)
+                        result.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask), range: range)
+                    #endif
                 }
-                #elseif canImport(AppKit)
-                let font = value as? NSFont ?? .preferredFont(forTextStyle: .body)
-                result.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask), range: range)
-                #endif
+            }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = alignment(at: position)
+            result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
+            return result
+        }
+
+        func alignment(at position: MarkdownTableCellPosition) -> NSTextAlignment {
+            switch table.alignments.indices.contains(position.column) ? table.alignments[position.column] : .none {
+                case .none,
+                     .left: .left
+                case .center: .center
+                case .right: .right
             }
         }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = alignment(at: position)
-        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
-        return result
-    }
 
-    func alignment(at position: MarkdownTableCellPosition) -> NSTextAlignment {
-        switch table.alignments.indices.contains(position.column) ? table.alignments[position.column] : .none {
-            case .none,
-                 .left: .left
-            case .center: .center
-            case .right: .right
-        }
-    }
-
-    func updateRichCell(at position: MarkdownTableCellPosition, text: NSAttributedString) {
-        let content = MarkdownAttributedInlineDecoder.decode(text).map { inline -> MarkdownInline in
-            switch inline {
-                case .softBreak,
-                     .lineBreak: .html("<br />")
-                default: inline
-            }
-        }
-        updateCell(at: position, content: content)
-    }
-}
-
-/// Retains cell measurements between native edits. Width changes can affect other
-/// columns when the table is constrained, so resolve all columns from cached maxima.
-struct MarkdownTableCellLayoutCache {
-    private let positionsByColumn: [[MarkdownTableCellPosition]]
-    private var preferredCellWidths: [MarkdownTableCellPosition: CGFloat] = [:]
-    private var preferredColumnWidths: [CGFloat]
-    private(set) var widths: [CGFloat] = []
-
-    init(positions: [MarkdownTableCellPosition], columnCount: Int) {
-        var columns = Array(repeating: [MarkdownTableCellPosition](), count: columnCount)
-        for position in positions {
-            columns[position.column].append(position)
-        }
-        positionsByColumn = columns
-        preferredColumnWidths = Array(repeating: MarkdownTableColumnLayout.minimumColumnWidth, count: columnCount)
-    }
-
-    /// Returns only cells whose content or resolved column width needs layout.
-    /// A nil changed cell refreshes every measurement after a configuration change.
-    mutating func update(
-        changedCell: MarkdownTableCellPosition? = nil,
-        availableWidth: CGFloat?,
-        measure: (MarkdownTableCellPosition) -> CGFloat
-    ) -> Set<MarkdownTableCellPosition> {
-        let measuredPositions = changedCell.map { [$0] } ?? positionsByColumn.flatMap(\.self)
-        for position in measuredPositions {
-            preferredCellWidths[position] = measure(position)
-        }
-        let changedColumns = changedCell.map { [$0.column] } ?? Array(positionsByColumn.indices)
-        for column in changedColumns {
-            preferredColumnWidths[column] = positionsByColumn[column]
-                .compactMap { preferredCellWidths[$0] }.max() ?? MarkdownTableColumnLayout.minimumColumnWidth
-        }
-        let resolvedWidths = MarkdownTableColumnLayout.widths(
-            preferredWidths: preferredColumnWidths,
-            availableWidth: availableWidth
-        )
-        var affected = Set(measuredPositions)
-        for column in resolvedWidths.indices where !widths.indices.contains(column) || widths[column] != resolvedWidths[column] {
-            affected.formUnion(positionsByColumn[column])
-        }
-        widths = resolvedWidths
-        return affected
-    }
-}
-
-enum MarkdownTableColumnLayout {
-    static let minimumColumnWidth: CGFloat = 44
-
-    static func widths(preferredWidths: [CGFloat], availableWidth: CGFloat?) -> [CGFloat] {
-        guard !preferredWidths.isEmpty else {
-            return []
-        }
-        let preferred = preferredWidths.map { max($0, minimumColumnWidth) }
-        guard let availableWidth, availableWidth.isFinite, availableWidth > 0 else {
-            return preferred
-        }
-
-        let minimum = min(minimumColumnWidth, availableWidth / CGFloat(preferred.count))
-        let minimumTotal = minimum * CGFloat(preferred.count)
-        guard preferred.reduce(0, +) > availableWidth else {
-            return preferred
-        }
-        guard availableWidth > minimumTotal else {
-            return Array(repeating: availableWidth / CGFloat(preferred.count), count: preferred.count)
-        }
-
-        var widths = preferred
-        var overflow = widths.reduce(0, +) - availableWidth
-        guard overflow > 0.001 else {
-            return widths
-        }
-        let descendingColumns = widths.indices.sorted { preferred[$0] > preferred[$1] }
-        var widest = preferred[descendingColumns[0]]
-        var activeCount = 0
-        var leveledCount = 0
-        while overflow > 0.001 {
-            while activeCount < descendingColumns.count,
-                  abs(preferred[descendingColumns[activeCount]] - widest) < 0.001 {
-                activeCount += 1
-            }
-            let nextWidth = activeCount < descendingColumns.count
-                ? preferred[descendingColumns[activeCount]] : minimum
-            let lowerBound = max(nextWidth, minimum)
-            let reducible = (widest - lowerBound) * CGFloat(activeCount)
-            if reducible >= overflow {
-                let reduction = overflow / CGFloat(activeCount)
-                for position in 0 ..< activeCount {
-                    let column = descendingColumns[position]
-                    // Newly joined widths retain their sub-tolerance differences
-                    // unless the whole group reached a lower plateau previously.
-                    widths[column] = (position < leveledCount ? widest : preferred[column]) - reduction
+        func updateRichCell(at position: MarkdownTableCellPosition, text: NSAttributedString) {
+            let content = MarkdownAttributedInlineDecoder.decode(text).map { inline -> MarkdownInline in
+                switch inline {
+                    case .softBreak,
+                         .lineBreak: .html("<br />")
+                    default: inline
                 }
+            }
+            updateCell(at: position, content: content)
+        }
+    }
+
+    /// Retains cell measurements between native edits. Width changes can affect other
+    /// columns when the table is constrained, so resolve all columns from cached maxima.
+    struct MarkdownTableCellLayoutCache {
+        private let positionsByColumn: [[MarkdownTableCellPosition]]
+        private var preferredCellWidths: [MarkdownTableCellPosition: CGFloat] = [:]
+        private var preferredColumnWidths: [CGFloat]
+        private(set) var widths: [CGFloat] = []
+
+        init(positions: [MarkdownTableCellPosition], columnCount: Int) {
+            var columns = Array(repeating: [MarkdownTableCellPosition](), count: columnCount)
+            for position in positions {
+                columns[position.column].append(position)
+            }
+            positionsByColumn = columns
+            preferredColumnWidths = Array(repeating: MarkdownTableColumnLayout.minimumColumnWidth, count: columnCount)
+        }
+
+        /// Returns only cells whose content or resolved column width needs layout.
+        /// A nil changed cell refreshes every measurement after a configuration change.
+        mutating func update(
+            changedCell: MarkdownTableCellPosition? = nil,
+            availableWidth: CGFloat?,
+            measure: (MarkdownTableCellPosition) -> CGFloat
+        ) -> Set<MarkdownTableCellPosition> {
+            let measuredPositions = changedCell.map { [$0] } ?? positionsByColumn.flatMap(\.self)
+            for position in measuredPositions {
+                preferredCellWidths[position] = measure(position)
+            }
+            let changedColumns = changedCell.map { [$0.column] } ?? Array(positionsByColumn.indices)
+            for column in changedColumns {
+                preferredColumnWidths[column] = positionsByColumn[column]
+                    .compactMap { preferredCellWidths[$0] }.max() ?? MarkdownTableColumnLayout.minimumColumnWidth
+            }
+            let resolvedWidths = MarkdownTableColumnLayout.widths(
+                preferredWidths: preferredColumnWidths,
+                availableWidth: availableWidth
+            )
+            var affected = Set(measuredPositions)
+            for column in resolvedWidths.indices where !widths.indices.contains(column) || widths[column] != resolvedWidths[column] {
+                affected.formUnion(positionsByColumn[column])
+            }
+            widths = resolvedWidths
+            return affected
+        }
+    }
+
+    enum MarkdownTableColumnLayout {
+        static let minimumColumnWidth: CGFloat = 44
+
+        static func widths(preferredWidths: [CGFloat], availableWidth: CGFloat?) -> [CGFloat] {
+            guard !preferredWidths.isEmpty else {
+                return []
+            }
+            let preferred = preferredWidths.map { max($0, minimumColumnWidth) }
+            guard let availableWidth, availableWidth.isFinite, availableWidth > 0 else {
+                return preferred
+            }
+
+            let minimum = min(minimumColumnWidth, availableWidth / CGFloat(preferred.count))
+            let minimumTotal = minimum * CGFloat(preferred.count)
+            guard preferred.reduce(0, +) > availableWidth else {
+                return preferred
+            }
+            guard availableWidth > minimumTotal else {
+                return Array(repeating: availableWidth / CGFloat(preferred.count), count: preferred.count)
+            }
+
+            var widths = preferred
+            var overflow = widths.reduce(0, +) - availableWidth
+            guard overflow > 0.001 else {
                 return widths
             }
-            // Track complete plateau reductions without rewriting the prefix on
-            // every step. Each column joins the active prefix only once.
-            widest = lowerBound
-            leveledCount = activeCount
-            overflow -= reducible
+            let descendingColumns = widths.indices.sorted { preferred[$0] > preferred[$1] }
+            var widest = preferred[descendingColumns[0]]
+            var activeCount = 0
+            var leveledCount = 0
+            while overflow > 0.001 {
+                while activeCount < descendingColumns.count,
+                      abs(preferred[descendingColumns[activeCount]] - widest) < 0.001 {
+                    activeCount += 1
+                }
+                let nextWidth = activeCount < descendingColumns.count
+                    ? preferred[descendingColumns[activeCount]] : minimum
+                let lowerBound = max(nextWidth, minimum)
+                let reducible = (widest - lowerBound) * CGFloat(activeCount)
+                if reducible >= overflow {
+                    let reduction = overflow / CGFloat(activeCount)
+                    for position in 0 ..< activeCount {
+                        let column = descendingColumns[position]
+                        // Newly joined widths retain their sub-tolerance differences
+                        // unless the whole group reached a lower plateau previously.
+                        widths[column] = (position < leveledCount ? widest : preferred[column]) - reduction
+                    }
+                    return widths
+                }
+                // Track complete plateau reductions without rewriting the prefix on
+                // every step. Each column joins the active prefix only once.
+                widest = lowerBound
+                leveledCount = activeCount
+                overflow -= reducible
+            }
+            for position in 0 ..< leveledCount {
+                widths[descendingColumns[position]] = widest
+            }
+            return widths
         }
-        for position in 0 ..< leveledCount {
-            widths[descendingColumns[position]] = widest
-        }
-        return widths
     }
-}
 
-private func markdownTableAvailableWidth(
-    parentWidth: CGFloat,
-    textContainer: NSTextContainer?
-) -> CGFloat? {
-    if let textContainer {
-        let width = textContainer.size.width - 2 * textContainer.lineFragmentPadding
-        if width.isFinite, width > 0 {
-            return width
+    private func markdownTableAvailableWidth(
+        parentWidth: CGFloat,
+        textContainer: NSTextContainer?
+    ) -> CGFloat? {
+        if let textContainer {
+            let width = textContainer.size.width - 2 * textContainer.lineFragmentPadding
+            if width.isFinite, width > 0 {
+                return width
+            }
         }
+        if parentWidth.isFinite, parentWidth > 0 {
+            return parentWidth
+        }
+        return nil
     }
-    if parentWidth.isFinite, parentWidth > 0 {
-        return parentWidth
-    }
-    return nil
-}
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)
-/// An attachment that renders an editable native grid for a Markdown table.
-public final class MarkdownTableAttachment: NSTextAttachment, @unchecked Sendable {
-    /// Controller shared with the platform-specific attachment view.
-    public let controller: MarkdownTableController
+    /// An attachment that renders an editable native grid for a Markdown table.
+    public final class MarkdownTableAttachment: NSTextAttachment, @unchecked Sendable {
+        /// Controller shared with the platform-specific attachment view.
+        public let controller: MarkdownTableController
 
-    @MainActor public var table: MarkdownTable {
-        controller.table
-    }
-
-    @MainActor public var onChange: ((MarkdownTable) -> Void)? {
-        get { controller.onChange }
-        set { controller.onChange = newValue }
-    }
-
-    @MainActor public init(table: MarkdownTable, onChange: ((MarkdownTable) -> Void)? = nil) {
-        self.controller = MarkdownTableController(table: table, onChange: onChange)
-        super.init(data: nil, ofType: "com.modernswiftdev.markdown-ui-editor.table")
-        allowsTextAttachmentView = true
-        lineLayoutPadding = 4
-    }
-
-    /// Restores an attachment without a table controller from an archive.
-    public required init?(coder: NSCoder) {
-        self.controller = MainActor.assumeIsolated {
-            MarkdownTableController(
-                table: MarkdownTable(alignments: [], header: MarkdownTableRow(cells: []), rows: [])
-            )
+        @MainActor public var table: MarkdownTable {
+            controller.table
         }
-        super.init(coder: coder)
-        allowsTextAttachmentView = true
-    }
 
-    #if canImport(UIKit)
-    /// Returns the UIKit grid provider for this attachment.
-    override public func viewProvider(
-        for parentView: UIView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        let provider = MarkdownTableAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
-        provider.availableWidth = markdownTableAvailableWidth(
-            parentWidth: 0,
-            textContainer: textContainer
-        )
-        provider.tracksTextAttachmentViewBounds = true
-        return provider
-    }
+        @MainActor public var onChange: ((MarkdownTable) -> Void)? {
+            get { controller.onChange }
+            set { controller.onChange = newValue }
+        }
 
-    #elseif canImport(AppKit)
-    /// Returns the AppKit grid provider for this attachment.
-    override public func viewProvider(
-        for parentView: NSView?,
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?
-    ) -> NSTextAttachmentViewProvider? {
-        let provider = MarkdownTableAttachmentViewProvider(
-            textAttachment: self,
-            parentView: parentView,
-            textLayoutManager: textContainer?.textLayoutManager,
-            location: location
-        )
-        provider.availableWidth = markdownTableAvailableWidth(
-            parentWidth: 0,
-            textContainer: textContainer
-        )
-        provider.tracksTextAttachmentViewBounds = true
-        return provider
+        @MainActor public init(table: MarkdownTable, onChange: ((MarkdownTable) -> Void)? = nil) {
+            self.controller = MarkdownTableController(table: table, onChange: onChange)
+            super.init(data: nil, ofType: "com.modernswiftdev.markdown-ui-editor.table")
+            allowsTextAttachmentView = true
+            lineLayoutPadding = 4
+        }
+
+        /// Restores an attachment without a table controller from an archive.
+        public required init?(coder: NSCoder) {
+            self.controller = MainActor.assumeIsolated {
+                MarkdownTableController(
+                    table: MarkdownTable(alignments: [], header: MarkdownTableRow(cells: []), rows: [])
+                )
+            }
+            super.init(coder: coder)
+            allowsTextAttachmentView = true
+        }
+
+        #if canImport(UIKit)
+            /// Returns the UIKit grid provider for this attachment.
+            override public func viewProvider(
+                for parentView: UIView?,
+                location: any NSTextLocation,
+                textContainer: NSTextContainer?
+            ) -> NSTextAttachmentViewProvider? {
+                let provider = MarkdownTableAttachmentViewProvider(
+                    textAttachment: self,
+                    parentView: parentView,
+                    textLayoutManager: textContainer?.textLayoutManager,
+                    location: location
+                )
+                provider.availableWidth = markdownTableAvailableWidth(
+                    parentWidth: 0,
+                    textContainer: textContainer
+                )
+                provider.tracksTextAttachmentViewBounds = true
+                return provider
+            }
+
+        #elseif canImport(AppKit)
+            /// Returns the AppKit grid provider for this attachment.
+            override public func viewProvider(
+                for parentView: NSView?,
+                location: any NSTextLocation,
+                textContainer: NSTextContainer?
+            ) -> NSTextAttachmentViewProvider? {
+                let provider = MarkdownTableAttachmentViewProvider(
+                    textAttachment: self,
+                    parentView: parentView,
+                    textLayoutManager: textContainer?.textLayoutManager,
+                    location: location
+                )
+                provider.availableWidth = markdownTableAvailableWidth(
+                    parentWidth: 0,
+                    textContainer: textContainer
+                )
+                provider.tracksTextAttachmentViewBounds = true
+                return provider
+            }
+        #endif
     }
-    #endif
-}
 #endif
 
 #if canImport(UIKit)
-/// Creates the UIKit view used to edit a `MarkdownTableAttachment`.
-public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProvider {
-    var availableWidth: CGFloat?
+    /// Creates the UIKit view used to edit a `MarkdownTableAttachment`.
+    public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProvider {
+        var availableWidth: CGFloat?
 
-    override public func attachmentBounds(
-        for attributes: [NSAttributedString.Key: Any],
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?,
-        proposedLineFragment: CGRect,
-        position: CGPoint
-    ) -> CGRect {
-        let width = markdownTableAvailableWidth(parentWidth: proposedLineFragment.width, textContainer: textContainer)
-        guard let grid = view as? UIKitMarkdownTableGridView else {
-            return .zero
+        override public func attachmentBounds(
+            for attributes: [NSAttributedString.Key: Any],
+            location: any NSTextLocation,
+            textContainer: NSTextContainer?,
+            proposedLineFragment: CGRect,
+            position: CGPoint
+        ) -> CGRect {
+            let width = markdownTableAvailableWidth(parentWidth: proposedLineFragment.width, textContainer: textContainer)
+            guard let grid = view as? UIKitMarkdownTableGridView else {
+                return .zero
+            }
+            let resolvedWidth = width ?? availableWidth
+            return MainActor.assumeIsolated {
+                grid.updateAvailableWidth(resolvedWidth)
+                return CGRect(origin: .zero, size: grid.intrinsicContentSize)
+            }
         }
-        let resolvedWidth = width ?? availableWidth
-        return MainActor.assumeIsolated {
-            grid.updateAvailableWidth(resolvedWidth)
-            return CGRect(origin: .zero, size: grid.intrinsicContentSize)
+
+        /// Creates the native UIKit table grid.
+        override public func loadView() {
+            guard let attachment = textAttachment as? MarkdownTableAttachment else {
+                view = nil
+                return
+            }
+            let controller = attachment.controller
+            let maximumWidth = availableWidth
+            let grid = MainActor.assumeIsolated {
+                UIKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+            }
+            MainActor.assumeIsolated {
+                let size = grid.intrinsicContentSize
+                grid.bounds.size = size
+                grid.layoutIfNeeded()
+            }
+            tracksTextAttachmentViewBounds = true
+            view = grid
         }
     }
 
-    /// Creates the native UIKit table grid.
-    override public func loadView() {
-        guard let attachment = textAttachment as? MarkdownTableAttachment else {
-            view = nil
-            return
-        }
-        let controller = attachment.controller
-        let maximumWidth = availableWidth
-        let grid = MainActor.assumeIsolated {
-            UIKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
-        }
-        MainActor.assumeIsolated {
-            let size = grid.intrinsicContentSize
-            grid.bounds.size = size
-            grid.layoutIfNeeded()
-        }
-        tracksTextAttachmentViewBounds = true
-        view = grid
-    }
-}
+    @MainActor final class UIKitMarkdownTableGridView: UIView, UITextViewDelegate {
+        private(set) var attachmentResizeCount = 0
+        private let controller: MarkdownTableController
+        private var maximumWidth: CGFloat?
+        private let stack = UIStackView()
+        private var fields: [MarkdownTableCellPosition: MarkdownTableCellTextView] = [:]
+        private var columnWidthConstraints: [[NSLayoutConstraint]] = []
+        private var isEditingCell = false
+        private var rowStacks: [UIStackView] = []
+        private var rowHeightConstraints: [NSLayoutConstraint] = []
+        private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
+        private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
 
-@MainActor final class UIKitMarkdownTableGridView: UIView, UITextViewDelegate {
-    private(set) var attachmentResizeCount = 0
-    private let controller: MarkdownTableController
-    private var maximumWidth: CGFloat?
-    private let stack = UIStackView()
-    private var fields: [MarkdownTableCellPosition: MarkdownTableCellTextView] = [:]
-    private var columnWidthConstraints: [[NSLayoutConstraint]] = []
-    private var isEditingCell = false
-    private var rowStacks: [UIStackView] = []
-    private var rowHeightConstraints: [NSLayoutConstraint] = []
-    private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
-    private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+        init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
+            self.controller = controller
+            self.maximumWidth = maximumWidth
+            super.init(frame: .zero)
+            stack.axis = .vertical
+            stack.spacing = 0
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+                stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+                stack.topAnchor.constraint(equalTo: topAnchor),
+                stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            rebuild()
+            controller.onPresentationChange = { [weak self] in
+                guard let self, !self.isEditingCell else {
+                    return
+                }
+                self.rebuild()
+                self.resizeAttachment()
+            }
+            controller.onTypingAttributesChange = { [weak self] attributes in
+                guard let self, let selection = self.controller.activeSelection else {
+                    return
+                }
+                guard let field = self.fields[selection.position] else {
+                    return
+                }
+                field.selectedRange = clamped(selection.range, toUTF16Length: field.textStorage.length)
+                field.becomeFirstResponder()
+                field.typingAttributes = attributes
+            }
+        }
 
-    init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
-        self.controller = controller
-        self.maximumWidth = maximumWidth
-        super.init(frame: .zero)
-        stack.axis = .vertical
-        stack.spacing = 0
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        rebuild()
-        controller.onPresentationChange = { [weak self] in
-            guard let self, !self.isEditingCell else {
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override var intrinsicContentSize: CGSize {
+            stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard let field = textView as? MarkdownTableCellTextView else {
                 return
             }
-            self.rebuild()
-            self.resizeAttachment()
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange)
+            if field.markedTextRange == nil {
+                isEditingCell = true
+                controller.updateRichCell(at: field.position, text: field.textStorage)
+                isEditingCell = false
+            }
+            if updateColumnWidths(changedCell: field.position) {
+                resizeAttachment()
+            }
         }
-        controller.onTypingAttributesChange = { [weak self] attributes in
-            guard let self, let selection = self.controller.activeSelection else {
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            guard let field = textView as? MarkdownTableCellTextView else {
                 return
             }
-            guard let field = self.fields[selection.position] else {
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange)
+        }
+
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let field = textView as? MarkdownTableCellTextView,
+                  let editor = field.markdownEditor else {
+                return nil
+            }
+            controller.updateSelection(at: field.position, range: range)
+            let groups = [
+                ("Style", range.length > 0 ? MarkdownEditorCommand.contextualInlineCommands : []),
+                ("Table", tableContextCommands)
+            ]
+            let menus = groups.filter { !$0.1.isEmpty }.map { title, commands in
+                UIMenu(title: title, children: commands.map { title, command in
+                    UIAction(title: title, attributes: editor.canPerform(command) ? [] : [.disabled]) { [weak self, weak field] _ in
+                        guard let self, let field, let editor = field.markdownEditor else {
+                            return
+                        }
+                        field.becomeFirstResponder()
+                        field.selectedRange = range
+                        self.controller.updateSelection(at: field.position, range: range)
+                        editor.perform(command)
+                    }
+                })
+            }
+            return UIMenu(children: suggestedActions + menus)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard let field = textView as? MarkdownTableCellTextView, field.isFirstResponder else {
+                return
+            }
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange)
+        }
+
+        private func rebuild() {
+            stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            fields.removeAll()
+            columnWidthConstraints.removeAll()
+            rowStacks.removeAll()
+            rowHeightConstraints.removeAll()
+            cellHeights.removeAll()
+            let count = max(controller.columnCount, 1)
+            addRow(kind: .header, row: nil, columnCount: count)
+            for row in controller.table.rows.indices {
+                addRow(kind: .body, row: row, columnCount: count)
+            }
+            cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
+            updateColumnWidths()
+        }
+
+        private func addRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) {
+            let rowStack = UIStackView()
+            rowStack.axis = .horizontal
+            rowStack.spacing = 0
+            rowStack.distribution = .fill
+            for column in 0 ..< columnCount {
+                let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
+                let position = MarkdownTableCellPosition(section: section, column: column)
+                let field = MarkdownTableCellTextView(position: position)
+                field.attributedText = controller.richText(at: position)
+                field.textAlignment = controller.alignment(at: position)
+                field.delegate = self
+                field.layer.borderColor = UIColor.opaqueSeparator.cgColor
+                field.layer.borderWidth = 1 / UIScreen.main.scale
+                field.typingAttributes = [.font: UIFont.preferredFont(forTextStyle: .body)]
+                field.backgroundColor = kind == .header ? .secondarySystemBackground : .systemBackground
+                field.isScrollEnabled = false
+                field.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+                field.textContainer.lineFragmentPadding = 0
+                field.setContentHuggingPriority(.required, for: .vertical)
+                field.accessibilityLabel = kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)"
+                field.onTab = { [weak self, weak field] backwards in
+                    guard let self, let field else {
+                        return
+                    }
+                    let destination = backwards
+                        ? self.controller.moveBackward(from: field.position)
+                        : self.controller.moveForward(from: field.position)
+                    if let destination {
+                        self.rebuildIfNeededAndFocus(destination)
+                    }
+                }
+                fields[position] = field
+                let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
+                widthConstraint.isActive = true
+                if columnWidthConstraints.indices.contains(column) {
+                    columnWidthConstraints[column].append(widthConstraint)
+                } else {
+                    columnWidthConstraints.append([widthConstraint])
+                }
+                rowStack.addArrangedSubview(field)
+            }
+            stack.addArrangedSubview(rowStack)
+            rowStacks.append(rowStack)
+            let heightConstraint = rowStack.heightAnchor.constraint(equalToConstant: 28)
+            heightConstraint.isActive = true
+            rowHeightConstraints.append(heightConstraint)
+        }
+
+        @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+            let fields = self.fields
+            let previousWidths = cellLayout.widths
+            let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+                guard let field = fields[position] else {
+                    return MarkdownTableColumnLayout.minimumColumnWidth
+                }
+                return ceil(field.attributedText.size().width) + field.textContainerInset.left + field.textContainerInset.right + 2
+            }
+            let widths = cellLayout.widths
+            for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
+                for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
+                    constraint.constant = widths[column]
+                }
+            }
+            var affectedRows = Set<Int>()
+            for position in affected {
+                guard let field = fields[position] else {
+                    continue
+                }
+                field.layoutWidth = widths[position.column]
+                let height = field.measuredHeight
+                if cellHeights[position] != height {
+                    cellHeights[position] = height
+                    field.invalidateIntrinsicContentSize()
+                }
+                let row = switch position.section {
+                    case .header: 0
+                    case let .body(row): row + 1
+                }
+                affectedRows.insert(row)
+            }
+            var heightChanged = false
+            for row in affectedRows {
+                let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
+                let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
+                if rowHeightConstraints[row].constant != height {
+                    rowHeightConstraints[row].constant = height
+                    heightChanged = true
+                }
+            }
+            let dimensionsChanged = previousWidths != widths || heightChanged
+            if dimensionsChanged {
+                setNeedsLayout()
+            }
+            return dimensionsChanged
+        }
+
+        func updateAvailableWidth(_ width: CGFloat?) {
+            guard maximumWidth != width else {
+                return
+            }
+            maximumWidth = width
+            updateColumnWidths()
+            resizeAttachment()
+        }
+
+        private func resizeAttachment() {
+            attachmentResizeCount += 1
+            invalidateIntrinsicContentSize()
+            let size = intrinsicContentSize
+            if frame.size != size {
+                frame.size = size
+                // UIKit does not consistently invalidate the containing text fragment
+                // when an attachment view grows during a nested text edit.
+                var ancestor = superview
+                while let view = ancestor {
+                    if let editor = view as? MarkdownTextView {
+                        if let manager = editor.textLayoutManager {
+                            manager.invalidateLayout(for: manager.documentRange)
+                        }
+                        editor.setNeedsLayout()
+                        break
+                    }
+                    ancestor = view.superview
+                }
+            }
+        }
+
+        private func rebuildIfNeededAndFocus(_ position: MarkdownTableCellPosition) {
+            if fields[position] == nil {
+                rebuild()
+            }
+            guard let field = fields[position] else {
+                return
+            }
+            field.selectedRange = NSRange(location: 0, length: 0)
+            controller.updateSelection(at: position, range: field.selectedRange)
+            field.becomeFirstResponder()
+            invalidateIntrinsicContentSize()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard let selection = controller.activeSelection,
+                  let field = fields[selection.position] else {
                 return
             }
             field.selectedRange = clamped(selection.range, toUTF16Length: field.textStorage.length)
             field.becomeFirstResponder()
-            field.typingAttributes = attributes
         }
     }
 
-    required init?(coder: NSCoder) {
-        nil
-    }
+    @MainActor private final class MarkdownTableCellTextView: UITextView {
+        let position: MarkdownTableCellPosition
+        var onTab: ((Bool) -> Void)?
+        var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
+        private var lastLayoutWidth: CGFloat = 0
 
-    override var intrinsicContentSize: CGSize {
-        stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-    }
+        init(position: MarkdownTableCellPosition) {
+            self.position = position
+            super.init(frame: .zero, textContainer: nil)
+        }
 
-    func textViewDidChange(_ textView: UITextView) {
-        guard let field = textView as? MarkdownTableCellTextView else {
-            return
+        required init?(coder: NSCoder) {
+            nil
         }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange)
-        if field.markedTextRange == nil {
-            isEditingCell = true
-            controller.updateRichCell(at: field.position, text: field.textStorage)
-            isEditingCell = false
-        }
-        if updateColumnWidths(changedCell: field.position) {
-            resizeAttachment()
-        }
-    }
 
-    func textViewDidBeginEditing(_ textView: UITextView) {
-        guard let field = textView as? MarkdownTableCellTextView else {
-            return
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: UIView.noIntrinsicMetric, height: measuredHeight)
         }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange)
-    }
 
-    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard let field = textView as? MarkdownTableCellTextView,
-              let editor = field.markdownEditor else {
-            return nil
+        var measuredHeight: CGFloat {
+            ceil(sizeThatFits(CGSize(width: layoutWidth, height: .greatestFiniteMagnitude)).height)
         }
-        controller.updateSelection(at: field.position, range: range)
-        let groups = [
-            ("Style", range.length > 0 ? MarkdownEditorCommand.contextualInlineCommands : []),
-            ("Table", tableContextCommands)
-        ]
-        let menus = groups.filter { !$0.1.isEmpty }.map { title, commands in
-            UIMenu(title: title, children: commands.map { title, command in
-                UIAction(title: title, attributes: editor.canPerform(command) ? [] : [.disabled]) { [weak self, weak field] _ in
-                    guard let self, let field, let editor = field.markdownEditor else {
-                        return
-                    }
-                    field.becomeFirstResponder()
-                    field.selectedRange = range
-                    self.controller.updateSelection(at: field.position, range: range)
-                    editor.perform(command)
-                }
-            })
-        }
-        return UIMenu(children: suggestedActions + menus)
-    }
 
-    func textViewDidChangeSelection(_ textView: UITextView) {
-        guard let field = textView as? MarkdownTableCellTextView, field.isFirstResponder else {
-            return
-        }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange)
-    }
-
-    private func rebuild() {
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        fields.removeAll()
-        columnWidthConstraints.removeAll()
-        rowStacks.removeAll()
-        rowHeightConstraints.removeAll()
-        cellHeights.removeAll()
-        let count = max(controller.columnCount, 1)
-        addRow(kind: .header, row: nil, columnCount: count)
-        for row in controller.table.rows.indices {
-            addRow(kind: .body, row: row, columnCount: count)
-        }
-        cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
-        updateColumnWidths()
-    }
-
-    private func addRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) {
-        let rowStack = UIStackView()
-        rowStack.axis = .horizontal
-        rowStack.spacing = 0
-        rowStack.distribution = .fill
-        for column in 0 ..< columnCount {
-            let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
-            let position = MarkdownTableCellPosition(section: section, column: column)
-            let field = MarkdownTableCellTextView(position: position)
-            field.attributedText = controller.richText(at: position)
-            field.textAlignment = controller.alignment(at: position)
-            field.delegate = self
-            field.layer.borderColor = UIColor.opaqueSeparator.cgColor
-            field.layer.borderWidth = 1 / UIScreen.main.scale
-            field.typingAttributes = [.font: UIFont.preferredFont(forTextStyle: .body)]
-            field.backgroundColor = kind == .header ? .secondarySystemBackground : .systemBackground
-            field.isScrollEnabled = false
-            field.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
-            field.textContainer.lineFragmentPadding = 0
-            field.setContentHuggingPriority(.required, for: .vertical)
-            field.accessibilityLabel = kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)"
-            field.onTab = { [weak self, weak field] backwards in
-                guard let self, let field else {
-                    return
-                }
-                let destination = backwards
-                    ? self.controller.moveBackward(from: field.position)
-                    : self.controller.moveForward(from: field.position)
-                if let destination {
-                    self.rebuildIfNeededAndFocus(destination)
-                }
-            }
-            fields[position] = field
-            let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
-            widthConstraint.isActive = true
-            if columnWidthConstraints.indices.contains(column) {
-                columnWidthConstraints[column].append(widthConstraint)
-            } else {
-                columnWidthConstraints.append([widthConstraint])
-            }
-            rowStack.addArrangedSubview(field)
-        }
-        stack.addArrangedSubview(rowStack)
-        rowStacks.append(rowStack)
-        let heightConstraint = rowStack.heightAnchor.constraint(equalToConstant: 28)
-        heightConstraint.isActive = true
-        rowHeightConstraints.append(heightConstraint)
-    }
-
-    @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
-        let fields = self.fields
-        let previousWidths = cellLayout.widths
-        let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
-            guard let field = fields[position] else {
-                return MarkdownTableColumnLayout.minimumColumnWidth
-            }
-            return ceil(field.attributedText.size().width) + field.textContainerInset.left + field.textContainerInset.right + 2
-        }
-        let widths = cellLayout.widths
-        for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
-            for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
-                constraint.constant = widths[column]
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if abs(bounds.width - lastLayoutWidth) > 0.5 {
+                lastLayoutWidth = bounds.width
+                invalidateIntrinsicContentSize()
             }
         }
-        var affectedRows = Set<Int>()
-        for position in affected {
-            guard let field = fields[position] else {
-                continue
-            }
-            field.layoutWidth = widths[position.column]
-            let height = field.measuredHeight
-            if cellHeights[position] != height {
-                cellHeights[position] = height
-                field.invalidateIntrinsicContentSize()
-            }
-            let row = switch position.section {
-                case .header: 0
-                case let .body(row): row + 1
-            }
-            affectedRows.insert(row)
-        }
-        var heightChanged = false
-        for row in affectedRows {
-            let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
-            let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
-            if rowHeightConstraints[row].constant != height {
-                rowHeightConstraints[row].constant = height
-                heightChanged = true
-            }
-        }
-        let dimensionsChanged = previousWidths != widths || heightChanged
-        if dimensionsChanged {
-            setNeedsLayout()
-        }
-        return dimensionsChanged
-    }
 
-    func updateAvailableWidth(_ width: CGFloat?) {
-        guard maximumWidth != width else {
-            return
-        }
-        maximumWidth = width
-        updateColumnWidths()
-        resizeAttachment()
-    }
-
-    private func resizeAttachment() {
-        attachmentResizeCount += 1
-        invalidateIntrinsicContentSize()
-        let size = intrinsicContentSize
-        if frame.size != size {
-            frame.size = size
-            // UIKit does not consistently invalidate the containing text fragment
-            // when an attachment view grows during a nested text edit.
+        override var undoManager: UndoManager? {
             var ancestor = superview
             while let view = ancestor {
                 if let editor = view as? MarkdownTextView {
-                    if let manager = editor.textLayoutManager {
-                        manager.invalidateLayout(for: manager.documentRange)
-                    }
-                    editor.setNeedsLayout()
-                    break
+                    return editor.undoManager
                 }
                 ancestor = view.superview
             }
+            return super.undoManager
         }
-    }
 
-    private func rebuildIfNeededAndFocus(_ position: MarkdownTableCellPosition) {
-        if fields[position] == nil {
-            rebuild()
+        override var keyCommands: [UIKeyCommand]? {
+            [
+                UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(tabForward)),
+                UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(tabBackward)),
+                UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleStrong)),
+                UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleEmphasis)),
+                UIKeyCommand(input: "x", modifierFlags: [.command, .shift], action: #selector(toggleStrikethrough))
+            ]
         }
-        guard let field = fields[position] else {
-            return
+
+        @objc private func toggleStrong() {
+            performMarkdownCommand(.toggleInline(.strong))
         }
-        field.selectedRange = NSRange(location: 0, length: 0)
-        controller.updateSelection(at: position, range: field.selectedRange)
-        field.becomeFirstResponder()
-        invalidateIntrinsicContentSize()
-    }
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        guard let selection = controller.activeSelection,
-              let field = fields[selection.position] else {
-            return
+        @objc private func toggleEmphasis() {
+            performMarkdownCommand(.toggleInline(.emphasis))
         }
-        field.selectedRange = clamped(selection.range, toUTF16Length: field.textStorage.length)
-        field.becomeFirstResponder()
-    }
-}
 
-@MainActor private final class MarkdownTableCellTextView: UITextView {
-    let position: MarkdownTableCellPosition
-    var onTab: ((Bool) -> Void)?
-    var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
-    private var lastLayoutWidth: CGFloat = 0
-
-    init(position: MarkdownTableCellPosition) {
-        self.position = position
-        super.init(frame: .zero, textContainer: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: measuredHeight)
-    }
-
-    var measuredHeight: CGFloat {
-        ceil(sizeThatFits(CGSize(width: layoutWidth, height: .greatestFiniteMagnitude)).height)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if abs(bounds.width - lastLayoutWidth) > 0.5 {
-            lastLayoutWidth = bounds.width
-            invalidateIntrinsicContentSize()
+        @objc private func toggleStrikethrough() {
+            performMarkdownCommand(.toggleInline(.strikethrough))
         }
-    }
 
-    override var undoManager: UndoManager? {
-        var ancestor = superview
-        while let view = ancestor {
-            if let editor = view as? MarkdownTextView {
-                return editor.undoManager
+        var markdownEditor: MarkdownTextView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let editor = view as? MarkdownTextView {
+                    return editor
+                }
+                ancestor = view.superview
             }
-            ancestor = view.superview
+            return nil
         }
-        return super.undoManager
-    }
 
-    override var keyCommands: [UIKeyCommand]? {
-        [
-            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(tabForward)),
-            UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(tabBackward)),
-            UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleStrong)),
-            UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleEmphasis)),
-            UIKeyCommand(input: "x", modifierFlags: [.command, .shift], action: #selector(toggleStrikethrough))
-        ]
-    }
-
-    @objc private func toggleStrong() {
-        performMarkdownCommand(.toggleInline(.strong))
-    }
-
-    @objc private func toggleEmphasis() {
-        performMarkdownCommand(.toggleInline(.emphasis))
-    }
-
-    @objc private func toggleStrikethrough() {
-        performMarkdownCommand(.toggleInline(.strikethrough))
-    }
-
-    var markdownEditor: MarkdownTextView? {
-        var ancestor = superview
-        while let view = ancestor {
-            if let editor = view as? MarkdownTextView {
-                return editor
-            }
-            ancestor = view.superview
+        private func performMarkdownCommand(_ command: MarkdownEditorCommand) {
+            markdownEditor?.perform(command)
         }
-        return nil
-    }
 
-    private func performMarkdownCommand(_ command: MarkdownEditorCommand) {
-        markdownEditor?.perform(command)
-    }
+        @objc private func tabForward() {
+            onTab?(false)
+        }
 
-    @objc private func tabForward() {
-        onTab?(false)
+        @objc private func tabBackward() {
+            onTab?(true)
+        }
     }
-
-    @objc private func tabBackward() {
-        onTab?(true)
-    }
-}
 
 #elseif canImport(AppKit)
-/// Creates the AppKit view used to edit a `MarkdownTableAttachment`.
-public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProvider {
-    var availableWidth: CGFloat?
+    /// Creates the AppKit view used to edit a `MarkdownTableAttachment`.
+    public final class MarkdownTableAttachmentViewProvider: NSTextAttachmentViewProvider {
+        var availableWidth: CGFloat?
 
-    override public func attachmentBounds(
-        for attributes: [NSAttributedString.Key: Any],
-        location: any NSTextLocation,
-        textContainer: NSTextContainer?,
-        proposedLineFragment: CGRect,
-        position: CGPoint
-    ) -> CGRect {
-        let width = markdownTableAvailableWidth(parentWidth: proposedLineFragment.width, textContainer: textContainer)
-        guard let grid = view as? AppKitMarkdownTableGridView else {
-            return .zero
+        override public func attachmentBounds(
+            for attributes: [NSAttributedString.Key: Any],
+            location: any NSTextLocation,
+            textContainer: NSTextContainer?,
+            proposedLineFragment: CGRect,
+            position: CGPoint
+        ) -> CGRect {
+            let width = markdownTableAvailableWidth(parentWidth: proposedLineFragment.width, textContainer: textContainer)
+            guard let grid = view as? AppKitMarkdownTableGridView else {
+                return .zero
+            }
+            let resolvedWidth = width ?? availableWidth
+            return MainActor.assumeIsolated {
+                grid.updateAvailableWidth(resolvedWidth)
+                return CGRect(origin: .zero, size: grid.intrinsicContentSize)
+            }
         }
-        let resolvedWidth = width ?? availableWidth
-        return MainActor.assumeIsolated {
-            grid.updateAvailableWidth(resolvedWidth)
-            return CGRect(origin: .zero, size: grid.intrinsicContentSize)
+
+        /// Creates the native AppKit table grid.
+        override public func loadView() {
+            guard let attachment = textAttachment as? MarkdownTableAttachment else {
+                view = nil
+                return
+            }
+            let controller = attachment.controller
+            let maximumWidth = availableWidth
+            let grid = MainActor.assumeIsolated {
+                AppKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+            }
+            MainActor.assumeIsolated {
+                let size = grid.intrinsicContentSize
+                grid.frame.size = size
+                grid.layoutSubtreeIfNeeded()
+            }
+            tracksTextAttachmentViewBounds = true
+            view = grid
         }
     }
 
-    /// Creates the native AppKit table grid.
-    override public func loadView() {
-        guard let attachment = textAttachment as? MarkdownTableAttachment else {
-            view = nil
-            return
-        }
-        let controller = attachment.controller
-        let maximumWidth = availableWidth
-        let grid = MainActor.assumeIsolated {
-            AppKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
-        }
-        MainActor.assumeIsolated {
-            let size = grid.intrinsicContentSize
-            grid.frame.size = size
-            grid.layoutSubtreeIfNeeded()
-        }
-        tracksTextAttachmentViewBounds = true
-        view = grid
-    }
-}
+    @MainActor final class AppKitMarkdownTableGridView: NSView, NSTextViewDelegate {
+        private(set) var attachmentResizeCount = 0
+        private let controller: MarkdownTableController
+        private var maximumWidth: CGFloat?
+        private var gridView = NSGridView()
+        private var fields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
+        private var columnWidthConstraints: [[NSLayoutConstraint]] = []
+        private var isEditingCell = false
+        private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
+        private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+        private var rowHeights: [MarkdownTableCellPosition.Section: CGFloat] = [:]
 
-@MainActor final class AppKitMarkdownTableGridView: NSView, NSTextViewDelegate {
-    private(set) var attachmentResizeCount = 0
-    private let controller: MarkdownTableController
-    private var maximumWidth: CGFloat?
-    private var gridView = NSGridView()
-    private var fields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
-    private var columnWidthConstraints: [[NSLayoutConstraint]] = []
-    private var isEditingCell = false
-    private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
-    private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
-    private var rowHeights: [MarkdownTableCellPosition.Section: CGFloat] = [:]
+        init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
+            self.controller = controller
+            self.maximumWidth = maximumWidth
+            super.init(frame: .zero)
+            rebuild()
+            controller.onPresentationChange = { [weak self] in
+                guard let self, !self.isEditingCell else {
+                    return
+                }
+                self.rebuild()
+                self.resizeAttachment()
+            }
+            controller.onTypingAttributesChange = { [weak self] attributes in
+                guard let self, let selection = self.controller.activeSelection else {
+                    return
+                }
+                guard let field = self.fields[selection.position] else {
+                    return
+                }
+                field.setSelectedRange(clamped(selection.range, toUTF16Length: field.string.utf16.count))
+                self.window?.makeFirstResponder(field)
+                field.typingAttributes = attributes
+            }
+        }
 
-    init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
-        self.controller = controller
-        self.maximumWidth = maximumWidth
-        super.init(frame: .zero)
-        rebuild()
-        controller.onPresentationChange = { [weak self] in
-            guard let self, !self.isEditingCell else {
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override var intrinsicContentSize: NSSize {
+            gridView.fittingSize
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
                 return
             }
-            self.rebuild()
-            self.resizeAttachment()
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange())
+            if !field.hasMarkedText() {
+                isEditingCell = true
+                controller.updateRichCell(at: field.position, text: field.attributedString())
+                isEditingCell = false
+            }
+            if updateColumnWidths(changedCell: field.position) {
+                resizeAttachment()
+            }
         }
-        controller.onTypingAttributesChange = { [weak self] attributes in
-            guard let self, let selection = self.controller.activeSelection else {
+
+        func textDidBeginEditing(_ notification: Notification) {
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
                 return
             }
-            guard let field = self.fields[selection.position] else {
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange())
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView,
+                  window?.firstResponder === field else {
+                return
+            }
+            controller.activeTypingAttributes = field.typingAttributes
+            controller.updateSelection(at: field.position, range: field.selectedRange())
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard let field = textView as? AppKitMarkdownTableCellTextView else {
+                return false
+            }
+            let destination: MarkdownTableCellPosition?
+            switch commandSelector {
+                case #selector(NSResponder.insertTab(_:)):
+                    destination = controller.moveForward(from: field.position)
+                case #selector(NSResponder.insertBacktab(_:)):
+                    destination = controller.moveBackward(from: field.position)
+                default:
+                    return false
+            }
+            if let destination {
+                rebuildIfNeededAndFocus(destination)
+            }
+            return true
+        }
+
+        private func rebuild() {
+            gridView.removeFromSuperview()
+            fields.removeAll()
+            columnWidthConstraints.removeAll()
+            cellHeights.removeAll()
+            rowHeights.removeAll()
+            let count = max(controller.columnCount, 1)
+            var rows: [[NSView]] = []
+            rows.append(makeRow(kind: .header, row: nil, columnCount: count))
+            for row in controller.table.rows.indices {
+                rows.append(makeRow(kind: .body, row: row, columnCount: count))
+            }
+            gridView = NSGridView(views: rows)
+            gridView.rowSpacing = 0
+            gridView.columnSpacing = 0
+            gridView.xPlacement = .fill
+            gridView.yPlacement = .fill
+            cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
+            updateColumnWidths()
+            gridView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(gridView)
+            NSLayoutConstraint.activate([
+                gridView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                gridView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                gridView.topAnchor.constraint(equalTo: topAnchor),
+                gridView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            invalidateIntrinsicContentSize()
+        }
+
+        private func makeRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) -> [NSView] {
+            (0 ..< columnCount).map { column in
+                let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
+                let position = MarkdownTableCellPosition(section: section, column: column)
+                let field = AppKitMarkdownTableCellTextView(position: position)
+                field.onContextSelection = { [weak controller] range in
+                    controller?.updateSelection(at: position, range: range)
+                }
+                field.textStorage?.setAttributedString(controller.richText(at: position))
+                field.alignment = controller.alignment(at: position)
+                field.delegate = self
+                field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
+                field.backgroundColor = kind == .header ? .controlBackgroundColor : .textBackgroundColor
+                field.drawsBackground = true
+                field.isRichText = true
+                field.allowsUndo = false
+                field.isHorizontallyResizable = false
+                field.isVerticallyResizable = true
+                field.textContainerInset = NSSize(width: 8, height: 4)
+                field.textContainer?.lineFragmentPadding = 0
+                field.textContainer?.widthTracksTextView = true
+                field.wantsLayer = true
+                field.layer?.borderColor = NSColor.gridColor.cgColor
+                field.layer?.borderWidth = 0.5
+                field.setAccessibilityLabel(kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)")
+                fields[position] = field
+                let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
+                widthConstraint.isActive = true
+                if columnWidthConstraints.indices.contains(column) {
+                    columnWidthConstraints[column].append(widthConstraint)
+                } else {
+                    columnWidthConstraints.append([widthConstraint])
+                }
+                return field
+            }
+        }
+
+        @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+            let fields = self.fields
+            let previousWidths = cellLayout.widths
+            let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+                guard let field = fields[position] else {
+                    return MarkdownTableColumnLayout.minimumColumnWidth
+                }
+                return ceil(field.attributedString().size().width) + 16
+            }
+            let widths = cellLayout.widths
+            guard gridView.numberOfColumns == widths.count else {
+                return false
+            }
+            for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
+                gridView.column(at: column).width = widths[column]
+                for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
+                    constraint.constant = widths[column]
+                }
+            }
+            var affectedRows = Set<MarkdownTableCellPosition.Section>()
+            for position in affected {
+                guard let field = fields[position] else {
+                    continue
+                }
+                field.layoutWidth = widths[position.column]
+                let height = field.intrinsicContentSize.height
+                if cellHeights[position] != height {
+                    cellHeights[position] = height
+                    field.invalidateIntrinsicContentSize()
+                }
+                affectedRows.insert(position.section)
+            }
+            var heightChanged = false
+            for section in affectedRows {
+                let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
+                if rowHeights[section] != height {
+                    rowHeights[section] = height
+                    heightChanged = true
+                }
+            }
+            let dimensionsChanged = previousWidths != widths || heightChanged
+            if dimensionsChanged {
+                needsLayout = true
+            }
+            return dimensionsChanged
+        }
+
+        func updateAvailableWidth(_ width: CGFloat?) {
+            guard maximumWidth != width else {
+                return
+            }
+            maximumWidth = width
+            updateColumnWidths()
+            resizeAttachment()
+        }
+
+        private func resizeAttachment() {
+            attachmentResizeCount += 1
+            invalidateIntrinsicContentSize()
+            let size = intrinsicContentSize
+            if frame.size != size {
+                frame.size = size
+            }
+        }
+
+        private func rebuildIfNeededAndFocus(_ position: MarkdownTableCellPosition) {
+            if fields[position] == nil {
+                rebuild()
+            }
+            guard let field = fields[position] else {
+                return
+            }
+            field.setSelectedRange(NSRange(location: 0, length: 0))
+            controller.updateSelection(at: position, range: field.selectedRange())
+            window?.makeFirstResponder(field)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let selection = controller.activeSelection,
+                  let field = fields[selection.position] else {
                 return
             }
             field.setSelectedRange(clamped(selection.range, toUTF16Length: field.string.utf16.count))
-            self.window?.makeFirstResponder(field)
-            field.typingAttributes = attributes
+            window?.makeFirstResponder(field)
         }
     }
 
-    required init?(coder: NSCoder) {
-        nil
-    }
+    @MainActor private final class AppKitMarkdownTableCellTextView: NSTextView {
+        let position: MarkdownTableCellPosition
+        var onContextSelection: ((NSRange) -> Void)?
+        var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
+        private let cellTextStorage: NSTextStorage
 
-    override var intrinsicContentSize: NSSize {
-        gridView.fittingSize
-    }
+        init(position: MarkdownTableCellPosition) {
+            self.position = position
+            let textStorage = NSTextStorage()
+            let layoutManager = NSLayoutManager()
+            let textContainer = NSTextContainer()
+            textStorage.addLayoutManager(layoutManager)
+            layoutManager.addTextContainer(textContainer)
+            self.cellTextStorage = textStorage
+            super.init(frame: .zero, textContainer: textContainer)
+        }
 
-    func textDidChange(_ notification: Notification) {
-        guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
-            return
+        required init?(coder: NSCoder) {
+            nil
         }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange())
-        if !field.hasMarkedText() {
-            isEditingCell = true
-            controller.updateRichCell(at: field.position, text: field.attributedString())
-            isEditingCell = false
-        }
-        if updateColumnWidths(changedCell: field.position) {
-            resizeAttachment()
-        }
-    }
 
-    func textDidBeginEditing(_ notification: Notification) {
-        guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
-            return
-        }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange())
-    }
-
-    func textViewDidChangeSelection(_ notification: Notification) {
-        guard let field = notification.object as? AppKitMarkdownTableCellTextView,
-              window?.firstResponder === field else {
-            return
-        }
-        controller.activeTypingAttributes = field.typingAttributes
-        controller.updateSelection(at: field.position, range: field.selectedRange())
-    }
-
-    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard let field = textView as? AppKitMarkdownTableCellTextView else {
-            return false
-        }
-        let destination: MarkdownTableCellPosition?
-        switch commandSelector {
-            case #selector(NSResponder.insertTab(_:)):
-                destination = controller.moveForward(from: field.position)
-            case #selector(NSResponder.insertBacktab(_:)):
-                destination = controller.moveBackward(from: field.position)
-            default:
-                return false
-        }
-        if let destination {
-            rebuildIfNeededAndFocus(destination)
-        }
-        return true
-    }
-
-    private func rebuild() {
-        gridView.removeFromSuperview()
-        fields.removeAll()
-        columnWidthConstraints.removeAll()
-        cellHeights.removeAll()
-        rowHeights.removeAll()
-        let count = max(controller.columnCount, 1)
-        var rows: [[NSView]] = []
-        rows.append(makeRow(kind: .header, row: nil, columnCount: count))
-        for row in controller.table.rows.indices {
-            rows.append(makeRow(kind: .body, row: row, columnCount: count))
-        }
-        gridView = NSGridView(views: rows)
-        gridView.rowSpacing = 0
-        gridView.columnSpacing = 0
-        gridView.xPlacement = .fill
-        gridView.yPlacement = .fill
-        cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
-        updateColumnWidths()
-        gridView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(gridView)
-        NSLayoutConstraint.activate([
-            gridView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            gridView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            gridView.topAnchor.constraint(equalTo: topAnchor),
-            gridView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        invalidateIntrinsicContentSize()
-    }
-
-    private func makeRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) -> [NSView] {
-        (0 ..< columnCount).map { column in
-            let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
-            let position = MarkdownTableCellPosition(section: section, column: column)
-            let field = AppKitMarkdownTableCellTextView(position: position)
-            field.onContextSelection = { [weak controller] range in
-                controller?.updateSelection(at: position, range: range)
+        override func menu(for event: NSEvent) -> NSMenu? {
+            if window?.firstResponder !== self {
+                setSelectedRange(NSRange(location: characterIndexForInsertion(at: convert(event.locationInWindow, from: nil)), length: 0))
+                window?.makeFirstResponder(self)
             }
-            field.textStorage?.setAttributedString(controller.richText(at: position))
-            field.alignment = controller.alignment(at: position)
-            field.delegate = self
-            field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
-            field.backgroundColor = kind == .header ? .controlBackgroundColor : .textBackgroundColor
-            field.drawsBackground = true
-            field.isRichText = true
-            field.allowsUndo = false
-            field.isHorizontallyResizable = false
-            field.isVerticallyResizable = true
-            field.textContainerInset = NSSize(width: 8, height: 4)
-            field.textContainer?.lineFragmentPadding = 0
-            field.textContainer?.widthTracksTextView = true
-            field.wantsLayer = true
-            field.layer?.borderColor = NSColor.gridColor.cgColor
-            field.layer?.borderWidth = 0.5
-            field.setAccessibilityLabel(kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)")
-            fields[position] = field
-            let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
-            widthConstraint.isActive = true
-            if columnWidthConstraints.indices.contains(column) {
-                columnWidthConstraints[column].append(widthConstraint)
-            } else {
-                columnWidthConstraints.append([widthConstraint])
+            let selection = selectedRange()
+            let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
+            if selection.length > 0 {
+                setSelectedRange(selection)
             }
-            return field
-        }
-    }
-
-    @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
-        let fields = self.fields
-        let previousWidths = cellLayout.widths
-        let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
-            guard let field = fields[position] else {
-                return MarkdownTableColumnLayout.minimumColumnWidth
+            guard let editor = markdownEditor else {
+                return menu
             }
-            return ceil(field.attributedString().size().width) + 16
-        }
-        let widths = cellLayout.widths
-        guard gridView.numberOfColumns == widths.count else {
-            return false
-        }
-        for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
-            gridView.column(at: column).width = widths[column]
-            for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
-                constraint.constant = widths[column]
+            onContextSelection?(selectedRange())
+            let groups = [
+                ("Style", selectedRange().length > 0 ? MarkdownEditorCommand.contextualInlineCommands : []),
+                ("Table", tableContextCommands)
+            ]
+            if !menu.items.isEmpty {
+                menu.addItem(.separator())
             }
-        }
-        var affectedRows = Set<MarkdownTableCellPosition.Section>()
-        for position in affected {
-            guard let field = fields[position] else {
-                continue
+            for (title, commands) in groups where !commands.isEmpty {
+                let submenu = NSMenu(title: title)
+                submenu.autoenablesItems = false
+                for (title, command) in commands {
+                    let item = NSMenuItem(title: title, action: #selector(performContextCommand(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = command
+                    item.isEnabled = editor.canPerform(command)
+                    submenu.addItem(item)
+                }
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.submenu = submenu
+                menu.addItem(item)
             }
-            field.layoutWidth = widths[position.column]
-            let height = field.intrinsicContentSize.height
-            if cellHeights[position] != height {
-                cellHeights[position] = height
-                field.invalidateIntrinsicContentSize()
-            }
-            affectedRows.insert(position.section)
-        }
-        var heightChanged = false
-        for section in affectedRows {
-            let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
-            if rowHeights[section] != height {
-                rowHeights[section] = height
-                heightChanged = true
-            }
-        }
-        let dimensionsChanged = previousWidths != widths || heightChanged
-        if dimensionsChanged {
-            needsLayout = true
-        }
-        return dimensionsChanged
-    }
-
-    func updateAvailableWidth(_ width: CGFloat?) {
-        guard maximumWidth != width else {
-            return
-        }
-        maximumWidth = width
-        updateColumnWidths()
-        resizeAttachment()
-    }
-
-    private func resizeAttachment() {
-        attachmentResizeCount += 1
-        invalidateIntrinsicContentSize()
-        let size = intrinsicContentSize
-        if frame.size != size {
-            frame.size = size
-        }
-    }
-
-    private func rebuildIfNeededAndFocus(_ position: MarkdownTableCellPosition) {
-        if fields[position] == nil {
-            rebuild()
-        }
-        guard let field = fields[position] else {
-            return
-        }
-        field.setSelectedRange(NSRange(location: 0, length: 0))
-        controller.updateSelection(at: position, range: field.selectedRange())
-        window?.makeFirstResponder(field)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let selection = controller.activeSelection,
-              let field = fields[selection.position] else {
-            return
-        }
-        field.setSelectedRange(clamped(selection.range, toUTF16Length: field.string.utf16.count))
-        window?.makeFirstResponder(field)
-    }
-}
-
-@MainActor private final class AppKitMarkdownTableCellTextView: NSTextView {
-    let position: MarkdownTableCellPosition
-    var onContextSelection: ((NSRange) -> Void)?
-    var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
-    private let cellTextStorage: NSTextStorage
-
-    init(position: MarkdownTableCellPosition) {
-        self.position = position
-        let textStorage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer()
-        textStorage.addLayoutManager(layoutManager)
-        layoutManager.addTextContainer(textContainer)
-        self.cellTextStorage = textStorage
-        super.init(frame: .zero, textContainer: textContainer)
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        if window?.firstResponder !== self {
-            setSelectedRange(NSRange(location: characterIndexForInsertion(at: convert(event.locationInWindow, from: nil)), length: 0))
-            window?.makeFirstResponder(self)
-        }
-        let selection = selectedRange()
-        let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
-        if selection.length > 0 {
-            setSelectedRange(selection)
-        }
-        guard let editor = markdownEditor else {
             return menu
         }
-        onContextSelection?(selectedRange())
-        let groups = [
-            ("Style", selectedRange().length > 0 ? MarkdownEditorCommand.contextualInlineCommands : []),
-            ("Table", tableContextCommands)
-        ]
-        if !menu.items.isEmpty {
-            menu.addItem(.separator())
-        }
-        for (title, commands) in groups where !commands.isEmpty {
-            let submenu = NSMenu(title: title)
-            submenu.autoenablesItems = false
-            for (title, command) in commands {
-                let item = NSMenuItem(title: title, action: #selector(performContextCommand(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = command
-                item.isEnabled = editor.canPerform(command)
-                submenu.addItem(item)
-            }
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.submenu = submenu
-            menu.addItem(item)
-        }
-        return menu
-    }
 
-    private var markdownEditor: MarkdownTextView? {
-        var ancestor = superview
-        while let view = ancestor {
-            if let editor = view as? MarkdownTextView {
-                return editor
-            }
-            ancestor = view.superview
-        }
-        return nil
-    }
-
-    @objc private func performContextCommand(_ sender: NSMenuItem) {
-        guard let command = sender.representedObject as? MarkdownEditorCommand else {
-            return
-        }
-        window?.makeFirstResponder(self)
-        onContextSelection?(selectedRange())
-        markdownEditor?.perform(command)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        let style: MarkdownInlineStyle? = switch (event.charactersIgnoringModifiers?.lowercased(), modifiers) {
-            case ("b", .command): .strong
-            case ("i", .command): .emphasis
-            case ("x", [.command, .shift]): .strikethrough
-            default: nil
-        }
-        if let style {
+        private var markdownEditor: MarkdownTextView? {
             var ancestor = superview
             while let view = ancestor {
                 if let editor = view as? MarkdownTextView {
-                    editor.perform(.toggleInline(style)); return true
+                    return editor
                 }
                 ancestor = view.superview
             }
+            return nil
         }
-        return super.performKeyEquivalent(with: event)
-    }
 
-    override var intrinsicContentSize: NSSize {
-        let bounds = attributedString().boundingRect(
-            with: NSSize(width: max(1, layoutWidth - 16), height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        return NSSize(width: NSView.noIntrinsicMetric, height: max(ceil(bounds.height) + 8, 28))
+        @objc private func performContextCommand(_ sender: NSMenuItem) {
+            guard let command = sender.representedObject as? MarkdownEditorCommand else {
+                return
+            }
+            window?.makeFirstResponder(self)
+            onContextSelection?(selectedRange())
+            markdownEditor?.perform(command)
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            let style: MarkdownInlineStyle? = switch (event.charactersIgnoringModifiers?.lowercased(), modifiers) {
+                case ("b", .command): .strong
+                case ("i", .command): .emphasis
+                case ("x", [.command, .shift]): .strikethrough
+                default: nil
+            }
+            if let style {
+                var ancestor = superview
+                while let view = ancestor {
+                    if let editor = view as? MarkdownTextView {
+                        editor.perform(.toggleInline(style)); return true
+                    }
+                    ancestor = view.superview
+                }
+            }
+            return super.performKeyEquivalent(with: event)
+        }
+
+        override var intrinsicContentSize: NSSize {
+            let bounds = attributedString().boundingRect(
+                with: NSSize(width: max(1, layoutWidth - 16), height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            return NSSize(width: NSView.noIntrinsicMetric, height: max(ceil(bounds.height) + 8, 28))
+        }
     }
-}
 #endif

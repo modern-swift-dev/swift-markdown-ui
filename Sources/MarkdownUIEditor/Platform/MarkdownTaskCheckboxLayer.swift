@@ -2,9 +2,9 @@ import Foundation
 import QuartzCore
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 /// Draws task markers sized to the theme's body font.
@@ -28,9 +28,9 @@ import AppKit
 
         @MainActor init(theme: MarkdownEditorTheme) {
             #if canImport(UIKit)
-            let font = theme.bodyAttributes[.font] as? UIFont ?? UIFont.preferredFont(forTextStyle: .body)
+                let font = theme.bodyAttributes[.font] as? UIFont ?? UIFont.preferredFont(forTextStyle: .body)
             #else
-            let font = theme.bodyAttributes[.font] as? NSFont ?? NSFont.preferredFont(forTextStyle: .body)
+                let font = theme.bodyAttributes[.font] as? NSFont ?? NSFont.preferredFont(forTextStyle: .body)
             #endif
             boxSize = font.pointSize * 1.2
         }

@@ -6,9 +6,9 @@ import Testing
 
 enum SnapshotTestSupport {
     #if os(iOS)
-    static var supportsPhoneSnapshots: Bool {
-        ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.hasPrefix("iPad") != true
-    }
+        static var supportsPhoneSnapshots: Bool {
+            ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.hasPrefix("iPad") != true
+        }
     #endif
 
     static var configuration: SnapshotTestingConfiguration {

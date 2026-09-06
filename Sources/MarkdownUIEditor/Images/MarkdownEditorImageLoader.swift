@@ -2,264 +2,264 @@ import Foundation
 import ImageIO
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)
-/// Provider-scoped resource sharing preserves native platform image decoding and sizing.
-@MainActor final class MarkdownEditorImageLoader {
-    struct Resource {
-        let image: MarkdownEditorPlatformImage
-        let cost: Int
-        let expiration: Date?
-    }
-
-    private final class CachedImage {
-        let resource: Resource
-        init(_ resource: Resource) {
-            self.resource = resource
+    /// Provider-scoped resource sharing preserves native platform image decoding and sizing.
+    @MainActor final class MarkdownEditorImageLoader {
+        struct Resource {
+            let image: MarkdownEditorPlatformImage
+            let cost: Int
+            let expiration: Date?
         }
-    }
 
-    private struct Job {
-        let url: URL
-        var waiters: [UUID: CheckedContinuation<MarkdownEditorPlatformImage, any Error>]
-    }
-
-    private let cache = NSCache<NSURL, CachedImage>()
-    private let maximumCacheCost: Int
-    private let now: @MainActor () -> Date
-    private let sleepUntil: @MainActor (Date) async throws -> Void
-    private var latestExpiration: Date?
-    private var expirationTask: Task<Void, Never>?
-    private let load: @MainActor (URL) async throws -> Resource
-    private var jobs: [UUID: Job] = [:]
-    private var jobForURL: [URL: UUID] = [:]
-    private var pending: [UUID] = []
-    private var pendingHead = 0
-    private(set) var pendingLoadCount = 0
-    private var running: [UUID: Task<Void, Never>] = [:]
-
-    var pendingStorageCount: Int {
-        pending.count
-    }
-
-    init(
-        maximumCacheCost: Int = 64 * 1024 * 1024,
-        now: @escaping @MainActor () -> Date = { Date() },
-        sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
-            try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
-        },
-        load: @escaping @MainActor (URL) async throws -> Resource = MarkdownEditorImageLoader.download
-    ) {
-        precondition(maximumCacheCost >= 0)
-        self.maximumCacheCost = maximumCacheCost
-        self.now = now
-        self.sleepUntil = sleepUntil
-        self.load = load
-        cache.totalCostLimit = maximumCacheCost
-        cache.countLimit = 128
-    }
-
-    deinit {
-        expirationTask?.cancel()
-    }
-
-    func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
-        try Task.checkCancellation()
-        if let resource = cache.object(forKey: url as NSURL)?.resource,
-           let expiration = resource.expiration, expiration > now() {
-            return resource.image
-        }
-        cache.removeObject(forKey: url as NSURL)
-        let waiterID = UUID()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                // Cancellation can arrive between entering this method and installing the handler.
-                guard !Task.isCancelled else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                if let jobID = jobForURL[url] {
-                    jobs[jobID]?.waiters[waiterID] = continuation
-                } else {
-                    let jobID = UUID()
-                    jobs[jobID] = Job(url: url, waiters: [waiterID: continuation])
-                    jobForURL[url] = jobID
-                    pending.append(jobID)
-                    pendingLoadCount += 1
-                    startPendingLoads()
-                }
-            }
-        } onCancel: {
-            Task { @MainActor in self.cancel(waiterID: waiterID, url: url) }
-        }
-    }
-
-    private func cancel(waiterID: UUID, url: URL) {
-        guard let jobID = jobForURL[url],
-              let continuation = jobs[jobID]?.waiters.removeValue(forKey: waiterID) else {
-            return
-        }
-        continuation.resume(throwing: CancellationError())
-        if jobs[jobID]?.waiters.isEmpty == true {
-            jobs.removeValue(forKey: jobID)
-            jobForURL.removeValue(forKey: url)
-            if running[jobID] == nil {
-                pendingLoadCount -= 1
-                compactPendingIfNeeded()
-            }
-            // Cancellation keeps its slot occupied until the load actually finishes.
-            running[jobID]?.cancel()
-        }
-    }
-
-    private func startPendingLoads() {
-        while running.count < 4, pendingHead < pending.count {
-            let jobID = pending[pendingHead]
-            pendingHead += 1
-            guard let job = jobs[jobID] else {
-                continue
-            }
-            pendingLoadCount -= 1
-            let load = self.load
-            running[jobID] = Task { @MainActor in
-                let result: Result<Resource, any Error>
-                do {
-                    try Task.checkCancellation()
-                    let resource = try await load(job.url)
-                    try Task.checkCancellation()
-                    result = .success(resource)
-                } catch {
-                    result = .failure(error)
-                }
-                self.finish(jobID: jobID, result: result)
+        private final class CachedImage {
+            let resource: Resource
+            init(_ resource: Resource) {
+                self.resource = resource
             }
         }
-        compactPendingIfNeeded()
-    }
 
-    /// Reclaim consumed and cancelled entries only after at least half the
-    /// storage is unused, keeping queue bookkeeping amortized linear.
-    private func compactPendingIfNeeded() {
-        if pendingLoadCount == 0 {
-            pending.removeAll(keepingCapacity: false)
-            pendingHead = 0
-        } else if pending.count >= 64, pendingLoadCount <= pending.count / 2 {
-            pending = pending[pendingHead...].filter { jobs[$0] != nil }
-            pendingHead = 0
+        private struct Job {
+            let url: URL
+            var waiters: [UUID: CheckedContinuation<MarkdownEditorPlatformImage, any Error>]
         }
-    }
 
-    private func finish(jobID: UUID, result: Result<Resource, any Error>) {
-        running.removeValue(forKey: jobID)
-        if let job = jobs.removeValue(forKey: jobID) {
-            jobForURL.removeValue(forKey: job.url)
-            if case let .success(resource) = result,
-               resource.cost > 0, resource.cost <= maximumCacheCost,
+        private let cache = NSCache<NSURL, CachedImage>()
+        private let maximumCacheCost: Int
+        private let now: @MainActor () -> Date
+        private let sleepUntil: @MainActor (Date) async throws -> Void
+        private var latestExpiration: Date?
+        private var expirationTask: Task<Void, Never>?
+        private let load: @MainActor (URL) async throws -> Resource
+        private var jobs: [UUID: Job] = [:]
+        private var jobForURL: [URL: UUID] = [:]
+        private var pending: [UUID] = []
+        private var pendingHead = 0
+        private(set) var pendingLoadCount = 0
+        private var running: [UUID: Task<Void, Never>] = [:]
+
+        var pendingStorageCount: Int {
+            pending.count
+        }
+
+        init(
+            maximumCacheCost: Int = 64 * 1024 * 1024,
+            now: @escaping @MainActor () -> Date = { Date() },
+            sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
+                try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+            },
+            load: @escaping @MainActor (URL) async throws -> Resource = MarkdownEditorImageLoader.download
+        ) {
+            precondition(maximumCacheCost >= 0)
+            self.maximumCacheCost = maximumCacheCost
+            self.now = now
+            self.sleepUntil = sleepUntil
+            self.load = load
+            cache.totalCostLimit = maximumCacheCost
+            cache.countLimit = 128
+        }
+
+        deinit {
+            expirationTask?.cancel()
+        }
+
+        func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
+            try Task.checkCancellation()
+            if let resource = cache.object(forKey: url as NSURL)?.resource,
                let expiration = resource.expiration, expiration > now() {
-                cache.setObject(CachedImage(resource), forKey: job.url as NSURL, cost: resource.cost)
-                latestExpiration = max(latestExpiration ?? expiration, expiration)
-                if expirationTask == nil {
-                    scheduleExpiration(at: expiration)
-                }
+                return resource.image
             }
-            for continuation in job.waiters.values {
-                continuation.resume(with: result.map(\.image))
+            cache.removeObject(forKey: url as NSURL)
+            let waiterID = UUID()
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    // Cancellation can arrive between entering this method and installing the handler.
+                    guard !Task.isCancelled else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    if let jobID = jobForURL[url] {
+                        jobs[jobID]?.waiters[waiterID] = continuation
+                    } else {
+                        let jobID = UUID()
+                        jobs[jobID] = Job(url: url, waiters: [waiterID: continuation])
+                        jobForURL[url] = jobID
+                        pending.append(jobID)
+                        pendingLoadCount += 1
+                        startPendingLoads()
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in self.cancel(waiterID: waiterID, url: url) }
             }
         }
-        startPendingLoads()
-    }
 
-    private func scheduleExpiration(at deadline: Date) {
-        let sleepUntil = self.sleepUntil
-        expirationTask = Task { @MainActor [weak self] in
-            do {
-                try await sleepUntil(deadline)
-                try Task.checkCancellation()
-            } catch {
+        private func cancel(waiterID: UUID, url: URL) {
+            guard let jobID = jobForURL[url],
+                  let continuation = jobs[jobID]?.waiters.removeValue(forKey: waiterID) else {
                 return
             }
-            self?.expireIdleCache()
-        }
-    }
-
-    /// Release an idle cache once every admitted resource has expired. Individual
-    /// expired entries may remain until the newest deadline (at most one minute
-    /// after the last download); NSCache still governs cost and count meanwhile.
-    /// One deadline and one task avoid retaining a separate index of cache keys.
-    private func expireIdleCache() {
-        expirationTask = nil
-        guard let latestExpiration else {
-            return
-        }
-        if latestExpiration > now() {
-            scheduleExpiration(at: latestExpiration)
-        } else {
-            cache.removeAllObjects()
-            self.latestExpiration = nil
-        }
-    }
-
-    private static func download(_ url: URL) async throws -> Resource {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        try Task.checkCancellation()
-        if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
-            throw URLError(.badServerResponse)
-        }
-        // Read dimensions without changing NSImage/UIImage's original decoding or intrinsic sizing.
-        let cost: Int
-        if let source = CGImageSourceCreateWithData(data as CFData, nil),
-           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-           let width = properties[kCGImagePropertyPixelWidth] as? Int,
-           let height = properties[kCGImagePropertyPixelHeight] as? Int {
-            let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
-            let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
-            let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
-            cost = overflow || byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
-        } else {
-            cost = Int.max
-        }
-        try Task.checkCancellation()
-        #if canImport(UIKit)
-        guard let image = UIImage(data: data) else {
-            throw MarkdownEditorImageProviderError.invalidImageData
-        }
-        #else
-        guard let image = NSImage(data: data) else {
-            throw MarkdownEditorImageProviderError.invalidImageData
-        }
-        #endif
-        try Task.checkCancellation()
-        return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
-            cacheExpiration(for: $0)
-        })
-    }
-
-    /// Defer heuristic freshness/revalidation to URLSession; retain explicit freshness for at most a minute.
-    static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
-        let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
-            .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        guard !directives.contains(where: { $0.hasPrefix("no-store") || $0.hasPrefix("no-cache") }),
-              let maxAge = directives.first(where: { $0.hasPrefix("max-age=") }),
-              let seconds = TimeInterval(maxAge.dropFirst("max-age=".count)
-                  .trimmingCharacters(in: CharacterSet(charactersIn: "\""))), seconds > 0 else {
-            return nil
-        }
-        var age = max(0, TimeInterval(response.value(forHTTPHeaderField: "Age") ?? "0") ?? 0)
-        if let dateHeader = response.value(forHTTPHeaderField: "Date") {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
-            if let date = formatter.date(from: dateHeader) {
-                age = max(age, now.timeIntervalSince(date))
+            continuation.resume(throwing: CancellationError())
+            if jobs[jobID]?.waiters.isEmpty == true {
+                jobs.removeValue(forKey: jobID)
+                jobForURL.removeValue(forKey: url)
+                if running[jobID] == nil {
+                    pendingLoadCount -= 1
+                    compactPendingIfNeeded()
+                }
+                // Cancellation keeps its slot occupied until the load actually finishes.
+                running[jobID]?.cancel()
             }
         }
-        let lifetime = min(60, max(0, seconds - age))
-        return lifetime > 0 ? now.addingTimeInterval(lifetime) : nil
+
+        private func startPendingLoads() {
+            while running.count < 4, pendingHead < pending.count {
+                let jobID = pending[pendingHead]
+                pendingHead += 1
+                guard let job = jobs[jobID] else {
+                    continue
+                }
+                pendingLoadCount -= 1
+                let load = self.load
+                running[jobID] = Task { @MainActor in
+                    let result: Result<Resource, any Error>
+                    do {
+                        try Task.checkCancellation()
+                        let resource = try await load(job.url)
+                        try Task.checkCancellation()
+                        result = .success(resource)
+                    } catch {
+                        result = .failure(error)
+                    }
+                    self.finish(jobID: jobID, result: result)
+                }
+            }
+            compactPendingIfNeeded()
+        }
+
+        /// Reclaim consumed and cancelled entries only after at least half the
+        /// storage is unused, keeping queue bookkeeping amortized linear.
+        private func compactPendingIfNeeded() {
+            if pendingLoadCount == 0 {
+                pending.removeAll(keepingCapacity: false)
+                pendingHead = 0
+            } else if pending.count >= 64, pendingLoadCount <= pending.count / 2 {
+                pending = pending[pendingHead...].filter { jobs[$0] != nil }
+                pendingHead = 0
+            }
+        }
+
+        private func finish(jobID: UUID, result: Result<Resource, any Error>) {
+            running.removeValue(forKey: jobID)
+            if let job = jobs.removeValue(forKey: jobID) {
+                jobForURL.removeValue(forKey: job.url)
+                if case let .success(resource) = result,
+                   resource.cost > 0, resource.cost <= maximumCacheCost,
+                   let expiration = resource.expiration, expiration > now() {
+                    cache.setObject(CachedImage(resource), forKey: job.url as NSURL, cost: resource.cost)
+                    latestExpiration = max(latestExpiration ?? expiration, expiration)
+                    if expirationTask == nil {
+                        scheduleExpiration(at: expiration)
+                    }
+                }
+                for continuation in job.waiters.values {
+                    continuation.resume(with: result.map(\.image))
+                }
+            }
+            startPendingLoads()
+        }
+
+        private func scheduleExpiration(at deadline: Date) {
+            let sleepUntil = self.sleepUntil
+            expirationTask = Task { @MainActor [weak self] in
+                do {
+                    try await sleepUntil(deadline)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
+                self?.expireIdleCache()
+            }
+        }
+
+        /// Release an idle cache once every admitted resource has expired. Individual
+        /// expired entries may remain until the newest deadline (at most one minute
+        /// after the last download); NSCache still governs cost and count meanwhile.
+        /// One deadline and one task avoid retaining a separate index of cache keys.
+        private func expireIdleCache() {
+            expirationTask = nil
+            guard let latestExpiration else {
+                return
+            }
+            if latestExpiration > now() {
+                scheduleExpiration(at: latestExpiration)
+            } else {
+                cache.removeAllObjects()
+                self.latestExpiration = nil
+            }
+        }
+
+        private static func download(_ url: URL) async throws -> Resource {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            try Task.checkCancellation()
+            if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
+                throw URLError(.badServerResponse)
+            }
+            // Read dimensions without changing NSImage/UIImage's original decoding or intrinsic sizing.
+            let cost: Int
+            if let source = CGImageSourceCreateWithData(data as CFData, nil),
+               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+               let width = properties[kCGImagePropertyPixelWidth] as? Int,
+               let height = properties[kCGImagePropertyPixelHeight] as? Int {
+                let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+                let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
+                let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
+                cost = overflow || byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
+            } else {
+                cost = Int.max
+            }
+            try Task.checkCancellation()
+            #if canImport(UIKit)
+                guard let image = UIImage(data: data) else {
+                    throw MarkdownEditorImageProviderError.invalidImageData
+                }
+            #else
+                guard let image = NSImage(data: data) else {
+                    throw MarkdownEditorImageProviderError.invalidImageData
+                }
+            #endif
+            try Task.checkCancellation()
+            return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
+                cacheExpiration(for: $0)
+            })
+        }
+
+        /// Defer heuristic freshness/revalidation to URLSession; retain explicit freshness for at most a minute.
+        static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
+            let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
+                .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard !directives.contains(where: { $0.hasPrefix("no-store") || $0.hasPrefix("no-cache") }),
+                  let maxAge = directives.first(where: { $0.hasPrefix("max-age=") }),
+                  let seconds = TimeInterval(maxAge.dropFirst("max-age=".count)
+                      .trimmingCharacters(in: CharacterSet(charactersIn: "\""))), seconds > 0 else {
+                return nil
+            }
+            var age = max(0, TimeInterval(response.value(forHTTPHeaderField: "Age") ?? "0") ?? 0)
+            if let dateHeader = response.value(forHTTPHeaderField: "Date") {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+                if let date = formatter.date(from: dateHeader) {
+                    age = max(age, now.timeIntervalSince(date))
+                }
+            }
+            let lifetime = min(60, max(0, seconds - age))
+            return lifetime > 0 ? now.addingTimeInterval(lifetime) : nil
+        }
     }
-}
 #endif

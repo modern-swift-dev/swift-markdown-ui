@@ -3,9 +3,9 @@ import Foundation
 import XCTest
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 @MainActor final class MarkdownEditorThemeTests: XCTestCase {
@@ -48,9 +48,9 @@ import AppKit
 }
 
 #if canImport(UIKit)
-private typealias PlatformColor = UIColor
-private typealias PlatformFont = UIFont
+    private typealias PlatformColor = UIColor
+    private typealias PlatformFont = UIFont
 #elseif canImport(AppKit)
-private typealias PlatformColor = NSColor
-private typealias PlatformFont = NSFont
+    private typealias PlatformColor = NSColor
+    private typealias PlatformFont = NSFont
 #endif

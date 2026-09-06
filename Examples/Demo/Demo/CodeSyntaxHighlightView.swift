@@ -147,12 +147,12 @@ struct CodeSyntaxHighlightView: View {
 
     private func copyToClipboard(_ string: String) {
         #if os(macOS)
-        if let pasteboard = NSPasteboard.general {
-            pasteboard.clearContents()
-            pasteboard.setString(string, forType: .string)
-        }
+            if let pasteboard = NSPasteboard.general {
+                pasteboard.clearContents()
+                pasteboard.setString(string, forType: .string)
+            }
         #elseif os(iOS)
-        UIPasteboard.general.string = string
+            UIPasteboard.general.string = string
         #endif
     }
 }

@@ -1,9 +1,9 @@
 import Foundation
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 /// Attributes used when projecting a `MarkdownDocument` into native rich text.
@@ -93,83 +93,83 @@ private extension MarkdownEditorTheme {
 }
 
 #if canImport(UIKit)
-private typealias PlatformColor = UIColor
+    private typealias PlatformColor = UIColor
 
-private extension MarkdownEditorTheme {
-    static var labelColor: UIColor {
-        .label
-    }
+    private extension MarkdownEditorTheme {
+        static var labelColor: UIColor {
+            .label
+        }
 
-    static var secondaryLabelColor: UIColor {
-        .secondaryLabel
-    }
+        static var secondaryLabelColor: UIColor {
+            .secondaryLabel
+        }
 
-    static var linkColor: UIColor {
-        .link
-    }
+        static var linkColor: UIColor {
+            .link
+        }
 
-    static var gitHubLinkColor: UIColor {
-        UIColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
-    }
+        static var gitHubLinkColor: UIColor {
+            UIColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
+        }
 
-    static var docCHeadingColor: UIColor {
-        UIColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
-    }
+        static var docCHeadingColor: UIColor {
+            UIColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
+        }
 
-    static var docCLinkColor: UIColor {
-        UIColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
-    }
+        static var docCLinkColor: UIColor {
+            UIColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
+        }
 
-    static func preferredBodyFont() -> UIFont {
-        UIFont.preferredFont(forTextStyle: .body)
-    }
+        static func preferredBodyFont() -> UIFont {
+            UIFont.preferredFont(forTextStyle: .body)
+        }
 
-    static func systemFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-        UIFont.systemFont(ofSize: size, weight: weight)
-    }
+        static func systemFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+            UIFont.systemFont(ofSize: size, weight: weight)
+        }
 
-    static func monospacedFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-        UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+        static func monospacedFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+            UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+        }
     }
-}
 #elseif canImport(AppKit)
-private typealias PlatformColor = NSColor
+    private typealias PlatformColor = NSColor
 
-private extension MarkdownEditorTheme {
-    static var labelColor: NSColor {
-        .labelColor
-    }
+    private extension MarkdownEditorTheme {
+        static var labelColor: NSColor {
+            .labelColor
+        }
 
-    static var secondaryLabelColor: NSColor {
-        .secondaryLabelColor
-    }
+        static var secondaryLabelColor: NSColor {
+            .secondaryLabelColor
+        }
 
-    static var linkColor: NSColor {
-        .linkColor
-    }
+        static var linkColor: NSColor {
+            .linkColor
+        }
 
-    static var gitHubLinkColor: NSColor {
-        NSColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
-    }
+        static var gitHubLinkColor: NSColor {
+            NSColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
+        }
 
-    static var docCHeadingColor: NSColor {
-        NSColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
-    }
+        static var docCHeadingColor: NSColor {
+            NSColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
+        }
 
-    static var docCLinkColor: NSColor {
-        NSColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
-    }
+        static var docCLinkColor: NSColor {
+            NSColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
+        }
 
-    static func preferredBodyFont() -> NSFont {
-        NSFont.preferredFont(forTextStyle: .body)
-    }
+        static func preferredBodyFont() -> NSFont {
+            NSFont.preferredFont(forTextStyle: .body)
+        }
 
-    static func systemFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        NSFont.systemFont(ofSize: size, weight: weight)
-    }
+        static func systemFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+            NSFont.systemFont(ofSize: size, weight: weight)
+        }
 
-    static func monospacedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        static func monospacedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+            NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        }
     }
-}
 #endif

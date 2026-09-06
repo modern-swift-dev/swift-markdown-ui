@@ -56,24 +56,24 @@ public struct FontProperties: Hashable, Sendable {
     /// A platform-dependent default font size.
     public static var defaultSize: CGFloat {
         #if os(macOS)
-        return 13
+            return 13
         #elseif os(iOS)
-        return 17
+            return 17
         #elseif os(tvOS)
-        return 29
+            return 29
         #elseif os(watchOS)
-        return 16
+            return 16
         #else
-        return 16
+            return 16
         #endif
     }
 
     /// A platform-dependent default font weight.
     public static var defaultWeight: Font.Weight {
         #if os(tvOS)
-        return .medium
+            return .medium
         #else
-        return .regular
+            return .regular
         #endif
     }
 

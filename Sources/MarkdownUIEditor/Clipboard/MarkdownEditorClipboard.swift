@@ -7,9 +7,9 @@ public extension UTType {
 }
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 public struct MarkdownClipboardPayload: Hashable, Sendable {
@@ -36,62 +36,62 @@ public struct MarkdownClipboardPayload: Hashable, Sendable {
 }
 
 #if canImport(UIKit)
-@MainActor public enum MarkdownEditorClipboard {
-    /// Writes Markdown and a plain-text fallback to a UIKit pasteboard.
-    public static func write(
-        markdown: String,
-        plainText: String,
-        to pasteboard: UIPasteboard = .general
-    ) {
-        pasteboard.setItems([[
-            UTType.markdown.identifier: markdown,
-            UTType.plainText.identifier: plainText
-        ]])
-    }
+    @MainActor public enum MarkdownEditorClipboard {
+        /// Writes Markdown and a plain-text fallback to a UIKit pasteboard.
+        public static func write(
+            markdown: String,
+            plainText: String,
+            to pasteboard: UIPasteboard = .general
+        ) {
+            pasteboard.setItems([[
+                UTType.markdown.identifier: markdown,
+                UTType.plainText.identifier: plainText
+            ]])
+        }
 
-    /// Reads Markdown and plain text from a UIKit pasteboard.
-    public static func read(from pasteboard: UIPasteboard = .general) -> MarkdownClipboardPayload? {
-        let markdown = string(forType: UTType.markdown.identifier, from: pasteboard)
-        let plainText = string(forType: UTType.plainText.identifier, from: pasteboard) ?? pasteboard.string
-        guard markdown != nil || plainText != nil else {
+        /// Reads Markdown and plain text from a UIKit pasteboard.
+        public static func read(from pasteboard: UIPasteboard = .general) -> MarkdownClipboardPayload? {
+            let markdown = string(forType: UTType.markdown.identifier, from: pasteboard)
+            let plainText = string(forType: UTType.plainText.identifier, from: pasteboard) ?? pasteboard.string
+            guard markdown != nil || plainText != nil else {
+                return nil
+            }
+            return MarkdownClipboardPayload(markdown: markdown, plainText: plainText)
+        }
+
+        private static func string(forType type: String, from pasteboard: UIPasteboard) -> String? {
+            for item in pasteboard.items {
+                if let value = item[type] as? String {
+                    return value
+                }
+                if let data = item[type] as? Data, let value = String(data: data, encoding: .utf8) {
+                    return value
+                }
+            }
             return nil
         }
-        return MarkdownClipboardPayload(markdown: markdown, plainText: plainText)
     }
-
-    private static func string(forType type: String, from pasteboard: UIPasteboard) -> String? {
-        for item in pasteboard.items {
-            if let value = item[type] as? String {
-                return value
-            }
-            if let data = item[type] as? Data, let value = String(data: data, encoding: .utf8) {
-                return value
-            }
-        }
-        return nil
-    }
-}
 #elseif canImport(AppKit)
-@MainActor public enum MarkdownEditorClipboard {
-    /// Writes Markdown and a plain-text fallback to an AppKit pasteboard.
-    public static func write(
-        markdown: String,
-        plainText: String,
-        to pasteboard: NSPasteboard = .general
-    ) {
-        pasteboard.clearContents()
-        pasteboard.setString(markdown, forType: NSPasteboard.PasteboardType(UTType.markdown.identifier))
-        pasteboard.setString(plainText, forType: .string)
-    }
-
-    /// Reads Markdown and plain text from an AppKit pasteboard.
-    public static func read(from pasteboard: NSPasteboard = .general) -> MarkdownClipboardPayload? {
-        let markdown = pasteboard.string(forType: NSPasteboard.PasteboardType(UTType.markdown.identifier))
-        let plainText = pasteboard.string(forType: .string)
-        guard markdown != nil || plainText != nil else {
-            return nil
+    @MainActor public enum MarkdownEditorClipboard {
+        /// Writes Markdown and a plain-text fallback to an AppKit pasteboard.
+        public static func write(
+            markdown: String,
+            plainText: String,
+            to pasteboard: NSPasteboard = .general
+        ) {
+            pasteboard.clearContents()
+            pasteboard.setString(markdown, forType: NSPasteboard.PasteboardType(UTType.markdown.identifier))
+            pasteboard.setString(plainText, forType: .string)
         }
-        return MarkdownClipboardPayload(markdown: markdown, plainText: plainText)
+
+        /// Reads Markdown and plain text from an AppKit pasteboard.
+        public static func read(from pasteboard: NSPasteboard = .general) -> MarkdownClipboardPayload? {
+            let markdown = pasteboard.string(forType: NSPasteboard.PasteboardType(UTType.markdown.identifier))
+            let plainText = pasteboard.string(forType: .string)
+            guard markdown != nil || plainText != nil else {
+                return nil
+            }
+            return MarkdownClipboardPayload(markdown: markdown, plainText: plainText)
+        }
     }
-}
 #endif

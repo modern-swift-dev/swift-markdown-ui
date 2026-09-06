@@ -1,9 +1,9 @@
 import Foundation
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 extension NSAttributedString.Key {
@@ -796,44 +796,44 @@ private extension BuildState {
         }
 
         #if canImport(UIKit)
-        guard let font = result[.font] as? UIFont else {
+            guard let font = result[.font] as? UIFont else {
+                return result
+            }
+            var descriptor = font.fontDescriptor
+            if style.isItalic, let italic = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.traitItalic)) {
+                descriptor = italic
+            }
+            let traits = descriptor.symbolicTraits
+            let hasBoldTrait = traits.contains(.traitBold)
+            let wantsBold = style.isBold || style.headingLevel != nil
+            if wantsBold && !hasBoldTrait {
+                descriptor = UIFont.systemFont(ofSize: font.pointSize, weight: .bold).fontDescriptor.withSymbolicTraits(
+                    descriptor.symbolicTraits.union(.traitBold)
+                ) ?? descriptor
+            }
+            result[.font] = UIFont(descriptor: descriptor, size: font.pointSize)
+            if style.isStrikethrough {
+                result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
             return result
-        }
-        var descriptor = font.fontDescriptor
-        if style.isItalic, let italic = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(.traitItalic)) {
-            descriptor = italic
-        }
-        let traits = descriptor.symbolicTraits
-        let hasBoldTrait = traits.contains(.traitBold)
-        let wantsBold = style.isBold || style.headingLevel != nil
-        if wantsBold && !hasBoldTrait {
-            descriptor = UIFont.systemFont(ofSize: font.pointSize, weight: .bold).fontDescriptor.withSymbolicTraits(
-                descriptor.symbolicTraits.union(.traitBold)
-            ) ?? descriptor
-        }
-        result[.font] = UIFont(descriptor: descriptor, size: font.pointSize)
-        if style.isStrikethrough {
-            result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-        }
-        return result
         #elseif canImport(AppKit)
-        guard var font = result[.font] as? NSFont else {
+            guard var font = result[.font] as? NSFont else {
+                return result
+            }
+            let wantsBold = style.isBold || style.headingLevel != nil
+            if wantsBold {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+            if style.isItalic {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+            }
+            result[.font] = font
+            if style.isStrikethrough {
+                result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
             return result
-        }
-        let wantsBold = style.isBold || style.headingLevel != nil
-        if wantsBold {
-            font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
-        }
-        if style.isItalic {
-            font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-        }
-        result[.font] = font
-        if style.isStrikethrough {
-            result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-        }
-        return result
         #else
-        return result
+            return result
         #endif
     }
 

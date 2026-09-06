@@ -39,13 +39,13 @@ public struct AssetImageProvider: ImageProvider {
 
     @MainActor private func image(url: URL) -> PlatformImage? {
         #if canImport(UIKit)
-        return UIImage(named: self.name(url), in: self.bundle, with: nil)
+            return UIImage(named: self.name(url), in: self.bundle, with: nil)
         #elseif canImport(AppKit)
-        if let bundle, bundle != .main {
-            return bundle.image(forResource: self.name(url))
-        } else {
-            return NSImage(named: self.name(url))
-        }
+            if let bundle, bundle != .main {
+                return bundle.image(forResource: self.name(url))
+            } else {
+                return NSImage(named: self.name(url))
+            }
         #endif
     }
 }
@@ -60,17 +60,17 @@ public extension ImageProvider where Self == AssetImageProvider {
 }
 
 #if canImport(UIKit)
-private typealias PlatformImage = UIImage
+    private typealias PlatformImage = UIImage
 #elseif canImport(AppKit)
-private typealias PlatformImage = NSImage
+    private typealias PlatformImage = NSImage
 #endif
 
 private extension Image {
     init(platformImage: PlatformImage) {
         #if canImport(UIKit)
-        self.init(uiImage: platformImage)
+            self.init(uiImage: platformImage)
         #elseif canImport(AppKit)
-        self.init(nsImage: platformImage)
+            self.init(nsImage: platformImage)
         #endif
     }
 }
