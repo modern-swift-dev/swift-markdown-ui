@@ -20,20 +20,6 @@ examples:
 
 	cd Examples/Editor && xcodegen generate
 
-site-setup:
-	npm --prefix Website ci
-
-site-preview: site-build
-	./Scripts/preview-site.sh
-
-site-build:
-	./Scripts/build-site.sh
-
-site-validate: site-setup
-	npm --prefix Website run check
-	SITE_SKIP_INSTALL=1 ./Scripts/build-site.sh
-	./Scripts/check-links.py .build/site --base-path /docs/swift-markdown-ui
-
 SCHEME := MarkdownUI
 IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5
 
@@ -62,4 +48,4 @@ test-all: test-macos test-ios
 
 build-all: build-ios build-tvos build-watchos build-visionos build-maccatalyst
 
-.PHONY: setup lint format examples site-setup site-preview site-build site-validate test-macos test-ios build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all
+.PHONY: setup lint format examples test-macos test-ios build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all

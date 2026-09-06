@@ -241,7 +241,7 @@ extension Theme {
 
 ## Documentation
 
-Documentation sources stay in this repository. The [central documentation repository](https://github.com/modern-swift-dev/docs) builds and publishes the site daily. Run `make site-build` to generate a local preview in `.build/site`, then `make site-preview` to serve it.
+Documentation sources stay in this repository: authored site pages live in [Documentation/Site](Documentation/Site), and API guides live in the targets’ DocC catalogs. The [central documentation repository](https://github.com/modern-swift-dev/docs) owns the shared Astro theme, builds, and daily publishing. See its [README](https://github.com/modern-swift-dev/docs/blob/main/README.md) for build and preview instructions.
 
 Read the [MarkdownUI guides](https://modern-swift-dev.github.io/docs/swift-markdown-ui/documentation/)
 or browse the [API documentation](https://modern-swift-dev.github.io/docs/swift-markdown-ui/documentation/markdownui/).

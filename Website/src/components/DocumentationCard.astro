@@ -1,8 +1,0 @@
----
-interface Props { href: string; title: string; description: string; }
-const { href, title, description } = Astro.props;
----
-<article class="documentation-card card"><h2><a href={href}>{title}</a></h2><p>{description}</p><a class="more" href={href}>Read more <span aria-hidden="true">→</span></a></article>
-<style>
-  .documentation-card { padding: 1.35rem; } h2 { font-size: 1.2rem; margin: 0 0 .45rem; } h2 a { color: var(--color-ink); } p { color: var(--color-muted); margin: 0 0 1rem; } .more { font-weight: 700; text-decoration: none; }
-</style>
