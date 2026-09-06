@@ -38,17 +38,17 @@ jobs:
         run: make build-${{ matrix.platform }} SCHEME=${{ matrix.scheme }}
 
   tests:
-    name: Test ${{ matrix.scheme }} (${{ matrix.platform }})
+    name: Test both libraries (${{ matrix.platform }})
     runs-on: blacksmith-6vcpu-macos-26
     strategy:
       fail-fast: false
       matrix:
-        scheme: [MarkdownUI, MarkdownUIEditor]
         platform: [macos, ios]
     steps:
       - uses: actions/checkout@v4
       - name: Run tests
-        run: make test-${{ matrix.platform }} SCHEME=${{ matrix.scheme }}
+        # The shared MarkdownUI scheme includes both libraries' test targets.
+        run: make test-${{ matrix.platform }} SCHEME=MarkdownUI
 
   demo:
     runs-on: blacksmith-6vcpu-macos-26
