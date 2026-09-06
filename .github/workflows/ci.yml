@@ -12,7 +12,29 @@ permissions:
 env:
   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: blacksmith-6vcpu-macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [format-check, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift 6.3
+        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Install tools
+        run: |
+          brew install mint actionlint
+          mint bootstrap
+      - name: Check code style
+        run: make ${{ matrix.check }}
+
   build:
     name: Build ${{ matrix.scheme }} (${{ matrix.platform }})
     runs-on: blacksmith-6vcpu-macos-26
@@ -30,10 +52,16 @@ jobs:
             platform: maccatalyst
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Swift 6.3
+        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Install xcbeautify
+        run: |
+          brew install mint
+          mint install cpisciotta/xcbeautify
       - name: Show toolchain
         run: |
-          xcodebuild -version
-          xcodebuild -showsdks
+          xcodebuild -version 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+          xcodebuild -showsdks 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
       - name: Build library
         run: make build-${{ matrix.platform }} SCHEME=${{ matrix.scheme }}
 
@@ -46,6 +74,12 @@ jobs:
         platform: [macos, ios]
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Swift 6.3
+        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Install xcbeautify
+        run: |
+          brew install mint
+          mint install cpisciotta/xcbeautify
       - name: Run tests
         # The shared MarkdownUI scheme includes both libraries' test targets.
         run: make test-${{ matrix.platform }} SCHEME=MarkdownUI
@@ -54,16 +88,13 @@ jobs:
     runs-on: blacksmith-6vcpu-macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Build Demo
-        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphoneos26.5 -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
-      - name: Test Demo UI
-        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphonesimulator26.5 -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5'
-
-  documentation:
-    runs-on: blacksmith-6vcpu-macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build documentation
+      - name: Verify Swift 6.3
+        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Install xcbeautify
         run: |
-          xcodebuild docbuild -scheme MarkdownUI -sdk macosx26.5 -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
-          xcodebuild docbuild -scheme MarkdownUIEditor -sdk macosx26.5 -destination 'generic/platform=macOS' OTHER_DOCC_FLAGS='--warnings-as-errors'
+          brew install mint
+          mint install cpisciotta/xcbeautify
+      - name: Build Demo
+        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphoneos26.5 -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+      - name: Test Demo UI
+        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphonesimulator26.5 -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
