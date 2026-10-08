@@ -276,6 +276,16 @@ actor InlineImageLoader {
         )
     }
 
+    /// Configured once and never mutated afterwards. `DateFormatter` is documented as thread safe
+    /// for formatting and parsing on the supported OS versions, so concurrent downloads may share it.
+    private nonisolated(unsafe) static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+        return formatter
+    }()
+
     /// Honor explicit freshness only; URLSession owns revalidation and heuristic HTTP caching.
     static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
         let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
@@ -287,14 +297,9 @@ actor InlineImageLoader {
             return nil
         }
         var age = max(0, TimeInterval(response.value(forHTTPHeaderField: "Age") ?? "0") ?? 0)
-        if let dateHeader = response.value(forHTTPHeaderField: "Date") {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
-            if let date = formatter.date(from: dateHeader) {
-                age = max(age, now.timeIntervalSince(date))
-            }
+        if let dateHeader = response.value(forHTTPHeaderField: "Date"),
+           let date = httpDateFormatter.date(from: dateHeader) {
+            age = max(age, now.timeIntervalSince(date))
         }
         // A short upper bound also limits freshness when a server advertises a long lifetime.
         let lifetime = min(60, max(0, seconds - age))

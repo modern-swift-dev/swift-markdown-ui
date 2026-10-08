@@ -265,6 +265,22 @@ import XCTest
         XCTAssertNil(InlineImageLoader.cacheExpiration(for: noCache, now: now))
     }
 
+    func testConcurrentResponsesShareDateParsing() throws {
+        let now = Date(timeIntervalSince1970: 1_783_252_800)
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: key("http").url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Cache-Control": "max-age=50", "Date": "Sun, 05 Jul 2026 11:59:40 GMT"
+            ]
+        ))
+        let mismatches = OSAllocatedUnfairLock(initialState: 0)
+        DispatchQueue.concurrentPerform(iterations: 64) { _ in
+            if InlineImageLoader.cacheExpiration(for: response, now: now) != now.addingTimeInterval(30) {
+                mismatches.withLock { $0 += 1 }
+            }
+        }
+        XCTAssertEqual(mismatches.withLock { $0 }, 0)
+    }
+
     func testDownsamplingIsOptInAndPartOfProviderIdentity() throws {
         let data = NSMutableData()
         let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
