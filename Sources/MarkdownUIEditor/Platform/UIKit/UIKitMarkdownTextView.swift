@@ -68,15 +68,35 @@
         /// Recognizes taps only inside a rendered task-list marker.
         private var taskMarkerTapGesture: UITapGestureRecognizer?
         private lazy var taskCheckboxLayers: [MarkdownTaskCheckboxLayer] = []
+        /// The inputs of the last checkbox placement. Scrolling within one viewport range reuses it.
+        private var taskCheckboxPlacement: TaskCheckboxPlacement?
+        /// Set by explicit layout invalidations, such as a table attachment resizing without a storage edit.
+        private var needsTaskCheckboxPlacement = true
+        /// Incremented after every storage edit, including attribute-only task toggles.
+        private var storageVersion = 0
+        /// Number of checkbox placements computed. Tests use it to observe skipped layout passes.
+        private(set) var taskCheckboxPlacementCount = 0
         /// Avoids recording the same edit again if UIKit also calls its delegate.
         fileprivate var isHandlingNativeInput = false
 
+        override public func setNeedsLayout() {
+            needsTaskCheckboxPlacement = true
+            super.setNeedsLayout()
+        }
+
         override public func layoutSubviews() {
             super.layoutSubviews()
+            placeTaskCheckboxes()
+        }
+
+        /// Positions checkboxes for the task items in the viewport.
+        ///
+        /// Scrolling lays out again without moving text in content coordinates, so
+        /// the previous placement is reused until one of its inputs changes.
+        func placeTaskCheckboxes(force: Bool = false) {
             guard hasAttachedEditingSession else {
                 return
             }
-            var count = 0
             let index = editingSession.projection.index
             let visibleRange = if let manager = textLayoutManager,
                                   let contentManager = manager.textContentManager,
@@ -88,6 +108,22 @@
             } else {
                 ProjectionUTF16Range(location: 0, length: index.projectionUTF16Length)
             }
+            let color = UIColor.label.resolvedColor(with: traitCollection).cgColor
+            let placement = TaskCheckboxPlacement(
+                visibleRange: visibleRange,
+                width: bounds.width,
+                textContainerInset: textContainerInset,
+                storageVersion: storageVersion,
+                theme: ObjectIdentifier(editorTheme),
+                color: color
+            )
+            guard force || needsTaskCheckboxPlacement || placement != taskCheckboxPlacement else {
+                return
+            }
+            needsTaskCheckboxPlacement = false
+            taskCheckboxPlacement = placement
+            taskCheckboxPlacementCount += 1
+            var count = 0
             for offset in index.unitStartOffsets(in: visibleRange) {
                 guard offset < textStorage.length,
                       let checked = textStorage.attribute(.markdownEditorTaskChecked, at: offset, effectiveRange: nil) as? NSNumber,
@@ -99,7 +135,7 @@
                     layer.addSublayer(checkbox)
                     taskCheckboxLayers.append(checkbox)
                 }
-                taskCheckboxLayers[count].update(textRect: caretRect(for: position), checked: checked.boolValue, color: UIColor.label.resolvedColor(with: traitCollection).cgColor, theme: editorTheme)
+                taskCheckboxLayers[count].update(textRect: caretRect(for: position), checked: checked.boolValue, color: color, theme: editorTheme)
                 count += 1
             }
             while taskCheckboxLayers.count > count {
@@ -260,6 +296,10 @@
             perform(.toggleInline(.strikethrough))
         }
 
+        @objc private func textStorageDidProcessEditing() {
+            storageVersion &+= 1
+        }
+
         @objc private func toggleTaskMarker(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended,
                   let offset = taskMarkerOffset(at: recognizer.location(in: self)) else {
@@ -285,6 +325,16 @@
             }
             editingSession.compositionDidEnd()
         }
+    }
+
+    /// Everything that positions task checkboxes in content coordinates.
+    private struct TaskCheckboxPlacement: Equatable {
+        var visibleRange: ProjectionUTF16Range
+        var width: CGFloat
+        var textContainerInset: UIEdgeInsets
+        var storageVersion: Int
+        var theme: ObjectIdentifier
+        var color: CGColor
     }
 
     @MainActor extension MarkdownTextView: TextViewBridge {
@@ -342,6 +392,10 @@
             }
             super.delegate = coordinator
             coordinator.observeUndoManager()
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(textStorageDidProcessEditing),
+                name: NSTextStorage.didProcessEditingNotification, object: textStorage
+            )
             editingSession.attach(to: self)
             hasAttachedEditingSession = true
         }

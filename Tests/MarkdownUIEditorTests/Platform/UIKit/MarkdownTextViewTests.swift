@@ -180,6 +180,56 @@
             }
         }
 
+        func testCheckboxPlacementIsReusedOnlyWhileItsInputsAreUnchanged() throws {
+            let markdown = (0 ..< 120).map { "- [ ] task \($0)" }.joined(separator: "\n")
+            let textView = makeTextView()
+            // Recomputes on every pass, as before placements were reused.
+            let reference = makeTextView()
+            for view in [textView, reference] {
+                view.document = MarkdownDocument(markdown: markdown)
+                view.layoutIfNeeded()
+            }
+            // The viewport settles one pass after the first layout.
+            textView.layoutSubviews()
+            let placements = textView.taskCheckboxPlacementCount
+            textView.layoutSubviews()
+            textView.layoutSubviews()
+            XCTAssertEqual(textView.taskCheckboxPlacementCount, placements, "An unchanged layout pass must reuse the placement")
+
+            var skipped = 0
+            for step in 1 ... 40 {
+                let before = textView.taskCheckboxPlacementCount
+                for view in [textView, reference] {
+                    view.contentOffset.y = CGFloat(step * 9)
+                }
+                textView.layoutIfNeeded()
+                reference.setNeedsLayout()
+                reference.layoutIfNeeded()
+                if textView.taskCheckboxPlacementCount == before {
+                    skipped += 1
+                }
+                XCTAssertEqual(checkboxFrames(in: textView), checkboxFrames(in: reference), "Reused placement differs at step \(step)")
+            }
+            XCTAssertGreaterThan(skipped, 0)
+
+            let firstBox = try XCTUnwrap(textView.layer.sublayers?.compactMap { $0 as? MarkdownTaskCheckboxLayer }.first)
+            let uncheckedPath = firstBox.path
+            textView.contentOffset = .zero
+            textView.layoutIfNeeded()
+            XCTAssertTrue(textView.editingSession.toggleTask(atProjectionUTF16Offset: 0))
+            textView.layoutIfNeeded()
+            XCTAssertNotEqual(firstBox.path, uncheckedPath, "A task toggle must redraw its checkbox")
+
+            let before = textView.taskCheckboxPlacementCount
+            textView.frame.size.width -= 40
+            textView.layoutIfNeeded()
+            XCTAssertGreaterThan(textView.taskCheckboxPlacementCount, before, "A width change must place checkboxes again")
+        }
+
+        private func checkboxFrames(in textView: MarkdownTextView) -> [CGRect] {
+            textView.layer.sublayers?.compactMap { ($0 as? MarkdownTaskCheckboxLayer)?.frame } ?? []
+        }
+
         func testSelectionForwardsThroughTheTextViewBridge() {
             let textView = makeTextView()
             textView.document = MarkdownDocument(markdown: "hello")
