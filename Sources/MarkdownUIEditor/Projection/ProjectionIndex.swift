@@ -54,6 +54,44 @@ struct ProjectionIndex {
         return offsets
     }
 
+    /// Returns leaves whose projected ranges intersect a non-empty range, materializing only those leaves.
+    func units(intersecting range: ProjectionUTF16Range) -> [ProjectionUnit] {
+        guard range.length > 0 else {
+            return []
+        }
+        // Leaves are disjoint and sorted, so their upper bounds are sorted too.
+        var low = 0
+        var high = baseUnits.count
+        while low < high {
+            let middle = (low + high) / 2
+            if projectionRange(at: middle).upperBound <= range.location {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        var result: [ProjectionUnit] = []
+        while low < baseUnits.count {
+            let unitRange = projectionRange(at: low)
+            guard unitRange.location < range.upperBound else {
+                break
+            }
+            if min(unitRange.upperBound, range.upperBound) > max(unitRange.location, range.location) {
+                result.append(materializedUnit(at: low))
+            }
+            low += 1
+        }
+        return result
+    }
+
+    /// Returns the leaf that follows the leaf at a structural path in projection order.
+    func unit(after path: EditorNodePath) -> ProjectionUnit? {
+        guard let index = unitIndicesByPath[path], index + 1 < baseUnits.count else {
+            return nil
+        }
+        return materializedUnit(at: index + 1)
+    }
+
     private func projectionStart(at index: Int) -> Int {
         let delta = if let activeReplacement, index > activeReplacement.unitIndex {
             activeReplacement.projectionDelta
@@ -61,6 +99,16 @@ struct ProjectionIndex {
             0
         }
         return baseUnits[index].projectionRange.location + delta
+    }
+
+    private func projectionRange(at index: Int) -> ProjectionUTF16Range {
+        if let activeReplacement, index == activeReplacement.unitIndex {
+            return activeReplacement.unit.projectionRange
+        }
+        return ProjectionUTF16Range(
+            location: projectionStart(at: index),
+            length: baseUnits[index].projectionRange.length
+        )
     }
 
     init(

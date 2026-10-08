@@ -480,6 +480,33 @@ import XCTest
         )), [])
     }
 
+    func testTargetedUnitLookupsMatchFullMaterializationAcrossEdits() {
+        var index = makeReplacementProjection().index
+        let paths = index.units.map(\.path)
+        let edits: [(unit: Int, projectionChange: Int, sourceChange: Int)] = [
+            (2, 5, 7), (2, -3, -1), (0, 4, 2), (4, -2, -2), (1, 0, 3)
+        ]
+
+        assertTargetedLookupsMatchMaterializedUnits(index)
+        for edit in edits {
+            let unit = index.units[edit.unit]
+            XCTAssertTrue(index.replaceUnit(
+                at: unit.path,
+                projectionLength: unit.projectionRange.length + edit.projectionChange,
+                sourceLength: unit.sourceRange.length + edit.sourceChange
+            ))
+            assertTargetedLookupsMatchMaterializedUnits(index)
+        }
+        index.applyReplacement(
+            projectionRange: ProjectionUTF16Range(location: 2, length: 1),
+            projectionReplacementUTF16Length: 3,
+            sourceRange: SourceUTF16Range(location: 2, length: 1),
+            sourceReplacementUTF16Length: 3
+        )
+        assertTargetedLookupsMatchMaterializedUnits(index)
+        XCTAssertEqual(index.units.map(\.path), paths)
+    }
+
     func testReplaceFirstUnitPerformance() throws {
         try measureUnitReplacement(at: 0)
     }
@@ -616,6 +643,35 @@ import XCTest
                 XCTAssertEqual(
                     index.projectionUTF16Offset(for: anchor),
                     expectedIndex.projectionUTF16Offset(for: anchor),
+                    file: file,
+                    line: line
+                )
+            }
+        }
+    }
+
+    private func assertTargetedLookupsMatchMaterializedUnits(
+        _ index: ProjectionIndex,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let units = index.units
+        for (position, unit) in units.enumerated() {
+            XCTAssertEqual(index.unit(at: unit.path), unit, file: file, line: line)
+            XCTAssertEqual(
+                index.unit(after: unit.path),
+                units.indices.contains(position + 1) ? units[position + 1] : nil,
+                file: file,
+                line: line
+            )
+        }
+        for location in 0 ... index.projectionUTF16Length {
+            for length in 0 ... index.projectionUTF16Length - location {
+                let range = ProjectionUTF16Range(location: location, length: length)
+                XCTAssertEqual(
+                    index.units(intersecting: range),
+                    units.filter { NSIntersectionRange($0.projectionRange.nsRange, range.nsRange).length > 0 },
+                    "range \(location)..<\(range.upperBound)",
                     file: file,
                     line: line
                 )

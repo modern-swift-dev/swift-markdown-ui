@@ -1118,12 +1118,9 @@ import Foundation
         }
 
         func handleBackwardBoundaryDeletion(after unit: ProjectionUnit) -> Bool {
-            let units = projection.index.units
-            guard let unitIndex = units.firstIndex(where: { $0.path == unit.path }),
-                  units.indices.contains(unitIndex + 1) else {
+            guard let next = projection.index.unit(after: unit.path) else {
                 return false
             }
-            let next = units[unitIndex + 1]
             if handleTopLevelJoin(first: unit.path, second: next.path) {
                 return true
             }
@@ -1667,7 +1664,8 @@ import Foundation
                 case let .tableCell(table, _, _): table
                 default: selection.path
             }
-            guard let unit = projection.index.units.first(where: { logicalPath(for: $0.path) == projectedPath }) else {
+            // Logical and editor paths convert one-to-one, so a direct lookup finds the same leaf.
+            guard let unit = projection.index.unit(at: editorPath(for: projectedPath)) else {
                 return nil
             }
             if case .tableCell = selection.path {
@@ -1877,7 +1875,7 @@ import Foundation
             if range.length == 0 {
                 return projection.index.unit(atProjectionUTF16Offset: range.location).map { [$0] } ?? []
             }
-            return projection.index.units.filter { NSIntersectionRange($0.projectionRange.nsRange, range).length > 0 }
+            return projection.index.units(intersecting: ProjectionUTF16Range(range))
         }
 
         func replacementUnits(in range: NSRange) -> [ProjectionUnit] {
