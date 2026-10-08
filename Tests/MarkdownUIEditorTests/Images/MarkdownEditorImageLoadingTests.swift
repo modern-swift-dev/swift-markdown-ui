@@ -207,9 +207,7 @@ import XCTest
     }
 
     func testProviderRejectsHTTPErrorImagesAndPreservesSuccessfulAndNonHTTPResponses() async throws {
-        XCTAssertTrue(URLProtocol.registerClass(ImageStatusURLProtocol.self))
-        defer { URLProtocol.unregisterClass(ImageStatusURLProtocol.self) }
-        let provider = MarkdownURLSessionImageProvider()
+        let provider = ImageStatusURLProtocol.provider()
         for path in ["200", "non-http"] {
             let url = try XCTUnwrap(URL(string: "https://\(ImageStatusURLProtocol.host)/\(path)"))
             _ = try await provider.image(for: url)
@@ -309,6 +307,16 @@ import XCTest
         XCTAssertTrue(revalidated === validatedBacking.value)
         XCTAssertEqual(server.requests.last?.value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
         XCTAssertEqual(server.requests.count, 3)
+    }
+
+    func testImagesUseADedicatedBoundedSession() {
+        let session = MarkdownEditorImageLoader.session
+        XCTAssertFalse(session === URLSession.shared)
+        XCTAssertEqual(session.configuration.timeoutIntervalForRequest, 15)
+        XCTAssertEqual(session.configuration.httpMaximumConnectionsPerHost, 4)
+        XCTAssertEqual(session.configuration.urlCache?.memoryCapacity, 20 * 1024 * 1024)
+        XCTAssertEqual(session.configuration.urlCache?.diskCapacity, 200 * 1024 * 1024)
+        XCTAssertFalse(session.configuration.urlCache === URLCache.shared)
     }
 
     func testIdleCacheReleasesExpiredImagesWithoutAnotherRequest() async throws {
@@ -470,11 +478,9 @@ import XCTest
             XCTAssertEqual((error as? URLError)?.code, .cannotDecodeContentData)
         }
 
-        XCTAssertTrue(URLProtocol.registerClass(ImageStatusURLProtocol.self))
-        defer { URLProtocol.unregisterClass(ImageStatusURLProtocol.self) }
         let url = try XCTUnwrap(URL(string: "https://\(ImageStatusURLProtocol.host)/too-large"))
         do {
-            _ = try await MarkdownURLSessionImageProvider().image(for: url)
+            _ = try await ImageStatusURLProtocol.provider().image(for: url)
             XCTFail("A response declaring more than the byte limit must not load")
         } catch let error as URLError {
             XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
@@ -605,6 +611,16 @@ private func nativeImage(_ data: Data) -> MarkdownEditorPlatformImage? {
 
 private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
     static let host = "markdown-editor-image-status.invalid"
+
+    /// A provider whose loader fetches through a session served by this protocol.
+    @MainActor static func provider() -> MarkdownURLSessionImageProvider {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ImageStatusURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        return MarkdownURLSessionImageProvider(loader: MarkdownEditorImageLoader(fetch: { request in
+            try await MarkdownEditorImageLoader.fetch(request, session: session)
+        }))
+    }
 
     override static func canInit(with request: URLRequest) -> Bool {
         request.url?.host == host

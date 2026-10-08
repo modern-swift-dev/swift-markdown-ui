@@ -363,10 +363,27 @@ import ImageIO
             ))
         }
 
-        /// Fetches a response body; HTTP error and 304 bodies are never read, since they aren't decoded.
+        /// A session created on first use, so its HTTP cache stays separate from `URLSession.shared`.
+        nonisolated static let session: URLSession = {
+            let configuration = URLSessionConfiguration.default
+            let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("MarkdownUIEditor.MarkdownEditorImageLoader", isDirectory: true)
+            configuration.urlCache = URLCache(
+                memoryCapacity: 20 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024, directory: directory
+            )
+            configuration.timeoutIntervalForRequest = 15
+            configuration.httpMaximumConnectionsPerHost = 4
+            return URLSession(configuration: configuration)
+        }()
+
         nonisolated static func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            try await fetch(request, session: session)
+        }
+
+        /// Fetches a response body; HTTP error and 304 bodies are never read, since they aren't decoded.
+        nonisolated static func fetch(_ request: URLRequest, session: URLSession) async throws -> (Data, URLResponse) {
             // Streaming the body lets oversized responses fail before they are fully buffered.
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let (bytes, response) = try await session.bytes(for: request)
             try Task.checkCancellation()
             if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
                 return (Data(), response)

@@ -55,7 +55,9 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
     /// Loads remote image data with `URLSession` and decodes it as a platform image.
     ///
     /// Images are decoded off the main actor at the resolution image attachments display them,
-    /// while keeping the point size that native platform decoding reports.
+    /// while keeping the point size that native platform decoding reports. Downloads use a
+    /// dedicated URL session with its own HTTP cache, limited to 20 MB in memory and 200 MB on
+    /// disk, and a 15-second request timeout.
     @MainActor public final class MarkdownURLSessionImageProvider: MarkdownEditorImageProvider {
         private let loader: MarkdownEditorImageLoader
 
