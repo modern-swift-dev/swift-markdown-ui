@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 @testable import MarkdownUIEditor
+import UniformTypeIdentifiers
 import XCTest
 
 #if canImport(AppKit)
@@ -286,6 +288,54 @@ import XCTest
         try await wait { weakLoader.value == nil && backing.value == nil }
     }
 
+    func testDecodedImagesKeepNativeSizeAtBoundedResolution() throws {
+        let samples: [(name: String, data: Data)] = try [
+            ("PNG at 144 DPI", encodedImage(.png, width: 300, height: 200, properties: [
+                kCGImagePropertyDPIWidth: 144, kCGImagePropertyDPIHeight: 144
+            ])),
+            ("rotated JPEG", encodedImage(.jpeg, width: 300, height: 200, properties: [kCGImagePropertyOrientation: 6])),
+            ("rotated JPEG at mixed DPI", encodedImage(.jpeg, width: 300, height: 200, properties: [
+                kCGImagePropertyOrientation: 8, kCGImagePropertyDPIWidth: 144, kCGImagePropertyDPIHeight: 72
+            ])),
+            ("large PNG", encodedImage(.png, width: 2000, height: 1000)),
+            ("GIF", encodedImage(.gif, width: 300, height: 200, frames: 3))
+        ]
+        for sample in samples {
+            let native = try XCTUnwrap(nativeImage(sample.data), sample.name)
+            let decoded = try MarkdownEditorImageLoader.decode(sample.data, maximumPixelSize: 100).image
+            XCTAssertEqual(decoded.size.width, native.size.width, accuracy: 1, sample.name)
+            XCTAssertEqual(decoded.size.height, native.size.height, accuracy: 1, sample.name)
+            #if canImport(AppKit)
+                if sample.name == "GIF" {
+                    // AppKit keeps native decoding so image views still animate every frame.
+                    let representation = try XCTUnwrap(decoded.representations.first as? NSBitmapImageRep)
+                    XCTAssertEqual(representation.value(forProperty: .frameCount) as? Int, 3)
+                    continue
+                }
+                let bitmap = try XCTUnwrap(decoded.cgImage(forProposedRect: nil, context: nil, hints: nil), sample.name)
+            #else
+                let bitmap = try XCTUnwrap(decoded.cgImage, sample.name)
+                XCTAssertEqual(decoded.imageOrientation, .up, sample.name)
+            #endif
+            XCTAssertEqual(max(bitmap.width, bitmap.height), 100, sample.name)
+            XCTAssertEqual(
+                bitmap.width > bitmap.height, decoded.size.width > decoded.size.height,
+                "Rotation is applied to the pixels: \(sample.name)"
+            )
+        }
+        let small = try encodedImage(.png, width: 30, height: 20)
+        let unscaled = try MarkdownEditorImageLoader.decode(small, maximumPixelSize: 100).image
+        XCTAssertEqual(unscaled.size, CGSize(width: 30, height: 20), "Small images are never upscaled")
+        XCTAssertThrowsError(try MarkdownEditorImageLoader.decode(Data("not an image".utf8), maximumPixelSize: 100))
+    }
+
+    func testDecodeResolutionCoversTheAttachmentViewAtDisplayScale() {
+        let longestSide = max(MarkdownImageAttachment.imageViewSize.width, MarkdownImageAttachment.imageViewSize.height)
+        let pixelSize = MarkdownEditorImageLoader.maximumPixelSize()
+        XCTAssertGreaterThanOrEqual(CGFloat(pixelSize), longestSide)
+        XCTAssertLessThanOrEqual(CGFloat(pixelSize), longestSide * 3)
+    }
+
     #if canImport(AppKit)
         func testNativeViewDetachCancelsAndReattachRestarts() async throws {
             let provider = SuspendedNativeProvider()
@@ -371,6 +421,33 @@ import XCTest
         NSImage(size: NSSize(width: 4, height: 4))
     #else
         UIImage()
+    #endif
+}
+
+private func encodedImage(
+    _ type: UTType, width: Int, height: Int, properties: [CFString: Any] = [:], frames: Int = 1
+) throws -> Data {
+    let data = NSMutableData()
+    let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, type.identifier as CFString, frames, nil))
+    let context = try XCTUnwrap(CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ))
+    context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+    let image = try XCTUnwrap(context.makeImage())
+    for _ in 0 ..< frames {
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+    }
+    XCTAssertTrue(CGImageDestinationFinalize(destination))
+    return data as Data
+}
+
+private func nativeImage(_ data: Data) -> MarkdownEditorPlatformImage? {
+    #if canImport(AppKit)
+        NSImage(data: data)
+    #else
+        UIImage(data: data)
     #endif
 }
 

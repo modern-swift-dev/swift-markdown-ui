@@ -53,6 +53,9 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
     }
 
     /// Loads remote image data with `URLSession` and decodes it as a platform image.
+    ///
+    /// Images are decoded off the main actor at the resolution image attachments display them,
+    /// while keeping the point size that native platform decoding reports.
     @MainActor public final class MarkdownURLSessionImageProvider: MarkdownEditorImageProvider {
         private let loader: MarkdownEditorImageLoader
 
@@ -123,6 +126,9 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
 
     /// A TextKit attachment that owns image metadata and creates a native image view.
     public final class MarkdownImageAttachment: NSTextAttachment, @unchecked Sendable {
+        /// Native image views draw loaded images aspect-fit into this fixed size.
+        static let imageViewSize = CGSize(width: 240, height: 160)
+
         /// Current Markdown metadata for the attachment.
         public private(set) var metadata: MarkdownImageMetadata
         /// Original inline alt content, retained independently of its accessible text.
@@ -238,7 +244,7 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
 
         init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
             loader = MarkdownImageViewLoader(provider: provider, url: url)
-            super.init(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
+            super.init(frame: CGRect(origin: .zero, size: MarkdownImageAttachment.imageViewSize))
             isAccessibilityElement = true
             accessibilityLabel = altText
             accessibilityTraits = .image
@@ -254,8 +260,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             addSubview(imageView)
             addSubview(altLabel)
             NSLayoutConstraint.activate([
-                widthAnchor.constraint(equalToConstant: 240),
-                heightAnchor.constraint(equalToConstant: 160),
+                widthAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.width),
+                heightAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.height),
                 imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
                 imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 imageView.topAnchor.constraint(equalTo: topAnchor),
@@ -316,7 +322,7 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
 
         init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
             loader = MarkdownImageViewLoader(provider: provider, url: url)
-            super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
+            super.init(frame: NSRect(origin: .zero, size: MarkdownImageAttachment.imageViewSize))
             setAccessibilityElement(true)
             setAccessibilityRole(.image)
             setAccessibilityLabel(altText)
@@ -332,8 +338,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             addSubview(imageView)
             addSubview(altLabel)
             NSLayoutConstraint.activate([
-                widthAnchor.constraint(equalToConstant: 240),
-                heightAnchor.constraint(equalToConstant: 160),
+                widthAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.width),
+                heightAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.height),
                 imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
                 imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 imageView.topAnchor.constraint(equalTo: topAnchor),

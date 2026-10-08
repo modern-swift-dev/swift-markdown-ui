@@ -8,7 +8,8 @@ import ImageIO
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)
-    /// Provider-scoped resource sharing preserves native platform image decoding and sizing.
+    /// Provider-scoped resource sharing that decodes off the main actor at display resolution
+    /// while preserving the point size of native platform image decoding.
     @MainActor final class MarkdownEditorImageLoader {
         struct Resource {
             let image: MarkdownEditorPlatformImage
@@ -52,7 +53,9 @@ import ImageIO
             sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
                 try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
             },
-            load: @escaping @MainActor (URL) async throws -> Resource = MarkdownEditorImageLoader.download
+            load: @escaping @MainActor (URL) async throws -> Resource = { url in
+                try await MarkdownEditorImageLoader.download(url, maximumPixelSize: MarkdownEditorImageLoader.maximumPixelSize())
+            }
         ) {
             precondition(maximumCacheCost >= 0)
             self.maximumCacheCost = maximumCacheCost
@@ -203,26 +206,89 @@ import ImageIO
             }
         }
 
-        private static func download(_ url: URL) async throws -> Resource {
+        /// The longest pixel side worth decoding: attachment views draw images aspect-fit into
+        /// a fixed box, so no image is drawn larger than the box's longest side.
+        static func maximumPixelSize() -> Int {
+            #if canImport(UIKit)
+                let scale = UITraitCollection.current.displayScale
+            #else
+                let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 0
+            #endif
+            let size = MarkdownImageAttachment.imageViewSize
+            return Int((max(size.width, size.height) * (scale > 0 ? scale : 3)).rounded(.up))
+        }
+
+        private nonisolated static func download(_ url: URL, maximumPixelSize: Int) async throws -> Resource {
             let (data, response) = try await URLSession.shared.data(from: url)
             try Task.checkCancellation()
             if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
                 throw URLError(.badServerResponse)
             }
-            // Read dimensions without changing NSImage/UIImage's original decoding or intrinsic sizing.
-            let cost: Int
-            if let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-               let width = properties[kCGImagePropertyPixelWidth] as? Int,
-               let height = properties[kCGImagePropertyPixelHeight] as? Int {
-                let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
-                let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
-                let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
-                cost = overflow || byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
-            } else {
-                cost = Int.max
+            let (image, cost) = try decode(data, maximumPixelSize: maximumPixelSize)
+            try Task.checkCancellation()
+            return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
+                cacheExpiration(for: $0)
+            })
+        }
+
+        /// Decodes a fully rendered bitmap no larger than `maximumPixelSize`, so drawing on the main
+        /// actor doesn't decode. The image reports the point size `UIImage(data:)` or `NSImage(data:)`
+        /// would, including EXIF orientation and, on AppKit, DPI metadata.
+        nonisolated static func decode(_ data: Data, maximumPixelSize: Int) throws -> (image: MarkdownEditorPlatformImage, cost: Int) {
+            try Task.checkCancellation()
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+            let index = source.map(CGImageSourceGetPrimaryImageIndex) ?? 0
+            guard let source,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+                  let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+                  let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+                  width > 0, height > 0 else {
+                // Formats ImageIO can't describe keep their native decoding and are never cached.
+                return (try nativeImage(data), Int.max)
+            }
+            let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+            let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
+            let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
+            let cost = overflow || byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
+            #if !canImport(UIKit)
+                // NSImageView animates multi-frame bitmaps such as GIFs, which a single thumbnail can't.
+                if CGImageSourceGetCount(source) > 1 {
+                    return (try nativeImage(data), cost)
+                }
+            #endif
+            let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)
+                .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+            let swapsAxes = [.left, .leftMirrored, .right, .rightMirrored].contains(orientation)
+            let orientedWidth = swapsAxes ? height : width
+            let orientedHeight = swapsAxes ? width : height
+            guard let bitmap = CGImageSourceCreateThumbnailAtIndex(source, index, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(1, min(maximumPixelSize, max(width, height)))
+            ] as CFDictionary) else {
+                return (try nativeImage(data), cost)
             }
             try Task.checkCancellation()
+            #if canImport(UIKit)
+                // UIImage(data:) has a scale of 1, so a smaller bitmap gets a proportionally smaller scale.
+                let scale = CGFloat(max(bitmap.width, bitmap.height)) / CGFloat(max(orientedWidth, orientedHeight))
+                return (UIImage(cgImage: bitmap, scale: scale, orientation: .up), cost)
+            #else
+                // NSImage(data:) measures each oriented axis at 72 / DPI points per pixel.
+                func points(_ pixels: Int, dpi key: CFString) -> CGFloat {
+                    let dpi = (properties[key] as? NSNumber)?.doubleValue ?? 72
+                    return CGFloat(pixels) * 72 / (dpi > 0 ? dpi : 72)
+                }
+                let size = NSSize(
+                    width: points(orientedWidth, dpi: kCGImagePropertyDPIWidth),
+                    height: points(orientedHeight, dpi: kCGImagePropertyDPIHeight)
+                )
+                return (NSImage(cgImage: bitmap, size: size), cost)
+            #endif
+        }
+
+        private nonisolated static func nativeImage(_ data: Data) throws -> MarkdownEditorPlatformImage {
             #if canImport(UIKit)
                 guard let image = UIImage(data: data) else {
                     throw MarkdownEditorImageProviderError.invalidImageData
@@ -232,14 +298,11 @@ import ImageIO
                     throw MarkdownEditorImageProviderError.invalidImageData
                 }
             #endif
-            try Task.checkCancellation()
-            return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
-                cacheExpiration(for: $0)
-            })
+            return image
         }
 
         /// Defer heuristic freshness/revalidation to URLSession; retain explicit freshness for at most a minute.
-        static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
+        nonisolated static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
             let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
                 .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             guard !directives.contains(where: { $0.hasPrefix("no-store") || $0.hasPrefix("no-cache") }),
