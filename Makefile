@@ -29,8 +29,8 @@ examples:
 	cd Examples/Editor && xcodegen generate
 
 SCHEME := MarkdownUI
-SDK_VERSION := 26.5
-IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5
+SDK_VERSION := 27.0
+IOS_SIMULATOR := platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0
 
 test-macos:
 	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'platform=macOS' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q

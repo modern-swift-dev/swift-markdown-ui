@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
 
 defaults:
   run:
@@ -23,8 +23,8 @@ jobs:
         check: [format-check, lint]
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Swift 6.3
-        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Verify Swift 6.4
+        run: swift --version | grep -F 'Swift version 6.4'
       - name: Install tools
         run: |
           brew install mint actionlint
@@ -49,8 +49,8 @@ jobs:
             platform: maccatalyst
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Swift 6.3
-        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Verify Swift 6.4
+        run: swift --version | grep -F 'Swift version 6.4'
       - name: Install xcbeautify
         run: |
           brew install mint
@@ -71,8 +71,8 @@ jobs:
         platform: [macos, ios]
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Swift 6.3
-        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Verify Swift 6.4
+        run: swift --version | grep -F 'Swift version 6.4'
       - name: Install xcbeautify
         run: |
           brew install mint
@@ -85,13 +85,13 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Swift 6.3
-        run: swift --version | grep -F 'Swift version 6.3'
+      - name: Verify Swift 6.4
+        run: swift --version | grep -F 'Swift version 6.4'
       - name: Install xcbeautify
         run: |
           brew install mint
           mint install cpisciotta/xcbeautify
       - name: Build Demo
-        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphoneos26.5 -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+        run: xcodebuild build -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphoneos27.0 -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
       - name: Test Demo UI
-        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphonesimulator26.5 -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+        run: xcodebuild test -project Examples/Demo/Demo.xcodeproj -scheme Demo -sdk iphonesimulator27.0 -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q

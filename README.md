@@ -323,7 +323,7 @@ Finally, add `import MarkdownUI` to your source code.
 
 ## Development
 
-Use Xcode 26.6 with the bundled 26.5 SDKs. After cloning, install the development
+Use Xcode 27.0 with the bundled 27.0 SDKs. After cloning, install the development
 tools and Git hooks:
 
 ```sh
@@ -341,6 +341,6 @@ supported platforms. To build the editor, use `make build-ios SCHEME=MarkdownUIE
 `make build-macos SCHEME=MarkdownUIEditor`, or
 `make build-maccatalyst SCHEME=MarkdownUIEditor`.
 
-CI runs on pull requests and pushes to `main`, using Xcode 26.6 and explicit 26.5
+CI runs on pull requests and pushes to `main`, using Xcode 27.0 and explicit 27.0
 SDKs. It builds both libraries on their supported platforms and runs macOS and
 iOS tests, demo checks, documentation builds, formatting checks, and lint checks.
