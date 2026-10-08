@@ -227,6 +227,90 @@ import XCTest
         }
     }
 
+    func testStaleImagesWithValidatorsAreRevalidatedAndReusedWhenNotModified() async throws {
+        let server = try ConditionalImageServer()
+        let loader = MarkdownEditorImageLoader(fetch: { request in try await server.respond(to: request) })
+        let url = try imageURL()
+        server.headers = ["ETag": "\"a\"", "Last-Modified": "Wed, 07 Oct 2026 10:00:00 GMT"]
+        let first = try await loader.image(for: url)
+        server.status = 304
+        server.headers = [:]
+        let revalidated = try await loader.image(for: url)
+        XCTAssertTrue(first === revalidated, "A 304 response reuses the decoded image")
+        XCTAssertNil(server.requests[0].value(forHTTPHeaderField: "If-None-Match"))
+        XCTAssertEqual(server.requests[1].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
+        XCTAssertEqual(server.requests[1].value(forHTTPHeaderField: "If-Modified-Since"), "Wed, 07 Oct 2026 10:00:00 GMT")
+        XCTAssertEqual(server.requests[1].cachePolicy, .reloadIgnoringLocalCacheData)
+
+        // A 304 without validators keeps the previous ones; a changed image replaces the cached bitmap.
+        _ = try await loader.image(for: url)
+        XCTAssertEqual(server.requests[2].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
+        server.status = 200
+        server.headers = ["ETag": "\"b\""]
+        let replacement = try await loader.image(for: url)
+        XCTAssertFalse(replacement === first)
+        server.status = 304
+        let reused = try await loader.image(for: url)
+        XCTAssertTrue(reused === replacement)
+        XCTAssertEqual(server.requests[4].value(forHTTPHeaderField: "If-None-Match"), "\"b\"")
+        XCTAssertNil(server.requests[4].value(forHTTPHeaderField: "If-Modified-Since"))
+    }
+
+    func testResponsesWithoutValidatorsOrWithNoStoreAreNotRevalidated() async throws {
+        for headers in [[:], ["ETag": "\"a\"", "Cache-Control": "no-store"]] {
+            let server = try ConditionalImageServer()
+            let loader = MarkdownEditorImageLoader(fetch: { request in try await server.respond(to: request) })
+            server.headers = headers
+            let first = try await loader.image(for: imageURL())
+            let second = try await loader.image(for: imageURL())
+            XCTAssertFalse(first === second, "\(headers)")
+            XCTAssertEqual(server.requests.count, 2)
+            XCTAssertNil(server.requests[1].value(forHTTPHeaderField: "If-None-Match"), "\(headers)")
+        }
+        // A 304 to an unconditional request has no image to reuse.
+        let server = try ConditionalImageServer()
+        server.status = 304
+        let loader = MarkdownEditorImageLoader(fetch: { request in try await server.respond(to: request) })
+        do {
+            _ = try await loader.image(for: imageURL())
+            XCTFail("An unexpected 304 must not load")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .badServerResponse)
+        }
+    }
+
+    func testIdleCleanupKeepsImagesWithValidators() async throws {
+        let clock = NativeImageExpirationClock()
+        // Response freshness is measured against the current date.
+        clock.now = Date()
+        let sleeper = NativeImageExpirationSleeper()
+        let server = try ConditionalImageServer()
+        let loader = MarkdownEditorImageLoader(now: { clock.now }, sleepUntil: sleeper.sleep, fetch: { request in
+            try await server.respond(to: request)
+        })
+        let unvalidatedURL = try imageURL()
+        let validatedURL = unvalidatedURL.appendingPathComponent("validated")
+        server.headers = ["Cache-Control": "max-age=10"]
+        var unvalidated: MarkdownEditorPlatformImage? = try await loader.image(for: unvalidatedURL)
+        let unvalidatedBacking = NativeImageWeakReference(unvalidated)
+        unvalidated = nil
+        server.headers = ["Cache-Control": "max-age=10", "ETag": "\"a\""]
+        var validated: MarkdownEditorPlatformImage? = try await loader.image(for: validatedURL)
+        let validatedBacking = NativeImageWeakReference(validated)
+        validated = nil
+        try await wait { sleeper.isSleeping }
+        clock.now.addTimeInterval(11)
+        sleeper.wake()
+        try await wait { unvalidatedBacking.value == nil }
+        XCTAssertNotNil(validatedBacking.value, "Images with validators outlive idle cleanup")
+        server.status = 304
+        server.headers = [:]
+        let revalidated = try await loader.image(for: validatedURL)
+        XCTAssertTrue(revalidated === validatedBacking.value)
+        XCTAssertEqual(server.requests.last?.value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
+        XCTAssertEqual(server.requests.count, 3)
+    }
+
     func testIdleCacheReleasesExpiredImagesWithoutAnotherRequest() async throws {
         let clock = NativeImageExpirationClock()
         let sleeper = NativeImageExpirationSleeper()
@@ -553,6 +637,25 @@ private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+/// Serves a small PNG with configurable status and headers, recording each request.
+@MainActor private final class ConditionalImageServer {
+    var status = 200
+    var headers: [String: String] = [:]
+    private(set) var requests: [URLRequest] = []
+    private let image: Data
+
+    init() throws {
+        image = try encodedImage(.png, width: 4, height: 4)
+    }
+
+    func respond(to request: URLRequest) throws -> (Data, URLResponse) {
+        requests.append(request)
+        let url = try XCTUnwrap(request.url)
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers))
+        return (status == 200 ? image : Data(), response)
+    }
 }
 
 @MainActor private final class NativeImageExpirationClock {

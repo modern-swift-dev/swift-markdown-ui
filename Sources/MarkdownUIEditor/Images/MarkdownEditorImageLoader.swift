@@ -11,11 +11,40 @@ import ImageIO
     /// Provider-scoped resource sharing that decodes off the main actor at display resolution
     /// while preserving the point size of native platform image decoding.
     @MainActor final class MarkdownEditorImageLoader {
+        /// HTTP validators that let a stale decoded image be revalidated instead of downloaded again.
+        struct Validators: Hashable, Sendable {
+            var entityTag: String?
+            var lastModified: String?
+
+            /// Returns `nil` when the response has no validators or must not be stored.
+            init?(response: HTTPURLResponse, merging previous: Validators? = nil) {
+                guard !MarkdownEditorImageLoader.cacheDirectives(of: response).contains(where: { $0.hasPrefix("no-store") }) else {
+                    return nil
+                }
+                entityTag = response.value(forHTTPHeaderField: "ETag") ?? previous?.entityTag
+                lastModified = response.value(forHTTPHeaderField: "Last-Modified") ?? previous?.lastModified
+                guard entityTag != nil || lastModified != nil else {
+                    return nil
+                }
+            }
+        }
+
         struct Resource {
             let image: MarkdownEditorPlatformImage
             let cost: Int
+            /// Reuse without contacting the server until this date.
             let expiration: Date?
+            /// Reuse after a successful conditional request once the resource is stale.
+            var validators: Validators?
         }
+
+        enum LoadResult {
+            case loaded(Resource)
+            /// The server confirmed that the revalidated image is still current.
+            case notModified(expiration: Date?, validators: Validators?)
+        }
+
+        typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
         private final class CachedImage {
             let resource: Resource
@@ -26,6 +55,8 @@ import ImageIO
 
         private struct Job {
             let url: URL
+            /// The stale image a conditional request may confirm.
+            let revalidating: Resource?
             var waiters: [UUID: CheckedContinuation<MarkdownEditorPlatformImage, any Error>]
         }
 
@@ -34,8 +65,11 @@ import ImageIO
         private let now: @MainActor () -> Date
         private let sleepUntil: @MainActor (Date) async throws -> Void
         private var latestExpiration: Date?
+        /// Entries without validators, which idle expiry releases. NSCache can't enumerate its keys,
+        /// and entries with validators stay cached for conditional requests until NSCache evicts them.
+        private var expiringURLs: Set<URL> = []
         private var expirationTask: Task<Void, Never>?
-        private let load: @MainActor (URL) async throws -> Resource
+        private let load: @MainActor (URL, Validators?) async throws -> LoadResult
         private var jobs: [UUID: Job] = [:]
         private var jobForURL: [URL: UUID] = [:]
         private var pending: [UUID] = []
@@ -53,15 +87,40 @@ import ImageIO
             pending.count
         }
 
-        init(
+        convenience init(
             maximumCacheCost: Int = 64 * 1024 * 1024,
             now: @escaping @MainActor () -> Date = { Date() },
             sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
                 try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
             },
-            load: @escaping @MainActor (URL) async throws -> Resource = { url in
-                try await MarkdownEditorImageLoader.download(url, maximumPixelSize: MarkdownEditorImageLoader.maximumPixelSize())
-            }
+            fetch: @escaping Fetch = MarkdownEditorImageLoader.fetch
+        ) {
+            self.init(maximumCacheCost: maximumCacheCost, now: now, sleepUntil: sleepUntil, loadResult: { url, validators in
+                try await MarkdownEditorImageLoader.load(
+                    url, validators: validators, maximumPixelSize: MarkdownEditorImageLoader.maximumPixelSize(), fetch: fetch
+                )
+            })
+        }
+
+        /// Loads resources without HTTP revalidation.
+        convenience init(
+            maximumCacheCost: Int = 64 * 1024 * 1024,
+            now: @escaping @MainActor () -> Date = { Date() },
+            sleepUntil: @escaping @MainActor (Date) async throws -> Void = { deadline in
+                try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+            },
+            load: @escaping @MainActor (URL) async throws -> Resource
+        ) {
+            self.init(maximumCacheCost: maximumCacheCost, now: now, sleepUntil: sleepUntil, loadResult: { url, _ in
+                try await .loaded(load(url))
+            })
+        }
+
+        private init(
+            maximumCacheCost: Int,
+            now: @escaping @MainActor () -> Date,
+            sleepUntil: @escaping @MainActor (Date) async throws -> Void,
+            loadResult load: @escaping @MainActor (URL, Validators?) async throws -> LoadResult
         ) {
             precondition(maximumCacheCost >= 0)
             self.maximumCacheCost = maximumCacheCost
@@ -78,11 +137,18 @@ import ImageIO
 
         func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
             try Task.checkCancellation()
-            if let resource = cache.object(forKey: url as NSURL)?.resource,
-               let expiration = resource.expiration, expiration > now() {
-                return resource.image
+            var revalidating: Resource?
+            if let resource = cache.object(forKey: url as NSURL)?.resource {
+                if let expiration = resource.expiration, expiration > now() {
+                    return resource.image
+                }
+                if resource.validators != nil {
+                    // Keep the stale image so a 304 response can reuse it without decoding.
+                    revalidating = resource
+                } else {
+                    removeCachedImage(for: url)
+                }
             }
-            cache.removeObject(forKey: url as NSURL)
             let waiterID = UUID()
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
@@ -95,7 +161,7 @@ import ImageIO
                         jobs[jobID]?.waiters[waiterID] = continuation
                     } else {
                         let jobID = UUID()
-                        jobs[jobID] = Job(url: url, waiters: [waiterID: continuation])
+                        jobs[jobID] = Job(url: url, revalidating: revalidating, waiters: [waiterID: continuation])
                         jobForURL[url] = jobID
                         pending.append(jobID)
                         pendingLoadCount += 1
@@ -135,12 +201,12 @@ import ImageIO
                 pendingLoadCount -= 1
                 let load = self.load
                 running[jobID] = Task { @MainActor in
-                    let result: Result<Resource, any Error>
+                    let result: Result<LoadResult, any Error>
                     do {
                         try Task.checkCancellation()
-                        let resource = try await load(job.url)
+                        let loaded = try await load(job.url, job.revalidating?.validators)
                         try Task.checkCancellation()
-                        result = .success(resource)
+                        result = .success(loaded)
                     } catch {
                         result = .failure(error)
                     }
@@ -162,24 +228,57 @@ import ImageIO
             }
         }
 
-        private func finish(jobID: UUID, result: Result<Resource, any Error>) {
+        private func finish(jobID: UUID, result: Result<LoadResult, any Error>) {
             running.removeValue(forKey: jobID)
             if let job = jobs.removeValue(forKey: jobID) {
                 jobForURL.removeValue(forKey: job.url)
-                if case let .success(resource) = result,
-                   resource.cost > 0, resource.cost <= maximumCacheCost,
-                   let expiration = resource.expiration, expiration > now() {
-                    cache.setObject(CachedImage(resource), forKey: job.url as NSURL, cost: resource.cost)
-                    latestExpiration = max(latestExpiration ?? expiration, expiration)
-                    if expirationTask == nil {
-                        scheduleExpiration(at: expiration)
+                let image: Result<MarkdownEditorPlatformImage, any Error> = result.flatMap { result in
+                    switch result {
+                        case let .loaded(resource):
+                            insert(resource, for: job.url)
+                            return .success(resource.image)
+                        case let .notModified(expiration, validators):
+                            guard let stale = job.revalidating else {
+                                return .failure(URLError(.badServerResponse))
+                            }
+                            insert(Resource(image: stale.image, cost: stale.cost, expiration: expiration, validators: validators), for: job.url)
+                            return .success(stale.image)
                     }
                 }
                 for continuation in job.waiters.values {
-                    continuation.resume(with: result.map(\.image))
+                    continuation.resume(with: image)
                 }
             }
             startPendingLoads()
+        }
+
+        /// Caches fresh images until they expire and images with validators until NSCache evicts them.
+        private func insert(_ resource: Resource, for url: URL) {
+            // A replacement or an uncacheable response supersedes any stale entry.
+            removeCachedImage(for: url)
+            let expiration = resource.expiration.flatMap { $0 > now() ? $0 : nil }
+            guard resource.cost > 0, resource.cost <= maximumCacheCost,
+                  expiration != nil || resource.validators != nil else {
+                return
+            }
+            cache.setObject(CachedImage(resource), forKey: url as NSURL, cost: resource.cost)
+            guard resource.validators == nil, let expiration else {
+                return
+            }
+            expiringURLs.insert(url)
+            if expiringURLs.count > 2 * cache.countLimit {
+                // Forget entries NSCache already evicted, keeping this index bounded between idle periods.
+                expiringURLs = expiringURLs.filter { cache.object(forKey: $0 as NSURL) != nil }
+            }
+            latestExpiration = max(latestExpiration ?? expiration, expiration)
+            if expirationTask == nil {
+                scheduleExpiration(at: expiration)
+            }
+        }
+
+        private func removeCachedImage(for url: URL) {
+            cache.removeObject(forKey: url as NSURL)
+            expiringURLs.remove(url)
         }
 
         private func scheduleExpiration(at deadline: Date) {
@@ -195,10 +294,10 @@ import ImageIO
             }
         }
 
-        /// Release an idle cache once every admitted resource has expired. Individual
-        /// expired entries may remain until the newest deadline (at most one minute
-        /// after the last download); NSCache still governs cost and count meanwhile.
-        /// One deadline and one task avoid retaining a separate index of cache keys.
+        /// Release images without validators once every such resource has expired. Individual
+        /// expired entries may remain until the newest deadline (at most one minute after the
+        /// last download); NSCache still governs cost and count meanwhile. One deadline and one
+        /// task avoid a timer per entry; images with validators stay for conditional requests.
         private func expireIdleCache() {
             expirationTask = nil
             guard let latestExpiration else {
@@ -207,7 +306,10 @@ import ImageIO
             if latestExpiration > now() {
                 scheduleExpiration(at: latestExpiration)
             } else {
-                cache.removeAllObjects()
+                for url in expiringURLs {
+                    cache.removeObject(forKey: url as NSURL)
+                }
+                expiringURLs.removeAll()
                 self.latestExpiration = nil
             }
         }
@@ -224,19 +326,52 @@ import ImageIO
             return Int((max(size.width, size.height) * (scale > 0 ? scale : 3)).rounded(.up))
         }
 
-        private nonisolated static func download(_ url: URL, maximumPixelSize: Int) async throws -> Resource {
-            // Streaming the body lets oversized responses fail before they are fully buffered.
-            let (bytes, response) = try await URLSession.shared.bytes(from: url)
+        /// Downloads and decodes a resource, or revalidates a stale one when validators are given.
+        nonisolated static func load(
+            _ url: URL, validators: Validators?, maximumPixelSize: Int, fetch: Fetch
+        ) async throws -> LoadResult {
+            var request = URLRequest(url: url)
+            if let validators {
+                // Ask the server itself so URLCache can't turn its 304 into a stored 200 body.
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                if let entityTag = validators.entityTag {
+                    request.setValue(entityTag, forHTTPHeaderField: "If-None-Match")
+                }
+                if let lastModified = validators.lastModified {
+                    request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
+                }
+            }
+            let (data, response) = try await fetch(request)
             try Task.checkCancellation()
-            if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
+            let httpResponse = response as? HTTPURLResponse
+            if let httpResponse, httpResponse.statusCode == 304, validators != nil {
+                return .notModified(
+                    expiration: cacheExpiration(for: httpResponse),
+                    validators: Validators(response: httpResponse, merging: validators)
+                )
+            }
+            if let httpResponse, !(200 ..< 300 ~= httpResponse.statusCode) {
                 throw URLError(.badServerResponse)
             }
-            let data = try await body(of: bytes, expectedContentLength: response.expectedContentLength)
             let (image, cost) = try decode(data, maximumPixelSize: maximumPixelSize)
             try Task.checkCancellation()
-            return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
-                cacheExpiration(for: $0)
-            })
+            return .loaded(Resource(
+                image: image,
+                cost: cost,
+                expiration: httpResponse.flatMap { cacheExpiration(for: $0) },
+                validators: httpResponse.flatMap { Validators(response: $0) }
+            ))
+        }
+
+        /// Fetches a response body; HTTP error and 304 bodies are never read, since they aren't decoded.
+        nonisolated static func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            // Streaming the body lets oversized responses fail before they are fully buffered.
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            try Task.checkCancellation()
+            if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
+                return (Data(), response)
+            }
+            return (try await body(of: bytes, expectedContentLength: response.expectedContentLength), response)
         }
 
         /// Collects a response body, rejecting it once its declared or received size exceeds the limit.
@@ -353,10 +488,14 @@ import ImageIO
             return formatter
         }()
 
-        /// Defer heuristic freshness/revalidation to URLSession; retain explicit freshness for at most a minute.
-        nonisolated static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
-            let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
+        nonisolated static func cacheDirectives(of response: HTTPURLResponse) -> [String] {
+            (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
                 .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+
+        /// Honor explicit freshness for at most a minute; stale images with validators are revalidated instead.
+        nonisolated static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
+            let directives = cacheDirectives(of: response)
             guard !directives.contains(where: { $0.hasPrefix("no-store") || $0.hasPrefix("no-cache") }),
                   let maxAge = directives.first(where: { $0.hasPrefix("max-age=") }),
                   let seconds = TimeInterval(maxAge.dropFirst("max-age=".count)
