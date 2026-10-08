@@ -329,6 +329,51 @@ import XCTest
         XCTAssertThrowsError(try MarkdownEditorImageLoader.decode(Data("not an image".utf8), maximumPixelSize: 100))
     }
 
+    func testRejectsOversizedResponsesAndPixelDimensions() async throws {
+        let declared = AsyncStream<UInt8> { $0.finish() }
+        do {
+            _ = try await MarkdownEditorImageLoader.body(of: declared, expectedContentLength: 11, limit: 10)
+            XCTFail("A declared length over the limit must be rejected")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+        let streamed = AsyncStream<UInt8> { continuation in
+            for byte in 0 ..< 11 {
+                continuation.yield(UInt8(byte))
+            }
+            continuation.finish()
+        }
+        do {
+            _ = try await MarkdownEditorImageLoader.body(of: streamed, expectedContentLength: -1, limit: 10)
+            XCTFail("A body over the limit must be rejected without a declared length")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+        let exact = AsyncStream<UInt8> { continuation in
+            continuation.yield(1)
+            continuation.yield(2)
+            continuation.finish()
+        }
+        let data = try await MarkdownEditorImageLoader.body(of: exact, expectedContentLength: 2, limit: 2)
+        XCTAssertEqual(data, Data([1, 2]))
+
+        let image = try encodedImage(.png, width: 20, height: 10)
+        XCTAssertNoThrow(try MarkdownEditorImageLoader.decode(image, maximumPixelSize: 100, maximumPixelCount: 200))
+        XCTAssertThrowsError(try MarkdownEditorImageLoader.decode(image, maximumPixelSize: 100, maximumPixelCount: 199)) { error in
+            XCTAssertEqual((error as? URLError)?.code, .cannotDecodeContentData)
+        }
+
+        XCTAssertTrue(URLProtocol.registerClass(ImageStatusURLProtocol.self))
+        defer { URLProtocol.unregisterClass(ImageStatusURLProtocol.self) }
+        let url = try XCTUnwrap(URL(string: "https://\(ImageStatusURLProtocol.host)/too-large"))
+        do {
+            _ = try await MarkdownURLSessionImageProvider().image(for: url)
+            XCTFail("A response declaring more than the byte limit must not load")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+    }
+
     func testDecodeResolutionCoversTheAttachmentViewAtDisplayScale() {
         let longestSide = max(MarkdownImageAttachment.imageViewSize.width, MarkdownImageAttachment.imageViewSize.height)
         let pixelSize = MarkdownEditorImageLoader.maximumPixelSize()
@@ -468,8 +513,13 @@ private final class ImageStatusURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        let response: URLResponse = if let status = Int(url.lastPathComponent),
-                                       let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Cache-Control": "max-age=60"]) {
+        let response: URLResponse = if url.lastPathComponent == "too-large",
+                                       let http = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                                           "Content-Length": String(MarkdownEditorImageLoader.maximumResponseByteCount + 1)
+                                       ]) {
+            http
+        } else if let status = Int(url.lastPathComponent),
+                  let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Cache-Control": "max-age=60"]) {
             http
         } else {
             URLResponse(url: url, mimeType: "image/png", expectedContentLength: data.count, textEncodingName: nil)

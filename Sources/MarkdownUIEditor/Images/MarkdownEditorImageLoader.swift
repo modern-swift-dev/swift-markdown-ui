@@ -43,6 +43,12 @@ import ImageIO
         private(set) var pendingLoadCount = 0
         private var running: [UUID: Task<Void, Never>] = [:]
 
+        /// Responses larger than this are rejected before they are buffered in full.
+        nonisolated static let maximumResponseByteCount = 50 * 1024 * 1024
+
+        /// Images with more pixels than this (512 MB at 4 bytes per pixel) are rejected before decoding.
+        nonisolated static let maximumPixelCount = 128 * 1024 * 1024
+
         var pendingStorageCount: Int {
             pending.count
         }
@@ -219,11 +225,13 @@ import ImageIO
         }
 
         private nonisolated static func download(_ url: URL, maximumPixelSize: Int) async throws -> Resource {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            // Streaming the body lets oversized responses fail before they are fully buffered.
+            let (bytes, response) = try await URLSession.shared.bytes(from: url)
             try Task.checkCancellation()
             if let response = response as? HTTPURLResponse, !(200 ..< 300 ~= response.statusCode) {
                 throw URLError(.badServerResponse)
             }
+            let data = try await body(of: bytes, expectedContentLength: response.expectedContentLength)
             let (image, cost) = try decode(data, maximumPixelSize: maximumPixelSize)
             try Task.checkCancellation()
             return Resource(image: image, cost: cost, expiration: (response as? HTTPURLResponse).flatMap {
@@ -231,10 +239,36 @@ import ImageIO
             })
         }
 
+        /// Collects a response body, rejecting it once its declared or received size exceeds the limit.
+        nonisolated static func body<Bytes: AsyncSequence>(
+            of bytes: Bytes, expectedContentLength: Int64, limit: Int = maximumResponseByteCount
+        ) async throws -> Data where Bytes.Element == UInt8 {
+            func tooLarge() -> URLError {
+                URLError(.dataLengthExceedsMaximum, userInfo: [
+                    NSLocalizedDescriptionKey: "The image response is larger than the \(limit)-byte limit."
+                ])
+            }
+            guard expectedContentLength <= limit else {
+                throw tooLarge()
+            }
+            var body: [UInt8] = []
+            body.reserveCapacity(max(0, Int(expectedContentLength)))
+            for try await byte in bytes {
+                guard body.count < limit else {
+                    throw tooLarge()
+                }
+                body.append(byte)
+            }
+            try Task.checkCancellation()
+            return Data(body)
+        }
+
         /// Decodes a fully rendered bitmap no larger than `maximumPixelSize`, so drawing on the main
         /// actor doesn't decode. The image reports the point size `UIImage(data:)` or `NSImage(data:)`
         /// would, including EXIF orientation and, on AppKit, DPI metadata.
-        nonisolated static func decode(_ data: Data, maximumPixelSize: Int) throws -> (image: MarkdownEditorPlatformImage, cost: Int) {
+        nonisolated static func decode(
+            _ data: Data, maximumPixelSize: Int, maximumPixelCount: Int = maximumPixelCount
+        ) throws -> (image: MarkdownEditorPlatformImage, cost: Int) {
             try Task.checkCancellation()
             let source = CGImageSourceCreateWithData(data as CFData, nil)
             let index = source.map(CGImageSourceGetPrimaryImageIndex) ?? 0
@@ -247,9 +281,15 @@ import ImageIO
                 return (try nativeImage(data), Int.max)
             }
             let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+            // Header dimensions are checked first, so a small file can't claim a huge bitmap.
+            guard !overflow, pixels <= maximumPixelCount else {
+                throw URLError(.cannotDecodeContentData, userInfo: [
+                    NSLocalizedDescriptionKey: "The image's \(width)×\(height) pixels exceed the \(maximumPixelCount)-pixel limit."
+                ])
+            }
             let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
             let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
-            let cost = overflow || byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
+            let cost = byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
             #if !canImport(UIKit)
                 // NSImageView animates multi-frame bitmaps such as GIFs, which a single thumbnail can't.
                 if CGImageSourceGetCount(source) > 1 {
