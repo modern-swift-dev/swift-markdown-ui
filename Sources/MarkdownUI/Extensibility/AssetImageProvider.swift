@@ -42,12 +42,37 @@ public struct AssetImageProvider: ImageProvider {
             return UIImage(named: self.name(url), in: self.bundle, with: nil)
         #elseif canImport(AppKit)
             if let bundle, bundle != .main {
-                return bundle.image(forResource: self.name(url))
+                return Self.image(named: self.name(url), in: bundle)
             } else {
                 return NSImage(named: self.name(url))
             }
         #endif
     }
+
+    #if canImport(AppKit) && !canImport(UIKit)
+        private final class CachedImage {
+            let image: NSImage?
+
+            init(_ image: NSImage?) {
+                self.image = image
+            }
+        }
+
+        /// Unlike `NSImage(named:)`, `Bundle.image(forResource:)` bypasses the system image cache
+        /// and reads from disk on every call, which happens on each body evaluation.
+        @MainActor private static let cache = NSCache<NSString, CachedImage>()
+
+        /// Returns the bundle image for a name, caching both images and missing resources.
+        @MainActor static func image(named name: String, in bundle: Bundle) -> NSImage? {
+            let key = "\(bundle.bundleURL.path)\u{0}\(name)" as NSString
+            if let cached = self.cache.object(forKey: key) {
+                return cached.image
+            }
+            let image = bundle.image(forResource: name)
+            self.cache.setObject(CachedImage(image), forKey: key)
+            return image
+        }
+    #endif
 }
 
 public extension ImageProvider where Self == AssetImageProvider {
