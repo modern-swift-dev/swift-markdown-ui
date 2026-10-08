@@ -11,15 +11,28 @@ import SwiftUI
             let verticalSpacing: CGFloat
         }
 
-        private var key: Key?
-        private var rows: [Row] = []
+        /// A layout pass measures several proposals (ideal, minimum, maximum, and the
+        /// final width) before placing, so a single entry would recompute every time.
+        static let capacity = 4
+
+        /// Ordered from least to most recently used.
+        private var entries: [(key: Key, rows: [Row])] = []
 
         mutating func rows(for key: Key, compute: () -> [Row]) -> [Row] {
-            if self.key != key {
-                self.rows = compute()
-                self.key = key
+            if let index = self.entries.firstIndex(where: { $0.key == key }) {
+                let entry = self.entries[index]
+                if index != self.entries.count - 1 {
+                    self.entries.remove(at: index)
+                    self.entries.append(entry)
+                }
+                return entry.rows
             }
-            return self.rows
+            let rows = compute()
+            if self.entries.count == Self.capacity {
+                self.entries.removeFirst()
+            }
+            self.entries.append((key, rows))
+            return rows
         }
     }
 
