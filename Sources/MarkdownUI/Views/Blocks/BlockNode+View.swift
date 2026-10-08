@@ -20,9 +20,7 @@ extension BlockNode: View {
             case let .heading(level, content):
                 HeadingView(level: level, content: content)
             case let .table(columnAlignments, rows):
-                if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *) {
-                    TableView(columnAlignments: columnAlignments, rows: rows)
-                }
+                TableView(columnAlignments: columnAlignments, rows: rows)
             case .thematicBreak:
                 ThematicBreakView()
         }
