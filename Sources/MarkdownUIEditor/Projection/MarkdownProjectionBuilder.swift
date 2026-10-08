@@ -234,6 +234,8 @@ private struct BlockPresentation {
     private let onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)?
     private let onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
     private let identities = EditorIdentityTree()
+    /// Inline attributes already resolved during this build, including converted fonts.
+    private var attributesByStyle: [InlineStyle: [NSAttributedString.Key: Any]] = [:]
 
     init(
         output: MarkdownProjectionBuilder.Output,
@@ -439,24 +441,48 @@ private struct BlockPresentation {
         }
     }
 
+    /// Inputs that fully determine a block's paragraph style.
+    private struct ParagraphStyleKey: Hashable {
+        var quoteDepth: Int
+        var isListItem: Bool
+        var isTask: Bool
+        /// Lists keep their text list alive through the cached style.
+        var textList: ObjectIdentifier?
+    }
+
+    /// Paragraph styles shared by blocks with the same presentation.
+    private var paragraphStyles: [ParagraphStyleKey: NSParagraphStyle] = [:]
+
     private func paragraphStyle(for presentation: BlockPresentation) -> NSParagraphStyle? {
         guard presentation.quoteDepth > 0 || presentation.listKind != nil else {
             return nil
+        }
+        let isTask = presentation.taskState != nil
+        let textList = isTask ? nil : presentation.textList
+        let key = ParagraphStyleKey(
+            quoteDepth: presentation.quoteDepth,
+            isListItem: presentation.listKind != nil,
+            isTask: isTask,
+            textList: textList.map(ObjectIdentifier.init)
+        )
+        if let style = paragraphStyles[key] {
+            return style
         }
         let style = NSMutableParagraphStyle()
         let quoteIndent = CGFloat(presentation.quoteDepth) * 20
         style.headIndent = quoteIndent + (presentation.listKind == nil ? 0 : 24)
         style.firstLineHeadIndent = quoteIndent
-        if presentation.taskState != nil {
+        if isTask {
             let metrics = MarkdownTaskCheckboxLayer.Metrics(theme: theme)
             style.headIndent = quoteIndent + metrics.gutterWidth
             style.firstLineHeadIndent = style.headIndent
             style.paragraphSpacingBefore = metrics.paragraphSpacing
             style.paragraphSpacing = metrics.paragraphSpacing
         }
-        if let textList = presentation.textList, presentation.taskState == nil {
+        if let textList {
             style.textLists = [textList]
         }
+        paragraphStyles[key] = style
         return style
     }
 
@@ -707,7 +733,7 @@ private struct BlockPresentation {
 }
 
 /// Rendering attributes inherited while walking nested inline nodes.
-private struct InlineStyle {
+private struct InlineStyle: Hashable {
     var isBold = false
     var isItalic = false
     var isCode = false
@@ -758,7 +784,17 @@ private struct InlineStyle {
 private extension BuildState {
     static let markdownEscapablePunctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 
+    /// Attributes for an inline style, resolved once per build.
     func attributes(for style: InlineStyle) -> [NSAttributedString.Key: Any] {
+        if let attributes = attributesByStyle[style] {
+            return attributes
+        }
+        let attributes = makeAttributes(for: style)
+        attributesByStyle[style] = attributes
+        return attributes
+    }
+
+    private func makeAttributes(for style: InlineStyle) -> [NSAttributedString.Key: Any] {
         guard output == .nativeText else {
             return [:]
         }

@@ -196,6 +196,58 @@ import XCTest
         XCTAssertEqual(firstTextList.marker(forItemNumber: 4), "4.")
     }
 
+    func testRepeatedStylesShareResolvedAttributes() throws {
+        let document = MarkdownDocument(markdown: """
+        **one** *two*
+
+        > **three** *four*
+
+        - item one
+        - item two
+        """)
+        let projection = MarkdownProjectionBuilder().build(document: document)
+        let text = projection.attributedString
+        func value(_ key: NSAttributedString.Key, at needle: String) throws -> AnyObject {
+            let range = (projection.string as NSString).range(of: needle)
+            XCTAssertNotEqual(range.location, NSNotFound, needle)
+            return try XCTUnwrap(text.attribute(key, at: range.location, effectiveRange: nil) as AnyObject?)
+        }
+
+        XCTAssertTrue(try value(.font, at: "one") === value(.font, at: "three"))
+        XCTAssertTrue(try value(.font, at: "two") === value(.font, at: "four"))
+        XCTAssertFalse(try value(.font, at: "one") === value(.font, at: "two"))
+        XCTAssertTrue(try value(.paragraphStyle, at: "item one") === value(.paragraphStyle, at: "item two"))
+    }
+
+    func testBlocksProjectTheSameInsideAndOutsideTheirDocument() {
+        let document = ProjectionComparison.richDocument
+        let projection = MarkdownProjectionBuilder().build(document: document, theme: .docC)
+
+        for (index, block) in document.blocks.enumerated() {
+            let units = projection.index.units.filter { $0.path.components.first == .block(index) }
+            guard let first = units.first, let last = units.last else {
+                continue
+            }
+            let range = NSRange(
+                location: first.projectionRange.location,
+                length: last.projectionRange.upperBound - first.projectionRange.location
+            )
+            let fragment = NSMutableAttributedString(attributedString: projection.attributedString.attributedSubstring(from: range))
+            let alone = NSMutableAttributedString(
+                attributedString: MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [block]), theme: .docC).attributedString
+            )
+            for text in [fragment, alone] {
+                text.removeAttribute(.markdownEditorNodePath, range: NSRange(location: 0, length: text.length))
+            }
+            let expected = ProjectionComparison.runs(of: alone)
+            let actual = ProjectionComparison.runs(of: fragment)
+            XCTAssertEqual(actual.map(\.range), expected.map(\.range), "block \(index)")
+            for (actual, expected) in zip(actual, expected) {
+                XCTAssertEqual(actual.attributes, expected.attributes, "block \(index) at \(actual.range)")
+            }
+        }
+    }
+
     func testCheckedTaskStrikethroughIsPresentationOnly() {
         let document = MarkdownDocument(markdown: "- [x] done **bold** `code`\n- [ ] pending ~~deleted~~")
         let projection = MarkdownProjectionBuilder().build(document: document)
