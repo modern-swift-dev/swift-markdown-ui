@@ -9,20 +9,41 @@ actor InlineImageLoader {
         let resolution: DefaultInlineImageProvider.Resolution
     }
 
+    /// A decoded bitmap and the scale that keeps its natural layout size.
+    ///
+    /// Bitmaps decoded below their requested size have a scale below 1, so an `Image` created
+    /// with it measures the same as one created from the full-size bitmap with a scale of 1.
+    struct Decoded: Sendable {
+        let image: CGImage
+        let scale: CGFloat
+    }
+
     struct Resource: Sendable {
         let image: CGImage
+        var scale: CGFloat = 1
         let expiration: Date?
+
+        var decoded: Decoded {
+            Decoded(image: image, scale: scale)
+        }
     }
+
+    /// Responses larger than this are rejected before they are buffered in full.
+    static let maximumResponseByteCount = 50 * 1024 * 1024
+
+    /// Images with more pixels than this (128 MB at 4 bytes per pixel) are decoded at a
+    /// reduced size that keeps their natural layout size, whatever the requested resolution.
+    static let maximumDecodedPixelCount = 32 * 1024 * 1024
 
     static let shared = InlineImageLoader()
 
     private struct Job {
         let key: Key
-        var waiters: [UUID: CheckedContinuation<CGImage, any Error>]
+        var waiters: [UUID: CheckedContinuation<Decoded, any Error>]
     }
 
     private struct CachedImage {
-        let image: CGImage
+        let image: Decoded
         let cost: Int
         let expiration: Date
         var access: UInt64
@@ -73,7 +94,7 @@ actor InlineImageLoader {
         expirationTask?.cancel()
     }
 
-    func image(for key: Key) async throws -> CGImage {
+    func image(for key: Key) async throws -> Decoded {
         try Task.checkCancellation()
         if var cached = cache[key], cached.expiration > now() {
             access &+= 1
@@ -172,7 +193,7 @@ actor InlineImageLoader {
                 insert(resource, for: job.key)
             }
             for continuation in job.waiters.values {
-                continuation.resume(with: result.map(\.image))
+                continuation.resume(with: result.map(\.decoded))
             }
         }
         startPendingLoads()
@@ -206,7 +227,7 @@ actor InlineImageLoader {
             }
         }
         access &+= 1
-        cache[key] = CachedImage(image: image, cost: cost, expiration: expiration, access: access)
+        cache[key] = CachedImage(image: resource.decoded, cost: cost, expiration: expiration, access: access)
         cacheCost += cost
         if memoryPressureObserver == nil {
             memoryPressureObserver = MemoryPressureObserver { [weak self] in
@@ -264,16 +285,40 @@ actor InlineImageLoader {
     }
 
     private static func download(_ key: Key) async throws -> Resource {
-        let (data, response) = try await URLSession.shared.data(from: key.url)
+        // Streaming the body lets oversized responses fail before they are fully buffered.
+        let (bytes, response) = try await URLSession.shared.bytes(from: key.url)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse,
               200 ..< 300 ~= response.statusCode else {
             throw URLError(.badServerResponse)
         }
-        return Resource(
-            image: try decode(data, resolution: key.resolution),
-            expiration: cacheExpiration(for: response)
-        )
+        let data = try await body(of: bytes, expectedContentLength: response.expectedContentLength)
+        let decoded = try decode(data, resolution: key.resolution)
+        return Resource(image: decoded.image, scale: decoded.scale, expiration: cacheExpiration(for: response))
+    }
+
+    /// Collects a response body, rejecting it once its declared or received size exceeds the limit.
+    static func body<Bytes: AsyncSequence>(
+        of bytes: Bytes, expectedContentLength: Int64, limit: Int = maximumResponseByteCount
+    ) async throws -> Data where Bytes.Element == UInt8 {
+        func tooLarge() -> URLError {
+            URLError(.dataLengthExceedsMaximum, userInfo: [
+                NSLocalizedDescriptionKey: "The image response is larger than the \(limit)-byte limit."
+            ])
+        }
+        guard expectedContentLength <= limit else {
+            throw tooLarge()
+        }
+        var body: [UInt8] = []
+        body.reserveCapacity(max(0, Int(expectedContentLength)))
+        for try await byte in bytes {
+            guard body.count < limit else {
+                throw tooLarge()
+            }
+            body.append(byte)
+        }
+        try Task.checkCancellation()
+        return Data(body)
     }
 
     /// Configured once and never mutated afterwards. `DateFormatter` is documented as thread safe
@@ -306,39 +351,48 @@ actor InlineImageLoader {
         return lifetime > 0 ? now.addingTimeInterval(lifetime) : nil
     }
 
-    static func decode(_ data: Data, resolution: DefaultInlineImageProvider.Resolution) throws -> CGImage {
+    static func decode(
+        _ data: Data,
+        resolution: DefaultInlineImageProvider.Resolution,
+        maximumPixelCount: Int = maximumDecodedPixelCount
+    ) throws -> Decoded {
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw URLError(.cannotDecodeContentData)
         }
-        let image: CGImage?
-        switch resolution {
-            case .original:
-                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-                let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)
-                    .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
-                if orientation != .up {
-                    guard let width = properties?[kCGImagePropertyPixelWidth] as? NSNumber,
-                          let height = properties?[kCGImagePropertyPixelHeight] as? NSNumber,
-                          width.intValue > 0, height.intValue > 0 else {
-                        throw URLError(.cannotDecodeContentData)
-                    }
-                    // CGImage has no orientation metadata. Normalize the pixels while
-                    // retaining the source resolution, without first decoding a second bitmap.
-                    image = thumbnail(source, maximumPixelDimension: max(width.intValue, height.intValue))
-                } else {
-                    image = CGImageSourceCreateImageAtIndex(source, 0, [
-                        kCGImageSourceShouldCacheImmediately: true
-                    ] as CFDictionary)
-                }
-            case let .maximumPixelDimension(dimension):
-                image = thumbnail(source, maximumPixelDimension: dimension)
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        guard let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+              width > 0, height > 0 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)
+            .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+
+        // Pixel dimensions come from the header, so oversized images never decode at full size.
+        let longestSide = max(width, height)
+        let layoutLongestSide = switch resolution {
+            case .original: longestSide
+            case let .maximumPixelDimension(dimension): min(longestSide, dimension)
+        }
+        let pixelBudgetScale = (Double(maximumPixelCount) / (Double(width) * Double(height))).squareRoot()
+        let decodedLongestSide = max(1, Int(min(Double(layoutLongestSide), Double(longestSide) * pixelBudgetScale)))
+
+        let image: CGImage? = if decodedLongestSide == longestSide, orientation == .up {
+            CGImageSourceCreateImageAtIndex(source, 0, [
+                kCGImageSourceShouldCacheImmediately: true
+            ] as CFDictionary)
+        } else {
+            // CGImage has no orientation metadata, so thumbnails also normalize the pixels
+            // without first decoding a second bitmap.
+            thumbnail(source, maximumPixelDimension: decodedLongestSide)
         }
         try Task.checkCancellation()
         guard let image else {
             throw URLError(.cannotDecodeContentData)
         }
-        return image
+        let scale = CGFloat(max(image.width, image.height)) / CGFloat(layoutLongestSide)
+        return Decoded(image: image, scale: decodedLongestSide == layoutLongestSide ? 1 : scale)
     }
 
     private static func thumbnail(_ source: CGImageSource, maximumPixelDimension: Int) -> CGImage? {

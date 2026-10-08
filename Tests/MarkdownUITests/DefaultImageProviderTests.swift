@@ -17,11 +17,11 @@
             let window = makeWindow(host)
             defer { window.contentView = nil }
             // The default inline provider requests this same absolute URL/resolution key.
-            let inlineBacking = try await loader.image(for: .init(url: url, resolution: .original))
+            let inlineBacking = try await loader.image(for: .init(url: url, resolution: .original)).image
             try await wait { host.fittingSize == CGSize(width: 80, height: 80) }
             let requests = await probe.requests
             XCTAssertEqual(requests.count, 1)
-            let cachedBacking = try await loader.image(for: .init(url: url, resolution: .original))
+            let cachedBacking = try await loader.image(for: .init(url: url, resolution: .original)).image
             XCTAssertTrue(inlineBacking === cachedBacking)
         }
 
@@ -67,6 +67,20 @@
             let resized = NSHostingView(rootView: DefaultImageView(url: url, loader: imageLoader).frame(width: 40))
             window.contentView = resized
             try await wait { resized.fittingSize == CGSize(width: 40, height: 20) }
+        }
+
+        func testReducedDecodesKeepTheirNaturalLayoutSize() async throws {
+            let data = try BlockImageProbe.encodedImage()
+            let loader = InlineImageLoader(load: { _ in
+                let decoded = try InlineImageLoader.decode(data, resolution: .original, maximumPixelCount: 800)
+                XCTAssertEqual(decoded.image.width, 40)
+                return .init(image: decoded.image, scale: decoded.scale, expiration: nil)
+            })
+            let url = try XCTUnwrap(URL(string: "https://example.com/large"))
+            let host = NSHostingView(rootView: DefaultImageView(url: url, loader: loader))
+            let window = makeWindow(host)
+            defer { window.contentView = nil }
+            try await wait { host.fittingSize == CGSize(width: 80, height: 40) }
         }
 
         func testReappearingKeepsLoadedImageWithoutReloading() async throws {
@@ -118,6 +132,10 @@
 
         init(expiration: TimeInterval? = 60) throws {
             self.expiration = expiration
+            self.data = try Self.encodedImage()
+        }
+
+        static func encodedImage() throws -> Data {
             let context = try XCTUnwrap(CGContext(
                 data: nil, width: 80, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
@@ -127,7 +145,7 @@
             let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
             CGImageDestinationAddImage(destination, image, nil)
             XCTAssertTrue(CGImageDestinationFinalize(destination))
-            self.data = data as Data
+            return data as Data
         }
 
         func load(_ key: InlineImageLoader.Key) async throws -> InlineImageLoader.Resource {
@@ -140,8 +158,10 @@
                     throw error
                 }
             }
+            let decoded = try InlineImageLoader.decode(self.data, resolution: key.resolution)
             return .init(
-                image: try InlineImageLoader.decode(self.data, resolution: key.resolution),
+                image: decoded.image,
+                scale: decoded.scale,
                 expiration: self.expiration.map { Date().addingTimeInterval($0) }
             )
         }

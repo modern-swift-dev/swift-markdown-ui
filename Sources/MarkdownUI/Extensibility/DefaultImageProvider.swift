@@ -22,7 +22,7 @@ public struct DefaultImageProvider: ImageProvider {
 
 struct DefaultImageView: View {
     private enum Phase {
-        case loaded(InlineImageLoader.Key, CGImage)
+        case loaded(InlineImageLoader.Key, InlineImageLoader.Decoded)
         case failed(InlineImageLoader.Key)
     }
 
@@ -73,7 +73,7 @@ struct DefaultImageView: View {
             case let .loaded(key, image) where key == self.key:
                 ResizeToFit {
                     // ImageView supplies the occurrence's accessibility label and link.
-                    Image(image, scale: 1, label: Text("")).resizable()
+                    Image(image.image, scale: image.scale, label: Text("")).resizable()
                 }
             case let .failed(key) where key == self.key:
                 self.failurePlaceholder

@@ -213,6 +213,9 @@ intrinsic layout size. Choose it with the desired display size and screen scale 
 mind. The decoded-image cache budget does not include images retained by visible
 views, downloads in progress, or active decoding allocations.
 
+Whatever the resolution, images with more than 32 megapixels decode at a reduced pixel
+size that keeps their layout size, and responses larger than 50 MB fail to load.
+
 ### Rendering long or streaming documents
 
 ``MarkdownView`` renders blocks eagerly by default, so every update lays out the whole

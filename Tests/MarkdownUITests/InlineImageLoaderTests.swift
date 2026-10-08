@@ -9,14 +9,14 @@ import XCTest
         let probe = LoaderProbe()
         let loader = InlineImageLoader(load: { try await probe.load($0) })
         let key = try key("shared")
-        let first = Task { try await loader.image(for: key) }
-        let second = Task { try await loader.image(for: key) }
+        let first = Task { try await loader.image(for: key).image }
+        let second = Task { try await loader.image(for: key).image }
         try await wait { await probe.started == 1 }
         try await Task.sleep(for: .milliseconds(30))
         await probe.release()
         let firstImage = try await first.value
         let secondImage = try await second.value
-        let cached = try await loader.image(for: key)
+        let cached = try await loader.image(for: key).image
         XCTAssertTrue(firstImage === secondImage)
         XCTAssertTrue(firstImage === cached)
         let started = await probe.started
@@ -160,20 +160,20 @@ import XCTest
         })
         var backings: [WeakReference<CGImage>] = []
         for index in 0 ..< entryCount {
-            var image: CGImage? = try await loader.image(for: key("small-\(index)"))
+            var image: CGImage? = try await loader.image(for: key("small-\(index)")).image
             backings.append(WeakReference(image))
             image = nil
         }
         // Touch the oldest entries so they survive alongside the newest two.
         for index in 0 ..< 2 {
-            let image = try await loader.image(for: key("small-\(index)"))
+            let image = try await loader.image(for: key("small-\(index)")).image
             XCTAssertTrue(image === backings[index].value)
         }
         _ = try await loader.image(for: key("large"))
         try await wait { backings[2 ..< entryCount - 2].allSatisfy { $0.value == nil } }
         for index in [0, 1, entryCount - 2, entryCount - 1] {
             XCTAssertNotNil(backings[index].value)
-            let image = try await loader.image(for: key("small-\(index)"))
+            let image = try await loader.image(for: key("small-\(index)")).image
             XCTAssertTrue(image === backings[index].value, "Recent images should retain their backing")
         }
         await loader.purgeCache()
@@ -186,10 +186,10 @@ import XCTest
         let loader = InlineImageLoader(now: { clock.now }, sleepUntil: { await sleeper.sleep(until: $0) }, load: { key in
             .init(image: try makeImage(), expiration: clock.now.addingTimeInterval(key.url.lastPathComponent == "first" ? 10 : 20))
         })
-        var first: CGImage? = try await loader.image(for: key("first"))
+        var first: CGImage? = try await loader.image(for: key("first")).image
         let expiredBacking = WeakReference(first)
         first = nil
-        var second: CGImage? = try await loader.image(for: key("second"))
+        var second: CGImage? = try await loader.image(for: key("second")).image
         let freshBacking = WeakReference(second)
         second = nil
         XCTAssertNotNil(expiredBacking.value)
@@ -208,7 +208,7 @@ import XCTest
         let probe = LoaderProbe(suspended: false)
         let loader = InlineImageLoader(load: { try await probe.load($0) })
         let key = try key("purged")
-        var image: CGImage? = try await loader.image(for: key)
+        var image: CGImage? = try await loader.image(for: key).image
         let backing = WeakReference(image)
         image = nil
         XCTAssertNotNil(backing.value)
@@ -286,8 +286,8 @@ import XCTest
         let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
         CGImageDestinationAddImage(destination, try makeImage(width: 80, height: 40), nil)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
-        let original = try InlineImageLoader.decode(data as Data, resolution: .original)
-        let thumbnail = try InlineImageLoader.decode(data as Data, resolution: .maximumPixelDimension(20))
+        let original = try InlineImageLoader.decode(data as Data, resolution: .original).image
+        let thumbnail = try InlineImageLoader.decode(data as Data, resolution: .maximumPixelDimension(20)).image
         XCTAssertEqual(original.width, 80)
         XCTAssertEqual(original.height, 40)
         XCTAssertEqual(thumbnail.width, 20)
@@ -296,6 +296,55 @@ import XCTest
             InlineImageProviderContext(provider: DefaultInlineImageProvider()).id,
             InlineImageProviderContext(provider: DefaultInlineImageProvider(resolution: .maximumPixelDimension(20))).id
         )
+    }
+
+    func testPixelBudgetReducesDecodeAndPreservesLayoutSize() throws {
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try makeImage(width: 80, height: 40), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let withinBudget = try InlineImageLoader.decode(data as Data, resolution: .original, maximumPixelCount: 3200)
+        XCTAssertEqual(withinBudget.image.width, 80)
+        XCTAssertEqual(withinBudget.scale, 1)
+
+        let original = try InlineImageLoader.decode(data as Data, resolution: .original, maximumPixelCount: 800)
+        XCTAssertEqual(original.image.width, 40)
+        XCTAssertEqual(original.image.height, 20)
+        XCTAssertEqual(CGFloat(original.image.width) / original.scale, 80)
+        XCTAssertEqual(CGFloat(original.image.height) / original.scale, 40)
+
+        // The budget also bounds explicit dimensions, keeping their requested layout size.
+        let limited = try InlineImageLoader.decode(
+            data as Data, resolution: .maximumPixelDimension(60), maximumPixelCount: 800
+        )
+        XCTAssertEqual(limited.image.width, 40)
+        XCTAssertEqual(CGFloat(limited.image.width) / limited.scale, 60, accuracy: 0.001)
+        XCTAssertEqual(CGFloat(limited.image.height) / limited.scale, 30, accuracy: 0.001)
+    }
+
+    func testResponseBodyRejectsDeclaredAndReceivedSizesOverLimit() async throws {
+        func bytes(_ count: Int) -> AsyncStream<UInt8> {
+            AsyncStream { continuation in
+                for index in 0 ..< count {
+                    continuation.yield(UInt8(truncatingIfNeeded: index))
+                }
+                continuation.finish()
+            }
+        }
+        let body = try await InlineImageLoader.body(of: bytes(10), expectedContentLength: 10, limit: 10)
+        XCTAssertEqual(body, Data((0 ..< 10).map { UInt8($0) }))
+        let unknownLength = try await InlineImageLoader.body(of: bytes(10), expectedContentLength: -1, limit: 10)
+        XCTAssertEqual(unknownLength.count, 10)
+
+        for (count, expectedLength) in [(1, Int64(11)), (11, Int64(-1)), (11, Int64(5))] {
+            do {
+                _ = try await InlineImageLoader.body(of: bytes(count), expectedContentLength: expectedLength, limit: 10)
+                XCTFail("Expected an oversized response to be rejected")
+            } catch let error as URLError {
+                XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+            }
+        }
     }
 
     private func key(_ name: String) throws -> InlineImageLoader.Key {

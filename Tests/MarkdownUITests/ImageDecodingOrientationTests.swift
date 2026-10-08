@@ -19,12 +19,18 @@ final class ImageDecodingOrientationTests: XCTestCase {
         for (orientation, expectedColors, swapsAxes) in cases {
             let data = try encodedImage(orientation: orientation)
             for resolution in resolutions {
-                let image = try InlineImageLoader.decode(data, resolution: resolution)
+                let image = try InlineImageLoader.decode(data, resolution: resolution).image
                 let longest = resolution == .original ? 80 : 40
                 XCTAssertEqual(image.width, swapsAxes ? longest / 2 : longest, "Orientation \(orientation)")
                 XCTAssertEqual(image.height, swapsAxes ? longest : longest / 2, "Orientation \(orientation)")
                 XCTAssertEqual(try quadrantColors(image), expectedColors, "Orientation \(orientation), \(resolution)")
             }
+            // Decoding above the pixel budget also normalizes orientation and keeps the layout size.
+            let reduced = try InlineImageLoader.decode(data, resolution: .original, maximumPixelCount: 800)
+            XCTAssertEqual(reduced.image.width, swapsAxes ? 20 : 40, "Orientation \(orientation)")
+            XCTAssertEqual(reduced.image.height, swapsAxes ? 40 : 20, "Orientation \(orientation)")
+            XCTAssertEqual(reduced.scale, 0.5, "Orientation \(orientation)")
+            XCTAssertEqual(try quadrantColors(reduced.image), expectedColors, "Orientation \(orientation), reduced")
         }
     }
 

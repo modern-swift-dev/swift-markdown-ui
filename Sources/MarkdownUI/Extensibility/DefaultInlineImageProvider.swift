@@ -22,12 +22,12 @@ public struct DefaultInlineImageProvider: InlineImageProvider {
     }
 
     public func image(with url: URL, label: String) async throws -> Image {
-        let image = try await InlineImageLoader.shared.image(for: .init(
+        let decoded = try await InlineImageLoader.shared.image(for: .init(
             url: url.absoluteURL, resolution: resolution
         ))
         try Task.checkCancellation()
         // Labels belong to occurrences, not cached backing images.
-        return Image(image, scale: 1, label: Text(label))
+        return Image(decoded.image, scale: decoded.scale, label: Text(label))
     }
 }
 
