@@ -366,16 +366,47 @@ extension MarkdownEditingEngine {
 private extension MarkdownEditingEngine {
     static func mergeAdjacent(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
         var result: [MarkdownInline] = []
+        result.reserveCapacity(inlines.count)
+        // Text and code runs grow in their own buffers. Concatenating through
+        // `result.last` would copy the whole run for every adjacent fragment.
+        var pendingText: String?
+        var pendingCode: String?
+        func flush() {
+            if let text = pendingText {
+                result.append(.text(text))
+            } else if let code = pendingCode {
+                result.append(.code(code))
+            }
+            pendingText = nil
+            pendingCode = nil
+        }
         for inline in inlines {
-            if case .text("") = inline {
-                continue
+            switch inline {
+                case .text(""):
+                    continue
+                case let .text(text):
+                    if pendingText == nil {
+                        flush()
+                        pendingText = text
+                    } else {
+                        pendingText? += text
+                    }
+                    continue
+                case let .code(text):
+                    if pendingCode == nil {
+                        flush()
+                        pendingCode = text
+                    } else {
+                        pendingCode? += text
+                    }
+                    continue
+                default:
+                    flush()
             }
             let merged: MarkdownInline? = switch (result.last, inline) {
-                case let (.text(previous)?, .text(text)): .text(previous + text)
                 case let (.strong(previous)?, .strong(children)): .strong(normalized(previous + children))
                 case let (.emphasis(previous)?, .emphasis(children)): .emphasis(normalized(previous + children))
                 case let (.strikethrough(previous)?, .strikethrough(children)): .strikethrough(normalized(previous + children))
-                case let (.code(previous)?, .code(text)): .code(previous + text)
                 case let (.link(oldDestination, oldTitle, previous)?, .link(destination, title, children))
                 where oldDestination == destination && oldTitle == title:
                     .link(destination: destination, title: title, children: normalized(previous + children))
@@ -387,6 +418,7 @@ private extension MarkdownEditingEngine {
                 result.append(inline)
             }
         }
+        flush()
         return result
     }
 
@@ -489,8 +521,20 @@ private extension MarkdownEditingEngine {
         }
     }
 
+    /// The UTF-16 length of an inline's plain text, measured without building it.
     static func inlineLength(_ inline: MarkdownInline) -> Int {
-        plainText([inline]).utf16.count
+        switch inline {
+            case let .text(text),
+                 let .code(text),
+                 let .html(text): text.utf16.count
+            case .softBreak,
+                 .lineBreak,
+                 .image: 1
+            case let .emphasis(children),
+                 let .strong(children),
+                 let .strikethrough(children),
+                 let .link(_, _, children): children.reduce(0) { $0 + inlineLength($1) }
+        }
     }
 
     static func plainText(_ inlines: [MarkdownInline]) -> String {

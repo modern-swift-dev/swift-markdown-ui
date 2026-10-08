@@ -2,6 +2,39 @@
 import XCTest
 
 final class MarkdownEditingTests: XCTestCase {
+    func testNormalizationMergesAdjacentTextAndCodeRuns() {
+        XCTAssertEqual(
+            MarkdownEditingEngine.normalized([
+                .text("a"), .text(""), .code("b"), .code("c"), .text("d"), .text("é"),
+                .strong([.text("x")]), .strong([.text("y")]), .code(""), .text("z"), .softBreak, .text("w")
+            ]),
+            [.text("a"), .code("bc"), .text("dé"), .strong([.text("xy")]), .code(""), .text("z"), .softBreak, .text("w")]
+        )
+        let digits = (0 ..< 2000).map { "\($0 % 10)" }
+        XCTAssertEqual(MarkdownEditingEngine.normalized(digits.map(MarkdownInline.text)), [.text(digits.joined())])
+    }
+
+    func testInlineCommandsMeasureNestedImagesAndSurrogatePairs() {
+        let document = MarkdownDocument(blocks: [.paragraph([
+            .text("👍"),
+            .image(source: "i.png", title: nil, children: [.text("alt")]),
+            .strong([.text("b😀c")]),
+            .softBreak,
+            .link(destination: "https://example.com", title: nil, children: [.emphasis([.text("é")])])
+        ])])
+        let result = MarkdownEditingEngine.apply(
+            .toggleInline(.strikethrough),
+            to: document,
+            selection: MarkdownLogicalSelection(path: .block(0), utf16Offset: 4, utf16Length: 5)
+        )
+        XCTAssertEqual(result.document.blocks, [.paragraph([
+            .text("👍"),
+            .image(source: "i.png", title: nil, children: [.text("alt")]),
+            .strong([.text("b")]),
+            .strikethrough([.strong([.text("😀c")]), .softBreak, .link(destination: "https://example.com", title: nil, children: [.emphasis([.text("é")])])])
+        ])])
+    }
+
     func testNoOpEditsKeepSharingTheOriginalBlockStorage() {
         let document = MarkdownDocument(markdown: """
         Intro
