@@ -221,6 +221,8 @@ public struct MarkdownView: View {
         let blocks = self.blocks
         return TextStyleAttributesReader { attributes in
             BlockSequence(blocks, renderingMode: self.blockRenderingMode)
+                // Marker alignment is internal to each list and never leaves the view.
+                .resetMarkerWidth()
                 .foregroundColor(attributes.foregroundColor)
                 .background(attributes.backgroundColor)
                 .modifier(ScaledFontSizeModifier(attributes.fontProperties?.size))

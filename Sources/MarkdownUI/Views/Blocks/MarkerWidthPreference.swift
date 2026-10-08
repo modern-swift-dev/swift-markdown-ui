@@ -12,6 +12,11 @@ extension View {
     func onMarkerWidthChange(perform action: @escaping (CGFloat?) -> Void) -> some View {
         self.onPreferenceChange(MarkerWidthPreference.self, perform: action)
     }
+
+    /// Stops marker widths measured inside this view from reaching enclosing lists.
+    func resetMarkerWidth() -> some View {
+        self.transformPreference(MarkerWidthPreference.self) { $0 = nil }
+    }
 }
 
 struct MarkerWidthPreference: PreferenceKey {

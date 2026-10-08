@@ -47,5 +47,7 @@ struct NumberedListView: View {
                 self.markerWidth = width
             }
         }
+        // Marker widths belong to this list, not to an enclosing numbered list.
+        .resetMarkerWidth()
     }
 }
