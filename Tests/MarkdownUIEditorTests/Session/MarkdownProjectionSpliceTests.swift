@@ -379,6 +379,51 @@ import XCTest
         }
     }
 
+    func testUnchangedTablesKeepTheirAttachmentsWhenRenderedAgain() throws {
+        let (session, bridge) = makeSession()
+        let tables = attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self)
+        XCTAssertEqual(tables.count, 2)
+        let quoteIndex = try XCTUnwrap(session.document.blocks.lastIndex {
+            if case .blockquote = $0 {
+                true
+            } else {
+                false
+            }
+        })
+        guard case let .blockquote(children) = session.document.blocks[quoteIndex] else {
+            return XCTFail("Expected the quoted table")
+        }
+        var document = session.document
+        document.blocks[quoteIndex] = .blockquote([.paragraph([.text("Above")])] + children)
+        bridge.resetReplacements()
+        session.replaceDocument(document)
+        assertMatchesFullProjection(session, bridge, "quote around table")
+        XCTAssertTrue(attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self).elementsEqual(tables, by: ===))
+
+        // A kept attachment reports edits at its new path.
+        tables[1].controller.updateCell(at: MarkdownTableCellPosition(section: .body(row: 0), column: 1), source: "kept")
+        XCTAssertTrue(session.document.markdown.contains("|a|kept|"), session.document.markdown)
+        assertMatchesFullProjection(session, bridge, "kept table edit", requiresSplice: false)
+
+        session.replaceTheme(.gitHub)
+        assertMatchesFullProjection(session, bridge, "theme", requiresSplice: false)
+        XCTAssertTrue(attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self).elementsEqual(tables, by: ===))
+
+        // A changed table gets a new attachment.
+        var changed = session.document
+        guard case var .table(table) = changed.blocks[quoteIndex - 2] else {
+            return XCTFail("Expected the first table")
+        }
+        table.rows.removeLast()
+        changed.blocks[quoteIndex - 2] = .table(table)
+        bridge.resetReplacements()
+        session.replaceDocument(changed)
+        assertMatchesFullProjection(session, bridge, "changed table")
+        let replaced = attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self)
+        XCTAssertFalse(replaced[0] === tables[0])
+        XCTAssertTrue(replaced[1] === tables[1])
+    }
+
     func testConfigurationChangesStillReplaceAllText() {
         let (session, bridge) = makeSession()
         session.synchronizeFromBinding(

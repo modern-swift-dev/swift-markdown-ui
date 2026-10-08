@@ -620,6 +620,36 @@ import XCTest
             XCTAssertGreaterThan(wrappingField.intrinsicContentSize.height, shortField.intrinsicContentSize.height)
         }
 
+        func testAppKitUnchangedTableKeepsItsGridWhenRenderedAgain() throws {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+            editor.document = MarkdownDocument(markdown: "> Before\n>\n> | A | B |\n> | - | - |\n> | a | b |\n\nAfter")
+            let window = NSWindow(contentRect: editor.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = editor
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            let manager = try XCTUnwrap(editor.textLayoutManager)
+            func layout() -> [AppKitMarkdownTableGridView] {
+                manager.ensureLayout(for: manager.documentRange)
+                editor.layoutSubtreeIfNeeded()
+                return subviews(of: AppKitMarkdownTableGridView.self, in: editor)
+            }
+            let grid = try XCTUnwrap(layout().first)
+
+            // Styling the quoted paragraph renders its whole block, table included, again.
+            editor.setSelectedRange(NSRange(location: 0, length: 6))
+            editor.editingSession.perform(.toggleInline(.strong))
+            XCTAssertTrue(editor.document.markdown.contains("**Before**"))
+            XCTAssertTrue(try XCTUnwrap(layout().first) === grid)
+            XCTAssertEqual(layout().count, 1)
+
+            editor.editorTheme = .gitHub
+            XCTAssertTrue(try XCTUnwrap(layout().first) === grid)
+            XCTAssertEqual(layout().count, 1)
+            XCTAssertNotNil(grid.window)
+            XCTAssertGreaterThan(grid.frame.height, 0)
+        }
+
         func testAppKitTextViewLaysOutEveryTableCell() throws {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             textView.frame = NSRect(x: 0, y: 0, width: 620, height: 300)
@@ -900,6 +930,37 @@ import XCTest
             XCTAssertGreaterThanOrEqual(try afterTop() - initialAfterTop, grid.bounds.height - initialHeight - 1)
         }
 
+        func testUIKitUnchangedTableKeepsItsGridWhenRenderedAgain() throws {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = CGRect(x: 0, y: 0, width: 358, height: 600)
+            editor.document = MarkdownDocument(markdown: "> Before\n>\n> | A | B |\n> | - | - |\n> | a | b |\n\nAfter")
+            let window = UIWindow(frame: editor.frame)
+            window.rootViewController = UIViewController()
+            window.rootViewController?.view.addSubview(editor)
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+            let manager = try XCTUnwrap(editor.textLayoutManager)
+            func layout() -> [UIKitMarkdownTableGridView] {
+                manager.ensureLayout(for: manager.documentRange)
+                editor.layoutIfNeeded()
+                return subviews(of: UIKitMarkdownTableGridView.self, in: editor)
+            }
+            let grid = try XCTUnwrap(layout().first)
+
+            // Styling the quoted paragraph renders its whole block, table included, again.
+            editor.selectedRange = NSRange(location: 0, length: 6)
+            editor.editingSession.perform(.toggleInline(.strong))
+            XCTAssertTrue(editor.document.markdown.contains("**Before**"))
+            XCTAssertTrue(try XCTUnwrap(layout().first) === grid)
+            XCTAssertEqual(layout().count, 1)
+
+            editor.editorTheme = .gitHub
+            XCTAssertTrue(try XCTUnwrap(layout().first) === grid)
+            XCTAssertEqual(layout().count, 1)
+            XCTAssertNotNil(grid.window)
+            XCTAssertGreaterThan(grid.bounds.height, 0)
+        }
+
         func testUIKitViewProviderConstructsNativeGrid() throws {
             let attachment = MarkdownTableAttachment(table: makeTable())
             let contentStorage = NSTextContentStorage()
@@ -1058,6 +1119,11 @@ import XCTest
     }
 
     #if canImport(AppKit)
+        private func subviews<View: NSView>(of type: View.Type, in rootView: NSView) -> [View] {
+            let current = (rootView as? View).map { [$0] } ?? []
+            return current + rootView.subviews.flatMap { self.subviews(of: type, in: $0) }
+        }
+
         private func firstSubview<View: NSView>(of type: View.Type, in rootView: NSView) -> View? {
             if let view = rootView as? View {
                 return view

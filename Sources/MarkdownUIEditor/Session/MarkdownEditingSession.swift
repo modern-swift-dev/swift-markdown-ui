@@ -267,8 +267,7 @@ import Foundation
             guard themeChanged || objectsChanged else {
                 return
             }
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: bridge?.markdownSelectedRanges ?? [])
+            installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
         }
 
         /// Rebuilds the projection with a new attribute theme.
@@ -278,8 +277,7 @@ import Foundation
                 return
             }
             theme = replacement
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: bridge?.markdownSelectedRanges ?? [])
+            installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
         }
 
         func replaceObjectConfiguration(
@@ -291,8 +289,7 @@ import Foundation
             }
             self.baseURL = baseURL
             self.imageProvider = imageProvider
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: bridge?.markdownSelectedRanges ?? [])
+            installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
         }
 
         /// Updates native typing attributes for the semantic run at the caret.
@@ -558,6 +555,23 @@ import Foundation
             )
         }
 
+        /// Replaces all native text with a full projection, keeping unchanged tables' attachments.
+        func installFullProjection(selectedRanges: @autoclosure () -> [NSRange]) {
+            let tables = bridge.map { bridge in
+                let text = bridge.markdownTextStorage
+                return MarkdownProjectionBuilder.ReusableTables(in: text, range: NSRange(location: 0, length: text.length))
+            }
+            projection = MarkdownProjectionBuilder().build(
+                document: document,
+                theme: theme,
+                baseURL: baseURL,
+                imageProvider: imageProvider,
+                callbacks: projectionCallbacks,
+                reusing: tables
+            )
+            installProjection(projection, selectedRanges: selectedRanges())
+        }
+
         var projectionCallbacks: MarkdownProjectionBuilder.Callbacks {
             MarkdownProjectionBuilder.Callbacks(
                 onTableChange: { [weak self] path, table in
@@ -596,8 +610,7 @@ import Foundation
             guard let bridge, !needsFullProjection, !needsCompositionFlush, !bridge.markdownHasMarkedText,
                   bridge.markdownTextStorage.length == projection.index.projectionUTF16Length + (edit?.projectionDelta ?? 0),
                   edit.map({ projection.index.unit(at: $0.path) != nil && $0.path.rootBlockIndex != nil }) ?? true else {
-                projection = makeProjection(document: document)
-                installProjection(projection, selectedRanges: selectedRanges())
+                installFullProjection(selectedRanges: selectedRanges())
                 return
             }
             struct Replacement {
@@ -610,9 +623,20 @@ import Foundation
             // so replacements are recorded first and applied in the same order.
             var replacements: [Replacement] = []
             var blockDelta = 0
+            var lengthDelta = 0
+            let textStorage = bridge.markdownTextStorage
             for change in projection.changedBlocks(in: document, forcing: editedBlock) {
                 let span = projection.index.blockSpan(
                     change.old.lowerBound + blockDelta ..< change.old.upperBound + blockDelta
+                )
+                var range = span.projection.nsRange
+                if let edit, let editedBlock, change.old.contains(editedBlock) {
+                    range.length += edit.projectionDelta
+                }
+                // Unchanged tables in the replaced text keep their attachments and grids.
+                let tables = MarkdownProjectionBuilder.ReusableTables(
+                    in: textStorage,
+                    range: NSRange(location: range.location - lengthDelta, length: range.length)
                 )
                 let fragment = MarkdownProjectionBuilder().build(
                     blocks: change.new,
@@ -622,12 +646,10 @@ import Foundation
                     theme: theme,
                     baseURL: baseURL,
                     imageProvider: imageProvider,
-                    callbacks: projectionCallbacks
+                    callbacks: projectionCallbacks,
+                    reusing: tables
                 )
-                var range = span.projection.nsRange
-                if let edit, let editedBlock, change.old.contains(editedBlock) {
-                    range.length += edit.projectionDelta
-                }
+                lengthDelta += fragment.attributedString.length - range.length
                 let changeDelta = change.new.count - change.old.count
                 replacements.append(Replacement(range: range, text: fragment.attributedString, blockDelta: changeDelta))
                 projection.index.replaceBlocks(
@@ -640,16 +662,16 @@ import Foundation
                 blockDelta += changeDelta
             }
             let ranges = restoredRanges(selectedRanges(), in: projection)
-            let textStorage = bridge.markdownTextStorage
             isUpdatingBridge = true
-            for replacement in replacements {
+            blockDelta = 0
+            for (offset, replacement) in replacements.enumerated() {
                 bridge.replaceAttributedCharacters(in: replacement.range, with: replacement.text)
-                if replacement.blockDelta != 0 {
-                    shiftAttachmentPaths(
-                        after: replacement.range.location + replacement.text.length,
-                        by: replacement.blockDelta,
-                        in: textStorage
-                    )
+                // Rendered attachments already have their paths, so only kept text moves.
+                blockDelta += replacement.blockDelta
+                let keptStart = replacement.range.location + replacement.text.length
+                let keptEnd = offset + 1 < replacements.count ? replacements[offset + 1].range.location : textStorage.length
+                if blockDelta != 0 {
+                    shiftAttachmentPaths(in: NSRange(location: keptStart, length: keptEnd - keptStart), by: blockDelta, in: textStorage)
                 }
             }
             projection.didRenderChangedBlocks(of: document, in: textStorage)
@@ -662,8 +684,7 @@ import Foundation
         }
 
         /// Keeps callbacks of attachments after inserted or removed blocks pointing at their blocks.
-        func shiftAttachmentPaths(after location: Int, by blockDelta: Int, in textStorage: NSTextStorage) {
-            let range = NSRange(location: location, length: textStorage.length - location)
+        func shiftAttachmentPaths(in range: NSRange, by blockDelta: Int, in textStorage: NSTextStorage) {
             textStorage.enumerateAttribute(.attachment, in: range) { value, _, _ in
                 let reference = (value as? MarkdownTableAttachment)?.pathReference
                     ?? (value as? MarkdownImageAttachment)?.pathReference
@@ -988,8 +1009,7 @@ import Foundation
         /// leaf's block rendered again. Edits located by guessing rebuild everything.
         func rebuildAfterUnsafeNativeEdit(selectedRanges: [NSRange], rejecting edit: PendingNativeEdit? = nil) {
             guard let edit else {
-                projection = makeProjection(document: document)
-                installProjection(projection, selectedRanges: selectedRanges)
+                installFullProjection(selectedRanges: selectedRanges)
                 return
             }
             refreshProjection(selectedRanges: selectedRanges, rejecting: edit)

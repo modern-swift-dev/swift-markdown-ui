@@ -76,6 +76,8 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     var onPresentationChange: (() -> Void)?
     var activeTypingAttributes: [NSAttributedString.Key: Any] = [:]
     var onTypingAttributesChange: (([NSAttributedString.Key: Any]) -> Void)?
+    /// The grid most recently loaded for this table and the layout showing it.
+    private var loadedGrid: (view: AnyObject, textLayoutManager: ObjectIdentifier)?
 
     func setTypingAttributes(_ attributes: [NSAttributedString.Key: Any]) {
         onTypingAttributesChange?(attributes)
@@ -94,6 +96,23 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     ) {
         activeSelection = selection
         onSelectionChange = onChange
+    }
+
+    /// Returns the grid last loaded for this table into a text layout manager, or a new one.
+    ///
+    /// TextKit loads a new view whenever an attachment's text is replaced, even
+    /// with the same attachment, so an unchanged table kept by a projection
+    /// update keeps its grid, measured cells, and editing state.
+    func grid<Grid: AnyObject>(in textLayoutManager: ObjectIdentifier?, make: () -> Grid) -> Grid {
+        guard let textLayoutManager else {
+            return make()
+        }
+        if let loadedGrid, loadedGrid.textLayoutManager == textLayoutManager, let grid = loadedGrid.view as? Grid {
+            return grid
+        }
+        let grid = make()
+        loadedGrid = (grid, textLayoutManager)
+        return grid
     }
 
     /// Replaces the remembered nested selection without reporting it.
@@ -759,8 +778,11 @@ private enum MarkdownTableCellSourceCodec {
             }
             let controller = attachment.controller
             let maximumWidth = availableWidth
+            let textLayoutManager = textLayoutManager.map(ObjectIdentifier.init)
             let grid = MainActor.assumeIsolated {
-                UIKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+                controller.grid(in: textLayoutManager) {
+                    UIKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+                }
             }
             MainActor.assumeIsolated {
                 let size = grid.intrinsicContentSize
@@ -1198,8 +1220,11 @@ private enum MarkdownTableCellSourceCodec {
             }
             let controller = attachment.controller
             let maximumWidth = availableWidth
+            let textLayoutManager = textLayoutManager.map(ObjectIdentifier.init)
             let grid = MainActor.assumeIsolated {
-                AppKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+                controller.grid(in: textLayoutManager) {
+                    AppKitMarkdownTableGridView(controller: controller, maximumWidth: maximumWidth)
+                }
             }
             MainActor.assumeIsolated {
                 let size = grid.intrinsicContentSize

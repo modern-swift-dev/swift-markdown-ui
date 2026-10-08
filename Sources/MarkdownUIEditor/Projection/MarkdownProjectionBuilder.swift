@@ -206,6 +206,31 @@ struct ChangedBlocks: Equatable {
         var onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
     }
 
+    /// Table attachments in text being replaced, which equal tables render with again.
+    ///
+    /// Keeping the attachment keeps its loaded grid, so an unchanged table inside
+    /// rebuilt text is not measured and laid out from scratch.
+    @MainActor final class ReusableTables {
+        private var attachments: [MarkdownTable: [MarkdownTableAttachment]] = [:]
+
+        init(in text: NSAttributedString, range: NSRange) {
+            text.enumerateAttribute(.attachment, in: range) { value, _, _ in
+                if let attachment = value as? MarkdownTableAttachment, attachment.pathReference != nil {
+                    attachments[attachment.table, default: []].append(attachment)
+                }
+            }
+        }
+
+        /// Removes and returns an attachment showing `table`.
+        func take(_ table: MarkdownTable) -> MarkdownTableAttachment? {
+            guard let attachment = attachments[table]?.first else {
+                return nil
+            }
+            attachments[table]?.removeFirst()
+            return attachment
+        }
+    }
+
     /// Renders a complete document. Full builds are reserved for structural or configuration changes.
     func build(
         document: MarkdownDocument,
@@ -239,7 +264,8 @@ struct ChangedBlocks: Equatable {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
-        callbacks: Callbacks
+        callbacks: Callbacks,
+        reusing tables: ReusableTables? = nil
     ) -> DocumentProjection {
         let fragment = build(
             blocks: document.blocks.indices,
@@ -250,7 +276,8 @@ struct ChangedBlocks: Equatable {
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
-            callbacks: callbacks
+            callbacks: callbacks,
+            reusing: tables
         )
         return DocumentProjection(
             attributedString: fragment.attributedString,
@@ -276,7 +303,8 @@ struct ChangedBlocks: Equatable {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
-        callbacks: Callbacks
+        callbacks: Callbacks,
+        reusing tables: ReusableTables? = nil
     ) -> ProjectionFragment {
         let state = BuildState(
             output: output,
@@ -284,6 +312,7 @@ struct ChangedBlocks: Equatable {
             baseURL: baseURL,
             imageProvider: imageProvider,
             callbacks: callbacks,
+            reusableTables: tables,
             projectionOrigin: projectionOrigin,
             sourceOrigin: sourceOrigin
         )
@@ -357,6 +386,7 @@ private struct BlockPresentation {
     private let baseURL: URL?
     private let imageProvider: (any MarkdownEditorImageProvider)?
     private let callbacks: MarkdownProjectionBuilder.Callbacks
+    private let reusableTables: MarkdownProjectionBuilder.ReusableTables?
     private let identities = EditorIdentityTree()
     /// Inline attributes already resolved during this build, including converted fonts.
     private var attributesByStyle: [InlineStyle: [NSAttributedString.Key: Any]] = [:]
@@ -367,6 +397,7 @@ private struct BlockPresentation {
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
         callbacks: MarkdownProjectionBuilder.Callbacks,
+        reusableTables: MarkdownProjectionBuilder.ReusableTables?,
         projectionOrigin: Int,
         sourceOrigin: Int
     ) {
@@ -375,6 +406,7 @@ private struct BlockPresentation {
         self.baseURL = baseURL
         self.imageProvider = imageProvider
         self.callbacks = callbacks
+        self.reusableTables = reusableTables
         self.projectionOrigin = projectionOrigin
         self.projectionLength = projectionOrigin
         self.sourceLength = sourceOrigin
@@ -453,11 +485,13 @@ private struct BlockPresentation {
                         appendObjectPlaceholder(source: markdown, kind: "table")
                         return
                     }
-                    let reference = EditorPathReference(path)
-                    let attachment = MarkdownTableAttachment(table: table) { [onTableChange = callbacks.onTableChange] table in
+                    let attachment = reusableTables?.take(table) ?? MarkdownTableAttachment(table: table)
+                    let reference = attachment.pathReference ?? EditorPathReference(path)
+                    reference.path = path
+                    attachment.pathReference = reference
+                    attachment.onChange = { [onTableChange = callbacks.onTableChange] table in
                         onTableChange?(reference.path, table)
                     }
-                    attachment.pathReference = reference
                     if let onTableSelectionChange = callbacks.onTableSelectionChange {
                         attachment.controller.configureSelection(callbacks.tableSelection?(path)) { selection in
                             onTableSelectionChange(reference.path, selection)
