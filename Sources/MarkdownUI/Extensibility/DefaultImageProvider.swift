@@ -48,6 +48,11 @@ struct DefaultImageView: View {
                 self.phase = nil
                 return
             }
+            // The task also restarts when a lazy container shows this view again;
+            // keep the image the state already holds instead of reloading it.
+            if case let .loaded(loadedKey, _) = self.phase, loadedKey == key {
+                return
+            }
             // Release any backing image from the previous resource while loading.
             self.phase = nil
             do {

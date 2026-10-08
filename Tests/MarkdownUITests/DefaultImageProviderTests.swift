@@ -69,6 +69,26 @@
             try await wait { resized.fittingSize == CGSize(width: 40, height: 20) }
         }
 
+        func testReappearingKeepsLoadedImageWithoutReloading() async throws {
+            let probe = try BlockImageProbe(expiration: nil)
+            let loader = InlineImageLoader(load: { try await probe.load($0) })
+            let url = try XCTUnwrap(URL(string: "https://example.com/image"))
+            let host = NSHostingView(rootView: DefaultImageView(url: url, loader: loader))
+            let window = makeWindow(host)
+            defer { window.contentView = nil }
+            try await wait { host.fittingSize == CGSize(width: 80, height: 40) }
+
+            // Detaching and reattaching the hosting view keeps its state but restarts its tasks.
+            window.contentView = NSView()
+            try await Task.sleep(for: .milliseconds(50))
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(host.fittingSize, CGSize(width: 80, height: 40))
+            let requests = await probe.requests
+            XCTAssertEqual(requests.count, 1)
+        }
+
         private func makeWindow(_ view: NSView) -> NSWindow {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
@@ -94,8 +114,10 @@
         private(set) var requests: [InlineImageLoader.Key] = []
         private(set) var cancellations = 0
         private let data: Data
+        private let expiration: TimeInterval?
 
-        init() throws {
+        init(expiration: TimeInterval? = 60) throws {
+            self.expiration = expiration
             let context = try XCTUnwrap(CGContext(
                 data: nil, width: 80, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
@@ -120,7 +142,7 @@
             }
             return .init(
                 image: try InlineImageLoader.decode(self.data, resolution: key.resolution),
-                expiration: Date().addingTimeInterval(60)
+                expiration: self.expiration.map { Date().addingTimeInterval($0) }
             )
         }
     }
