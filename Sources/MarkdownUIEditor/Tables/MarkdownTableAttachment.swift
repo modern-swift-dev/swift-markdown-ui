@@ -766,6 +766,8 @@ private enum MarkdownTableCellSourceCodec {
 
     @MainActor final class UIKitMarkdownTableGridView: UIView, UITextViewDelegate {
         private(set) var attachmentResizeCount = 0
+        /// Character range whose layout the most recent resize invalidated.
+        private(set) var invalidatedAttachmentRange: NSRange?
         private let controller: MarkdownTableController
         private var maximumWidth: CGFloat?
         private let stack = UIStackView()
@@ -1012,7 +1014,7 @@ private enum MarkdownTableCellSourceCodec {
                 while let view = ancestor {
                     if let editor = view as? MarkdownTextView {
                         if let manager = editor.textLayoutManager {
-                            manager.invalidateLayout(for: manager.documentRange)
+                            invalidateAttachmentLayout(in: editor, manager: manager)
                         }
                         editor.setNeedsLayout()
                         break
@@ -1020,6 +1022,29 @@ private enum MarkdownTableCellSourceCodec {
                     ancestor = view.superview
                 }
             }
+        }
+
+        /// Invalidates only the fragment holding this table; later fragments move during relayout.
+        private func invalidateAttachmentLayout(in editor: MarkdownTextView, manager: NSTextLayoutManager) {
+            let storage = editor.textStorage
+            var attachmentRange: NSRange?
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+                if (value as? MarkdownTableAttachment)?.controller === controller {
+                    attachmentRange = NSRange(location: range.location, length: 1)
+                    stop.pointee = true
+                }
+            }
+            guard let attachmentRange,
+                  let contentManager = manager.textContentManager,
+                  let start = contentManager.location(manager.documentRange.location, offsetBy: attachmentRange.location),
+                  let end = contentManager.location(start, offsetBy: attachmentRange.length),
+                  let textRange = NSTextRange(location: start, end: end) else {
+                invalidatedAttachmentRange = nil
+                manager.invalidateLayout(for: manager.documentRange)
+                return
+            }
+            invalidatedAttachmentRange = attachmentRange
+            manager.invalidateLayout(for: textRange)
         }
 
         private func rebuildIfNeededAndFocus(_ position: MarkdownTableCellPosition) {

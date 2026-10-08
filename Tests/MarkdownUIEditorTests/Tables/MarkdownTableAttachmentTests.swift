@@ -863,6 +863,43 @@ import XCTest
             XCTAssertFalse(editor.editingSession.hasActiveTableSelection)
         }
 
+        func testUIKitTableGrowthInvalidatesOnlyItsAttachmentAndMovesLaterText() throws {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = CGRect(x: 0, y: 0, width: 358, height: 800)
+            editor.document = MarkdownDocument(markdown: "Before\n\n| A | B |\n| - | - |\n| a | b |\n\nAfter")
+            let window = UIWindow(frame: editor.frame)
+            window.rootViewController = UIViewController()
+            window.rootViewController?.view.addSubview(editor)
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+            let manager = try XCTUnwrap(editor.textLayoutManager)
+            let contentManager = try XCTUnwrap(manager.textContentManager)
+            func layout() {
+                manager.ensureLayout(for: manager.documentRange)
+                editor.layoutIfNeeded()
+            }
+            func afterTop() throws -> CGFloat {
+                let offset = (editor.textStorage.string as NSString).range(of: "After").location
+                let location = try XCTUnwrap(contentManager.location(manager.documentRange.location, offsetBy: offset))
+                return try XCTUnwrap(manager.textLayoutFragment(for: location)).layoutFragmentFrame.minY
+            }
+            layout()
+            let grid = try XCTUnwrap(subviews(of: UIKitMarkdownTableGridView.self, in: editor).first)
+            let cell = try XCTUnwrap(subviews(of: UITextView.self, in: grid).first { $0.accessibilityLabel == "Table row 1, column 1" })
+            let attachmentLocation = (editor.textStorage.string as NSString).range(of: "\u{FFFC}").location
+            let initialHeight = grid.bounds.height
+            let initialAfterTop = try afterTop()
+
+            cell.becomeFirstResponder()
+            cell.selectedRange = NSRange(location: cell.textStorage.length, length: 0)
+            cell.insertText(String(repeating: " wrapping content", count: 12))
+            layout()
+
+            XCTAssertGreaterThan(grid.bounds.height, initialHeight)
+            XCTAssertEqual(grid.invalidatedAttachmentRange, NSRange(location: attachmentLocation, length: 1))
+            XCTAssertGreaterThanOrEqual(try afterTop() - initialAfterTop, grid.bounds.height - initialHeight - 1)
+        }
+
         func testUIKitViewProviderConstructsNativeGrid() throws {
             let attachment = MarkdownTableAttachment(table: makeTable())
             let contentStorage = NSTextContentStorage()
