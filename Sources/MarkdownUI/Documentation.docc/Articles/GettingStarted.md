@@ -213,6 +213,25 @@ intrinsic layout size. Choose it with the desired display size and screen scale 
 mind. The decoded-image cache budget does not include images retained by visible
 views, downloads in progress, or active decoding allocations.
 
+### Rendering long or streaming documents
+
+``MarkdownView`` renders blocks eagerly by default, so every update lays out the whole
+document. For long documents, or content that changes often such as a streamed
+response, place the view in a scroll view and use `.lazy` so that only blocks near the
+visible region are laid out:
+
+```swift
+ScrollView {
+  MarkdownView(response)
+    .markdownBlockRenderingMode(.lazy)
+}
+```
+
+In one measurement with a 100 KB document, each update took about 190 ms in eager
+mode and about 7 ms in lazy mode. Offscreen block sizes are estimated until the blocks
+appear, so scrolling can adjust layout. Outside a scroll view, lazy modes still create
+every block.
+
 ### Rendering large containers lazily
 
 Use `.lazyContainers` inside a scroll view to defer offscreen list items and nested

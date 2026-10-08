@@ -3,6 +3,10 @@ import SwiftUI
 /// Controls when a Markdown view creates its block views.
 public enum MarkdownBlockRenderingMode: Sendable {
     /// Measures all blocks immediately. This is the default.
+    ///
+    /// Every update lays out the whole document, so prefer
+    /// ``MarkdownBlockRenderingMode/lazy`` for long or frequently updated content
+    /// inside a scroll view.
     case eager
     /// Creates blocks as they approach the visible region of a scroll view.
     ///
@@ -38,6 +42,19 @@ public extension View {
     /// important than having exact geometry for blocks that have not appeared yet.
     /// Use `.lazyContainers` to also defer list items, nested blockquote/list content,
     /// and table rows when `markdownTableColumnWidths(_:)` supplies matching widths.
+    ///
+    /// Prefer `.lazy` for long documents and for content that changes often, such as
+    /// streamed responses. Eager rendering lays out every block on each update, while
+    /// lazy rendering only lays out blocks near the visible region. In one measurement
+    /// with a 100 KB document, an update took about 190 ms eagerly and about 7 ms lazily.
+    /// Lazy modes need an enclosing scroll view; without one, every block is still created.
+    ///
+    /// ```swift
+    /// ScrollView {
+    ///     MarkdownView(response)
+    ///         .markdownBlockRenderingMode(.lazy)
+    /// }
+    /// ```
     func markdownBlockRenderingMode(_ mode: MarkdownBlockRenderingMode) -> some View {
         self.environment(\.markdownBlockRenderingMode, mode)
     }
