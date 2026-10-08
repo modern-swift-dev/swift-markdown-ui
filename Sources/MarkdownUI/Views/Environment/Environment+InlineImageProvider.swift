@@ -2,6 +2,11 @@ import SwiftUI
 
 public extension View {
     /// Sets the inline image provider for the Markdown inline images in a view hierarchy.
+    ///
+    /// Markdown views keep loaded images while the provider keeps its identity. Classes and actors are
+    /// identified by reference, and value types that conform to `Hashable` by their value. Other value types
+    /// get a new identity on each call, so recreating them during a view update reloads their images; use
+    /// `markdownInlineImageProvider(_:id:)` to give them a stable identity.
     /// - Parameter inlineImageProvider: The inline image provider to set. Use one of the built-in values, like
     ///                                  ``InlineImageProvider/default`` or ``InlineImageProvider/asset``,
     ///                                  or a custom inline image provider that you define by creating a type that
@@ -30,7 +35,9 @@ extension EnvironmentValues {
 struct InlineImageProviderContext: Sendable {
     enum ID: Equatable, Sendable {
         case defaultProvider(DefaultInlineImageProvider.Resolution)
+        case asset(AssetInlineImageProvider.ID)
         case reference(ObjectIdentifier)
+        case hashable(ExplicitID)
         case value(UUID)
         case explicit(ObjectIdentifier, ExplicitID)
     }
@@ -43,6 +50,21 @@ struct InlineImageProviderContext: Sendable {
         init<Value: Hashable & Sendable>(_ value: Value) {
             self.value = value
             self.equals = { ($0 as? Value) == value }
+        }
+
+        /// Compares a `Hashable` provider by value. `AnyHashable` isn't `Sendable`, so the
+        /// `Sendable` provider is retained and erased only while comparing.
+        init?(hashableProvider provider: any InlineImageProvider) {
+            guard provider is any Hashable else {
+                return nil
+            }
+            self.value = provider
+            self.equals = { other in
+                guard let lhs = provider as? any Hashable, let rhs = other as? any Hashable else {
+                    return false
+                }
+                return AnyHashable(lhs) == AnyHashable(rhs)
+            }
         }
 
         static func == (lhs: Self, rhs: Self) -> Bool {
@@ -63,9 +85,12 @@ struct InlineImageProviderContext: Sendable {
         if let provider = provider as? DefaultInlineImageProvider {
             self.id = .defaultProvider(provider.resolution)
         } else if let asset = provider as? AssetInlineImageProvider {
-            self.id = .value(asset.id)
+            self.id = .asset(asset.id)
         } else if let reference = provider as? any InlineImageProvider & AnyObject {
             self.id = .reference(ObjectIdentifier(reference))
+        } else if let hashable = ExplicitID(hashableProvider: provider) {
+            // Equal values are interchangeable, so a provider rebuilt in `body` keeps its images.
+            self.id = .hashable(hashable)
         } else {
             // An arbitrary value provider has no equality requirement; conservatively reload it.
             self.id = .value(UUID())

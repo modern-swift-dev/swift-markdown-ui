@@ -21,6 +21,53 @@
             )
         }
 
+        func testHashableAndDefaultAssetProvidersAreIdentifiedByValue() {
+            func id(_ provider: any InlineImageProvider) -> InlineImageProviderContext.ID {
+                InlineImageProviderContext(provider: provider).id
+            }
+            let recording = RecordingInlineImageProvider()
+            XCTAssertEqual(
+                id(HashableInlineImageProvider(tag: 1, recording: recording)),
+                id(HashableInlineImageProvider(tag: 1, recording: recording))
+            )
+            XCTAssertNotEqual(
+                id(HashableInlineImageProvider(tag: 1, recording: recording)),
+                id(HashableInlineImageProvider(tag: 2, recording: recording))
+            )
+            XCTAssertNotEqual(
+                id(HashableInlineImageProvider(tag: 1, recording: recording)),
+                id(OtherHashableInlineImageProvider(tag: 1))
+            )
+
+            XCTAssertEqual(id(AssetInlineImageProvider()), id(AssetInlineImageProvider()))
+            XCTAssertEqual(id(AssetInlineImageProvider(bundle: .main)), id(AssetInlineImageProvider(bundle: .main)))
+            XCTAssertEqual(id(AssetInlineImageProvider()), id(.asset))
+            let testBundle = Bundle(for: Self.self)
+            XCTAssertNotEqual(id(AssetInlineImageProvider(bundle: .main)), id(AssetInlineImageProvider(bundle: testBundle)))
+            // Closures can't be compared, so each custom name mapping keeps its own identity.
+            XCTAssertNotEqual(
+                id(AssetInlineImageProvider(name: \.lastPathComponent, bundle: .main)),
+                id(AssetInlineImageProvider(name: \.lastPathComponent, bundle: .main))
+            )
+        }
+
+        @MainActor func testRecreatedHashableProviderDoesNotReloadAfterParentUpdate() async throws {
+            let model = ImageContextModel()
+            let recording = RecordingInlineImageProvider()
+            let hostingView = NSHostingView(rootView: ImageContextView(model: model).padding(0)
+                .markdownInlineImageProvider(HashableInlineImageProvider(tag: 1, recording: recording)))
+            let window = self.host(hostingView)
+            defer { window.contentView = nil }
+
+            try await self.waitForRequest("https://example.com/first/logo.png", from: recording)
+            hostingView.rootView = ImageContextView(model: model).padding(10)
+                .markdownInlineImageProvider(HashableInlineImageProvider(tag: 1, recording: recording))
+            hostingView.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            let requests = await recording.requests
+            XCTAssertEqual(requests, ["https://example.com/first/logo.png"])
+        }
+
         @MainActor func testReusingProviderDoesNotReloadAfterParentUpdate() async throws {
             let model = ImageContextModel()
             let provider = RecordingInlineImageProvider()
@@ -231,6 +278,31 @@
             self.requests.append(url.absoluteURL.absoluteString)
             self.labels.append(label)
             return Image(systemName: "photo")
+        }
+    }
+
+    private struct HashableInlineImageProvider: InlineImageProvider, Hashable {
+        let tag: Int
+        let recording: RecordingInlineImageProvider
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.tag == rhs.tag && lhs.recording === rhs.recording
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(self.tag)
+        }
+
+        func image(with url: URL, label: String) async throws -> Image {
+            try await recording.image(with: url, label: label)
+        }
+    }
+
+    private struct OtherHashableInlineImageProvider: InlineImageProvider, Hashable {
+        let tag: Int
+
+        func image(with url: URL, label: String) async throws -> Image {
+            Image(systemName: "photo")
         }
     }
 

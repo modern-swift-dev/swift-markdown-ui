@@ -2,8 +2,14 @@ import SwiftUI
 
 /// An inline image provider that loads images from resources located in an app or a module.
 public struct AssetInlineImageProvider: InlineImageProvider {
+    /// Closures aren't comparable, so only the default name mapping has a value identity.
+    enum ID: Hashable, Sendable {
+        case lastPathComponent(Bundle?)
+        case instance(UUID)
+    }
+
     static let defaultProvider = AssetInlineImageProvider()
-    let id = UUID()
+    let id: ID
 
     private let name: @Sendable (URL) -> String
     private let bundle: Bundle?
@@ -18,6 +24,19 @@ public struct AssetInlineImageProvider: InlineImageProvider {
     ) {
         self.name = name
         self.bundle = bundle
+        self.id = .instance(UUID())
+    }
+
+    /// Creates an asset inline image provider that uses the last path component of each URL as the resource name.
+    ///
+    /// Providers created with this initializer and the same bundle are interchangeable, so recreating
+    /// one during a view update preserves the images that are already loaded.
+    /// - Parameter bundle: The bundle where the image resources are located. Specify `nil` to search
+    ///                     the app’s main bundle.
+    public init(bundle: Bundle? = nil) {
+        self.name = \.lastPathComponent
+        self.bundle = bundle
+        self.id = .lastPathComponent(bundle)
     }
 
     public func image(with url: URL, label: String) async throws -> Image {
