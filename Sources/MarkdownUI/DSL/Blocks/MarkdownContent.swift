@@ -98,6 +98,12 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
         self.colorSchemeImageIndex = .known(blocks.indices.filter { blocks[$0].containsColorSchemeImages })
     }
 
+    /// Creates a content value whose conditional-image block indices are already known.
+    init(blocks: [BlockNode], colorSchemeImageBlockIndices: [Int]) {
+        self.blocks = blocks
+        self.colorSchemeImageIndex = .known(colorSchemeImageBlockIndices)
+    }
+
     init(block: BlockNode) {
         self.init(blocks: [block])
     }

@@ -62,6 +62,50 @@ extension [BlockNode] {
         self.init(blocks ?? .init())
     }
 
+    /// Parses a document like ``init(markdown:)`` and also reports the source lines of each block.
+    static func parseTopLevelBlocks(markdown: String) -> (blocks: [BlockNode], spans: [TopLevelBlockSpan]) {
+        let parsed = UnsafeNode.parseMarkdown(markdown) { document in
+            var blocks: [BlockNode] = []
+            var lines: [(start: Int, end: Int, closesAtBlankLine: Bool)] = []
+            var droppedPredecessor = false
+            for child in document.children {
+                guard let block = BlockNode(unsafeNode: child) else {
+                    droppedPredecessor = true
+                    continue
+                }
+                blocks.append(block)
+                // A block whose real predecessor was dropped cannot be split at safely.
+                lines.append((
+                    start: droppedPredecessor ? 0 : Int(cmark_node_get_start_line(child)),
+                    end: Int(cmark_node_get_end_line(child)),
+                    closesAtBlankLine: child.closesAtBlankLine
+                ))
+                droppedPredecessor = false
+            }
+            return (blocks, lines)
+        }
+        guard let parsed else {
+            return ([], [])
+        }
+        let (blocks, lines) = parsed
+        let lineStarts = TopLevelBlockSpan.lineStartOffsets(in: markdown)
+        func offset(ofLine line: Int) -> Int {
+            line <= lineStarts.count ? lineStarts[line - 1] : markdown.utf8.count
+        }
+        let spans = lines.map { line in
+            // Nodes that cmark synthesizes, like a paragraph split off a table header, report line 0.
+            guard line.start >= 1, line.end >= line.start else {
+                return TopLevelBlockSpan(start: nil, end: nil, closesAtBlankLine: line.closesAtBlankLine)
+            }
+            return TopLevelBlockSpan(
+                start: offset(ofLine: line.start),
+                end: offset(ofLine: line.end + 1),
+                closesAtBlankLine: line.closesAtBlankLine
+            )
+        }
+        return (blocks, spans)
+    }
+
     func renderMarkdown() -> String {
         UnsafeNode.makeDocument(self) { document in
             document.prepareOrderedTasksForTextRendering(.markdown)
@@ -313,6 +357,18 @@ private extension UnsafeNode {
                     fatalError("Unknown node type '\(typeString)' found.")
                 }
                 return nodeType
+        }
+    }
+
+    /// Whether a following blank line closes this top-level block and leaves no other block open.
+    var closesAtBlankLine: Bool {
+        switch cmark_node_get_type(self) {
+            case CMARK_NODE_PARAGRAPH,
+                 CMARK_NODE_HEADING,
+                 CMARK_NODE_THEMATIC_BREAK:
+                true
+            default:
+                false
         }
     }
 
@@ -609,6 +665,44 @@ private extension UnsafeNode {
                 cmark_node_set_url(node, source)
                 children.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
+        }
+    }
+}
+
+/// The source lines that a top-level block occupies, as UTF-8 offsets.
+struct TopLevelBlockSpan: Equatable {
+    /// The offset where the block's first line starts, or `nil` if cmark reported no position.
+    var start: Int?
+    /// The offset where the line after the block's last line starts, or `nil` if cmark reported no position.
+    var end: Int?
+    /// Whether a following blank line closes the block and leaves no other block open.
+    var closesAtBlankLine: Bool
+
+    func shifted(by offset: Int) -> Self {
+        .init(start: self.start.map { $0 + offset }, end: self.end.map { $0 + offset }, closesAtBlankLine: self.closesAtBlankLine)
+    }
+
+    /// The offsets where each line starts, splitting lines at `\n`, `\r\n`, and `\r` like cmark does.
+    static func lineStartOffsets(in source: String) -> [Int] {
+        var source = source
+        return source.withUTF8 { bytes in
+            var starts = [0]
+            var index = 0
+            while index < bytes.count {
+                switch bytes[index] {
+                    case 0x0A:
+                        starts.append(index + 1)
+                    case 0x0D:
+                        if index + 1 < bytes.count, bytes[index + 1] == 0x0A {
+                            index += 1
+                        }
+                        starts.append(index + 1)
+                    default:
+                        break
+                }
+                index += 1
+            }
+            return starts
         }
     }
 }
