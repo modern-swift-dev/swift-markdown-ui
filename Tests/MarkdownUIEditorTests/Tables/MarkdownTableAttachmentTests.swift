@@ -325,6 +325,29 @@ import XCTest
         return widths
     }
 
+    func testCellTextIsProjectedOncePerContentAndStyle() {
+        let content: [MarkdownInline] = [.text(UUID().uuidString)]
+        var projections = 0
+        func text(_ content: [MarkdownInline], isHeader: Bool = false, alignment: NSTextAlignment = .left) -> NSAttributedString {
+            MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment) {
+                projections += 1
+                return NSAttributedString(string: "\(projections)")
+            }
+        }
+
+        let first = text(content)
+        XCTAssertTrue(text(content) === first, "Unchanged cells reuse their projected text")
+        XCTAssertEqual(projections, 1)
+        XCTAssertFalse(text(content, isHeader: true) === first)
+        XCTAssertFalse(text(content, alignment: .center) === first)
+        XCTAssertEqual(projections, 3)
+
+        for index in 0 ..< MarkdownTableCellTextCache.capacity {
+            _ = text([.text("\(content) \(index)")])
+        }
+        XCTAssertFalse(text(content) === first, "A full cache starts over")
+    }
+
     func testGridUpdatesChangedCellsRowsAndColumnsInPlace() throws {
         let attachment = MarkdownTableAttachment(table: sizingTable())
         let controller = attachment.controller

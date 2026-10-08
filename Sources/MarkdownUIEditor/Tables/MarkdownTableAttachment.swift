@@ -505,13 +505,22 @@ private enum MarkdownTableCellSourceCodec {
 #if canImport(UIKit) || canImport(AppKit)
     @MainActor private extension MarkdownTableController {
         func richText(at position: MarkdownTableCellPosition) -> NSAttributedString {
-            let content = (cell(at: position)?.content ?? []).map(MarkdownTableCellSourceCodec.editableInline)
+            let content = cell(at: position)?.content ?? []
+            let isHeader = position.section == .header
+            let alignment = alignment(at: position)
+            return MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment) {
+                Self.projectRichText(content, isHeader: isHeader, alignment: alignment)
+            }
+        }
+
+        private static func projectRichText(_ content: [MarkdownInline], isHeader: Bool, alignment: NSTextAlignment) -> NSAttributedString {
+            let content = content.map(MarkdownTableCellSourceCodec.editableInline)
             let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]))
             let result = NSMutableAttributedString(attributedString: projection.attributedString)
             if result.string.hasSuffix("\n") {
                 result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
             }
-            if position.section == .header {
+            if isHeader {
                 result.enumerateAttribute(.font, in: NSRange(location: 0, length: result.length)) { value, range, _ in
                     #if canImport(UIKit)
                         let font = value as? UIFont ?? .preferredFont(forTextStyle: .body)
@@ -525,9 +534,9 @@ private enum MarkdownTableCellSourceCodec {
                 }
             }
             let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = alignment(at: position)
+            paragraph.alignment = alignment
             result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
-            return result
+            return NSAttributedString(attributedString: result)
         }
 
         func alignment(at position: MarkdownTableCellPosition) -> NSTextAlignment {
@@ -548,6 +557,45 @@ private enum MarkdownTableCellSourceCodec {
                 }
             }
             updateCell(at: position, content: content)
+        }
+    }
+
+    /// Keeps projected cell text by content and style. Every cell is projected when a
+    /// grid loads, including the grid for a table a command changed, whose cells are
+    /// mostly unchanged.
+    @MainActor enum MarkdownTableCellTextCache {
+        private struct Key: Hashable {
+            var content: [MarkdownInline]
+            var isHeader: Bool
+            var alignment: NSTextAlignment
+            // Theme fonts derive from the body font, which follows Dynamic Type.
+            #if canImport(UIKit)
+                var bodyFont = UIFont.preferredFont(forTextStyle: .body)
+            #elseif canImport(AppKit)
+                var bodyFont = NSFont.preferredFont(forTextStyle: .body)
+            #endif
+        }
+
+        /// The number of texts kept before the cache starts over.
+        static let capacity = 512
+        private static var texts: [Key: NSAttributedString] = [:]
+
+        static func text(
+            for content: [MarkdownInline],
+            isHeader: Bool,
+            alignment: NSTextAlignment,
+            project: () -> NSAttributedString
+        ) -> NSAttributedString {
+            let key = Key(content: content, isHeader: isHeader, alignment: alignment)
+            if let text = texts[key] {
+                return text
+            }
+            if texts.count >= capacity {
+                texts.removeAll(keepingCapacity: true)
+            }
+            let text = project()
+            texts[key] = text
+            return text
         }
     }
 
