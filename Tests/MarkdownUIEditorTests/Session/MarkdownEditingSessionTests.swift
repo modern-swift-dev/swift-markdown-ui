@@ -961,6 +961,39 @@ import XCTest
         )
     }
 
+    func testTableCellInlineStylesFollowCellEditsAndThemeChanges() throws {
+        let document = MarkdownDocument(markdown: "| Name |\n| --- |\n| **bold** plain |")
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: document)
+        session.attach(to: bridge)
+        let position = MarkdownTableCellPosition(section: .body(row: 0), column: 0)
+        let boldRange = NSRange(location: 0, length: 4)
+        let plainRange = NSRange(location: 5, length: 5)
+        func select(_ range: NSRange) throws {
+            let table = try XCTUnwrap(attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+            table.controller.updateSelection(at: position, range: range)
+        }
+
+        try select(boldRange)
+        XCTAssertTrue(session.isActive(.toggleInline(.strong)))
+        XCTAssertFalse(session.isActive(.toggleInline(.emphasis)))
+        try select(plainRange)
+        XCTAssertFalse(session.isActive(.toggleInline(.strong)))
+
+        let table = try XCTUnwrap(attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self))
+        table.controller.updateCell(at: position, source: "bold **plain**")
+        try select(boldRange)
+        try select(plainRange)
+        XCTAssertTrue(session.isActive(.toggleInline(.strong)))
+        try select(boldRange)
+        XCTAssertFalse(session.isActive(.toggleInline(.strong)))
+
+        session.replaceTheme(.gitHub)
+        try select(plainRange)
+        XCTAssertTrue(session.isActive(.toggleInline(.strong)))
+        XCTAssertFalse(session.isActive(.toggleInline(.code)))
+    }
+
     func testTypingAfterFinalTableCreatesVisibleParagraph() {
         let original = MarkdownDocument(markdown: "| Name |\n| --- |\n| Old |")
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 2, length: 0)])

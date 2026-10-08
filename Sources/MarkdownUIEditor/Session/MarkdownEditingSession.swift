@@ -20,6 +20,12 @@ import Foundation
         var sourceDocument: MarkdownDocument?
     }
 
+    /// The projected rich text of one table cell's content.
+    private struct ProjectedTableCell {
+        var content: [MarkdownInline]
+        var text: NSAttributedString
+    }
+
     private struct ActiveTableSelection: Equatable, Sendable {
         var path: EditorNodePath
         var cell: MarkdownTableCellSelection
@@ -35,11 +41,19 @@ import Foundation
         /// Native projection and source mappings. Built lazily when a bridge attaches.
         private(set) lazy var projection: DocumentProjection = makeProjection(document: document)
         /// Attributes used when building or refreshing the projection.
-        private(set) var theme: MarkdownEditorTheme
+        private(set) var theme: MarkdownEditorTheme {
+            didSet { projectedTableCell = nil }
+        }
+
         /// Base URL used by URL-backed image attachments.
-        private(set) var baseURL: URL?
+        private(set) var baseURL: URL? {
+            didSet { projectedTableCell = nil }
+        }
+
         /// Provider used by URL-backed image attachments.
-        private(set) var imageProvider: (any MarkdownEditorImageProvider)?
+        private(set) var imageProvider: (any MarkdownEditorImageProvider)? {
+            didSet { projectedTableCell = nil }
+        }
 
         /// Platform adapter that owns TextKit storage and native selection.
         private weak var bridge: (any TextViewBridge)?
@@ -55,6 +69,8 @@ import Foundation
         private var pendingNativeEdits: [PendingNativeEdit] = []
         /// Nested table selection that currently owns keyboard focus.
         private var activeTableSelection: ActiveTableSelection?
+        /// The last table cell projected to read its inline styles, reused while its content is unchanged.
+        private var projectedTableCell: ProjectedTableCell?
         private var restoredSnapshotSinceUndoNotification = false
 
         var onCommandStateChange: (() -> Void)?
@@ -1857,8 +1873,7 @@ import Foundation
                 guard row.cells.indices.contains(active.cell.position.column) else {
                     return false
                 }
-                let value = makeProjection(document: MarkdownDocument(blocks: [.paragraph(row.cells[active.cell.position.column].content)])).attributedString
-                return hasAttribute(key, in: value, range: active.cell.range)
+                return hasAttribute(key, in: projectedText(of: row.cells[active.cell.position.column].content), range: active.cell.range)
             }
             guard let bridge else {
                 return false
@@ -1872,6 +1887,16 @@ import Foundation
                 let intersection = NSIntersectionRange(content, range)
                 return intersection.length == 0 || hasAttribute(key, in: bridge.markdownTextStorage, range: intersection)
             }
+        }
+
+        /// Projects a table cell's content once for every style query against it.
+        func projectedText(of content: [MarkdownInline]) -> NSAttributedString {
+            if let projectedTableCell, projectedTableCell.content == content {
+                return projectedTableCell.text
+            }
+            let text = makeProjection(document: MarkdownDocument(blocks: [.paragraph(content)])).attributedString
+            projectedTableCell = ProjectedTableCell(content: content, text: text)
+            return text
         }
 
         func hasAttribute(_ key: NSAttributedString.Key, in text: NSAttributedString, range: NSRange) -> Bool {
