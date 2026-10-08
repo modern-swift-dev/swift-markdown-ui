@@ -24,7 +24,7 @@ import XCTest
 
         for width in [CGFloat(60), 70, 55] {
             measured.removeAll()
-            let affected = layout.update(changedCell: edited, availableWidth: nil) { position in
+            let affected = layout.update(changedCells: [edited], availableWidth: nil) { position in
                 measured.append(position)
                 return width
             }
@@ -42,7 +42,7 @@ import XCTest
         _ = layout.update(availableWidth: nil) { position in position == header ? 200 : 100 }
 
         var measured: [MarkdownTableCellPosition] = []
-        let affected = layout.update(changedCell: header, availableWidth: nil) { position in
+        let affected = layout.update(changedCells: [header], availableWidth: nil) { position in
             measured.append(position)
             return 50
         }
@@ -58,7 +58,7 @@ import XCTest
         _ = layout.update(availableWidth: 200) { _ in 150 }
         XCTAssertEqual(layout.widths, [100, 100])
 
-        let affected = layout.update(changedCell: first, availableWidth: 200) { _ in 50 }
+        let affected = layout.update(changedCells: [first], availableWidth: 200) { _ in 50 }
         XCTAssertEqual(layout.widths, [50, 150])
         XCTAssertEqual(affected, [first, second], "A change in one column can release width for other columns")
 
@@ -323,6 +323,44 @@ import XCTest
             }
         }
         return widths
+    }
+
+    func testGridUpdatesChangedCellsRowsAndColumnsInPlace() throws {
+        let attachment = MarkdownTableAttachment(table: sizingTable())
+        let controller = attachment.controller
+        let grid = try makeGrid(for: attachment)
+        var previousCells = gridCells(in: grid).joined().map(ObjectIdentifier.init)
+
+        func assertUpdate(
+            reusing reusedCount: Int,
+            file: StaticString = #filePath,
+            line: UInt = #line,
+            _ change: () -> Void
+        ) throws {
+            change()
+            let cells = gridCells(in: grid).joined().map(ObjectIdentifier.init)
+            XCTAssertEqual(Set(cells).intersection(previousCells).count, reusedCount, "Kept cells keep their views", file: file, line: line)
+            let rebuilt = try makeGrid(for: MarkdownTableAttachment(table: controller.table))
+            XCTAssertEqual(gridDescription(grid), gridDescription(rebuilt), "An updated grid matches a new one", file: file, line: line)
+            XCTAssertEqual(gridText(in: grid), gridText(in: rebuilt), file: file, line: line)
+            previousCells = cells
+        }
+
+        try assertUpdate(reusing: 4) {
+            controller.updateCell(at: .init(section: .body(row: 0), column: 0), source: "A wider **body** cell")
+        }
+        controller.updateSelection(at: .init(section: .body(row: 0), column: 1), range: NSRange(location: 1, length: 0))
+        try assertUpdate(reusing: 4) { controller.insertRow(at: 0) }
+        XCTAssertEqual(controller.activeSelection?.position, .init(section: .body(row: 1), column: 1), "Selection follows its moved cell")
+        try assertUpdate(reusing: 6) { controller.appendRow() }
+        try assertUpdate(reusing: 6) { controller.deleteRow(at: 0) }
+        try assertUpdate(reusing: 6) { controller.insertColumn(at: 1, alignment: .center) }
+        XCTAssertEqual(controller.activeSelection?.position, .init(section: .body(row: 0), column: 2))
+        try assertUpdate(reusing: 6) { controller.deleteColumn(at: 0) }
+        try assertUpdate(reusing: 6) {
+            controller.updateCell(at: .init(section: .header, column: 1), source: "Short")
+        }
+        try assertUpdate(reusing: 0) { controller.moveRow(from: 0, to: 1) }
     }
 
     #if canImport(AppKit)
@@ -1118,7 +1156,47 @@ import XCTest
         )
     }
 
+    /// Removes the node identifiers each projection assigns, which differ between grids.
+    private func withoutNodeIDs(_ text: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: text)
+        result.removeAttribute(.markdownEditorNodeID, range: NSRange(location: 0, length: result.length))
+        return result
+    }
+
     #if canImport(AppKit)
+        private func makeGrid(for attachment: MarkdownTableAttachment) throws -> NSView {
+            let provider = try XCTUnwrap(attachment.viewProvider(
+                for: nil,
+                location: NSTextContentStorage().documentRange.location,
+                textContainer: NSTextContainer(size: NSSize(width: 260, height: 1000))
+            ))
+            return try XCTUnwrap(provider.view)
+        }
+
+        private func gridCells(in rootView: NSView) -> [[NSTextView]] {
+            guard let gridView = firstSubview(of: NSGridView.self, in: rootView) else {
+                return []
+            }
+            return (0 ..< gridView.numberOfRows).map { row in
+                (0 ..< gridView.numberOfColumns).compactMap { gridView.cell(atColumnIndex: $0, rowIndex: row).contentView as? NSTextView }
+            }
+        }
+
+        private func gridText(in rootView: NSView) -> [[NSAttributedString]] {
+            gridCells(in: rootView).map { $0.map { withoutNodeIDs($0.attributedString()) } }
+        }
+
+        private func gridDescription(_ rootView: NSView) -> [String] {
+            rootView.frame.size = rootView.intrinsicContentSize
+            rootView.layoutSubtreeIfNeeded()
+            // Text views in an existing grid keep their fitted height below the top of a taller row.
+            return ["\(rootView.frame.size)"] + gridCells(in: rootView).map { row in
+                row.map { cell in
+                    "\(cell.string) \(cell.alignment.rawValue) \(cell.accessibilityLabel() ?? "") \(cell.frame.minX) \(cell.frame.maxY) \(cell.frame.width)"
+                }.joined(separator: " | ")
+            }
+        }
+
         private func subviews<View: NSView>(of type: View.Type, in rootView: NSView) -> [View] {
             let current = (rootView as? View).map { [$0] } ?? []
             return current + rootView.subviews.flatMap { self.subviews(of: type, in: $0) }
@@ -1132,6 +1210,40 @@ import XCTest
         }
 
     #elseif canImport(UIKit)
+        private func makeGrid(for attachment: MarkdownTableAttachment) throws -> UIView {
+            let provider = try XCTUnwrap(attachment.viewProvider(
+                for: nil,
+                location: NSTextContentStorage().documentRange.location,
+                textContainer: NSTextContainer(size: CGSize(width: 260, height: 1000))
+            ))
+            return try XCTUnwrap(provider.view)
+        }
+
+        private func gridCells(in rootView: UIView) -> [[UITextView]] {
+            guard let stack = subviews(of: UIStackView.self, in: rootView).first(where: { $0.axis == .vertical }) else {
+                return []
+            }
+            return stack.arrangedSubviews.map { row in
+                ((row as? UIStackView)?.arrangedSubviews ?? []).compactMap { $0 as? UITextView }
+            }
+        }
+
+        private func gridText(in rootView: UIView) -> [[NSAttributedString]] {
+            gridCells(in: rootView).map { $0.map { withoutNodeIDs($0.attributedText) } }
+        }
+
+        private func gridDescription(_ rootView: UIView) -> [String] {
+            // A rebuilt stack reports its fitting size only after a layout pass.
+            rootView.layoutIfNeeded()
+            rootView.bounds.size = rootView.intrinsicContentSize
+            rootView.layoutIfNeeded()
+            return ["\(rootView.bounds.size)"] + gridCells(in: rootView).map { row in
+                row.map { cell in
+                    "\(cell.text ?? "") \(cell.textAlignment.rawValue) \(cell.accessibilityLabel ?? "") \(cell.frame)"
+                }.joined(separator: " | ")
+            }
+        }
+
         private func subviews<View: UIView>(of type: View.Type, in rootView: UIView) -> [View] {
             let current = (rootView as? View).map { [$0] } ?? []
             return current + rootView.subviews.flatMap { self.subviews(of: type, in: $0) }

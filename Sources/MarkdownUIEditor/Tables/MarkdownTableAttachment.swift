@@ -50,6 +50,16 @@ public enum MarkdownTableRowKind: Hashable, Sendable {
     case body
 }
 
+/// The cells a table mutation changed, so a grid can update only those cells.
+enum MarkdownTablePresentationChange: Equatable {
+    case cell(MarkdownTableCellPosition)
+    case insertedRow(Int)
+    case removedRow(Int)
+    case insertedColumn(Int)
+    case removedColumn(Int)
+    case reload
+}
+
 /// The native caret or selection owned by one editable table cell.
 struct MarkdownTableCellSelection: Equatable, Sendable {
     var position: MarkdownTableCellPosition
@@ -73,7 +83,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     var onSelectionChange: ((MarkdownTableCellSelection?) -> Void)?
 
     // The grid owns presentation updates; the document owner retains onChange.
-    var onPresentationChange: (() -> Void)?
+    var onPresentationChange: ((MarkdownTablePresentationChange) -> Void)?
     var activeTypingAttributes: [NSAttributedString.Key: Any] = [:]
     var onTypingAttributesChange: (([NSAttributedString.Key: Any]) -> Void)?
     /// The grid most recently loaded for this table and the layout showing it.
@@ -172,7 +182,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
             case let .body(row):
                 table.rows[row].cells[position.column].content = content
         }
-        notifyChange()
+        notifyChange(.cell(position))
     }
 
     /// Returns the next editable cell in reading order, appending a row at the end.
@@ -246,7 +256,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         let count = max(columnCount, 1)
         ensureColumnCount(atLeast: count)
         table.rows.append(MarkdownTableRow(cells: emptyCells(count: count)))
-        notifyChange()
+        notifyChange(.insertedRow(table.rows.count - 1))
     }
 
     /// Inserts an empty body row at a zero-based index.
@@ -257,7 +267,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         let count = max(columnCount, 1)
         ensureColumnCount(atLeast: count)
         table.rows.insert(MarkdownTableRow(cells: emptyCells(count: count)), at: index)
-        notifyChange()
+        notifyChange(.insertedRow(index))
     }
 
     /// Deletes the body row at a zero-based index.
@@ -266,7 +276,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
             return
         }
         table.rows.remove(at: index)
-        notifyChange()
+        notifyChange(.removedRow(index))
     }
 
     /// Moves a body row to another zero-based index.
@@ -291,7 +301,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
             table.rows[rowIndex].cells.insert(MarkdownTableCell(content: []), at: index)
         }
         table.alignments.insert(alignment, at: index)
-        notifyChange()
+        notifyChange(.insertedColumn(index))
     }
 
     /// Deletes a column from the header, body rows, and alignment list.
@@ -308,7 +318,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         if table.alignments.indices.contains(index) {
             table.alignments.remove(at: index)
         }
-        notifyChange()
+        notifyChange(.removedColumn(index))
     }
 
     /// Moves a column in the header, body rows, and alignment list.
@@ -386,8 +396,8 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         values.insert(value, at: destinationIndex)
     }
 
-    private func notifyChange() {
-        onPresentationChange?()
+    private func notifyChange(_ change: MarkdownTablePresentationChange = .reload) {
+        onPresentationChange?(change)
         onChange?(table)
     }
 }
@@ -544,7 +554,7 @@ private enum MarkdownTableCellSourceCodec {
     /// Retains cell measurements between native edits. Width changes can affect other
     /// columns when the table is constrained, so resolve all columns from cached maxima.
     struct MarkdownTableCellLayoutCache {
-        private let positionsByColumn: [[MarkdownTableCellPosition]]
+        private var positionsByColumn: [[MarkdownTableCellPosition]]
         private var preferredCellWidths: [MarkdownTableCellPosition: CGFloat] = [:]
         private var preferredColumnWidths: [CGFloat]
         private(set) var widths: [CGFloat] = []
@@ -558,18 +568,48 @@ private enum MarkdownTableCellSourceCodec {
             preferredColumnWidths = Array(repeating: MarkdownTableColumnLayout.minimumColumnWidth, count: columnCount)
         }
 
+        /// Carries measurements over after rows or columns were inserted or removed.
+        ///
+        /// `previousPositions` maps each kept cell to its former position and
+        /// `previousColumns` each column to its former index, or nil for a new column.
+        /// New cells have no measurement until they are passed to the next update.
+        mutating func reindex(
+            positions: [MarkdownTableCellPosition],
+            columnCount: Int,
+            previousPositions: [MarkdownTableCellPosition: MarkdownTableCellPosition],
+            previousColumns: [Int?]
+        ) {
+            var columns = Array(repeating: [MarkdownTableCellPosition](), count: columnCount)
+            var cellWidths: [MarkdownTableCellPosition: CGFloat] = [:]
+            for position in positions {
+                columns[position.column].append(position)
+                if let previous = previousPositions[position], let width = preferredCellWidths[previous] {
+                    cellWidths[position] = width
+                }
+            }
+            positionsByColumn = columns
+            preferredCellWidths = cellWidths
+            preferredColumnWidths = columns.map { column in
+                column.compactMap { cellWidths[$0] }.max() ?? MarkdownTableColumnLayout.minimumColumnWidth
+            }
+            // New columns have no resolved width yet, so the next update lays out their cells.
+            widths = previousColumns.map { previous in
+                previous.flatMap { widths.indices.contains($0) ? widths[$0] : nil } ?? -1
+            }
+        }
+
         /// Returns only cells whose content or resolved column width needs layout.
-        /// A nil changed cell refreshes every measurement after a configuration change.
+        /// Nil changed cells refresh every measurement after a configuration change.
         mutating func update(
-            changedCell: MarkdownTableCellPosition? = nil,
+            changedCells: [MarkdownTableCellPosition]? = nil,
             availableWidth: CGFloat?,
             measure: (MarkdownTableCellPosition) -> CGFloat
         ) -> Set<MarkdownTableCellPosition> {
-            let measuredPositions = changedCell.map { [$0] } ?? positionsByColumn.flatMap(\.self)
+            let measuredPositions = changedCells ?? positionsByColumn.flatMap(\.self)
             for position in measuredPositions {
                 preferredCellWidths[position] = measure(position)
             }
-            let changedColumns = changedCell.map { [$0.column] } ?? Array(positionsByColumn.indices)
+            let changedColumns = changedCells.map { Set($0.map(\.column)).sorted() } ?? Array(positionsByColumn.indices)
             for column in changedColumns {
                 preferredColumnWidths[column] = positionsByColumn[column]
                     .compactMap { preferredCellWidths[$0] }.max() ?? MarkdownTableColumnLayout.minimumColumnWidth
@@ -663,6 +703,13 @@ private enum MarkdownTableCellSourceCodec {
             return parentWidth
         }
         return nil
+    }
+
+    private func markdownTableAccessibilityLabel(for position: MarkdownTableCellPosition) -> String {
+        switch position.section {
+            case .header: "Table header, column \(position.column + 1)"
+            case let .body(row): "Table row \(row + 1), column \(position.column + 1)"
+        }
     }
 #endif
 
@@ -804,8 +851,7 @@ private enum MarkdownTableCellSourceCodec {
         private var fields: [MarkdownTableCellPosition: MarkdownTableCellTextView] = [:]
         private var columnWidthConstraints: [[NSLayoutConstraint]] = []
         private var isEditingCell = false
-        private var rowStacks: [UIStackView] = []
-        private var rowHeightConstraints: [NSLayoutConstraint] = []
+        private var rowStacks: [MarkdownTableRowStackView] = []
         private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
         private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
 
@@ -824,11 +870,11 @@ private enum MarkdownTableCellSourceCodec {
                 stack.bottomAnchor.constraint(equalTo: bottomAnchor)
             ])
             rebuild()
-            controller.onPresentationChange = { [weak self] in
+            controller.onPresentationChange = { [weak self] change in
                 guard let self, !self.isEditingCell else {
                     return
                 }
-                self.rebuild()
+                self.apply(change)
                 self.resizeAttachment()
             }
             controller.onTypingAttributesChange = { [weak self] attributes in
@@ -863,7 +909,7 @@ private enum MarkdownTableCellSourceCodec {
                 controller.updateRichCell(at: field.position, text: field.textStorage)
                 isEditingCell = false
             }
-            if updateColumnWidths(changedCell: field.position) {
+            if updateColumnWidths(changedCells: [field.position]) {
                 resizeAttachment()
             }
         }
@@ -915,70 +961,152 @@ private enum MarkdownTableCellSourceCodec {
             fields.removeAll()
             columnWidthConstraints.removeAll()
             rowStacks.removeAll()
-            rowHeightConstraints.removeAll()
             cellHeights.removeAll()
             let count = max(controller.columnCount, 1)
-            addRow(kind: .header, row: nil, columnCount: count)
-            for row in controller.table.rows.indices {
-                addRow(kind: .body, row: row, columnCount: count)
+            columnWidthConstraints = Array(repeating: [], count: count)
+            for row in -1 ..< controller.table.rows.count {
+                let rowStack = makeRow(section: row < 0 ? .header : .body(row: row), columnCount: count)
+                stack.addArrangedSubview(rowStack)
+                rowStacks.append(rowStack)
+            }
+            for case let field as MarkdownTableCellTextView in rowStacks.flatMap(\.arrangedSubviews) {
+                fields[field.position] = field
+                columnWidthConstraints[field.position.column].append(field.widthConstraint)
             }
             cellLayout = MarkdownTableCellLayoutCache(positions: Array(fields.keys), columnCount: count)
             updateColumnWidths()
         }
 
-        private func addRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) {
-            let rowStack = UIStackView()
+        /// Updates only the cells a table mutation changed, rebuilding when the change
+        /// does not describe the difference between the grid and the table.
+        private func apply(_ change: MarkdownTablePresentationChange) {
+            let columnCount = columnWidthConstraints.count
+            let rowCount = rowStacks.count
+            let rowDelta = controller.table.rows.count + 1 - rowCount
+            let columnDelta = max(controller.columnCount, 1) - columnCount
+            switch change {
+                case let .cell(position) where rowDelta == 0 && columnDelta == 0 && fields[position] != nil:
+                    if let field = fields[position] {
+                        configureText(of: field)
+                    }
+                    updateColumnWidths(changedCells: [position])
+                case let .insertedRow(row) where rowDelta == 1 && columnDelta == 0 && row >= 0 && row < rowCount:
+                    let rowStack = makeRow(section: .body(row: row), columnCount: columnCount)
+                    stack.insertArrangedSubview(rowStack, at: row + 1)
+                    rowStacks.insert(rowStack, at: row + 1)
+                    reindex(previousColumns: Array(0 ..< columnCount))
+                case let .removedRow(row) where rowDelta == -1 && columnDelta == 0 && row >= 0 && row + 1 < rowCount:
+                    rowStacks.remove(at: row + 1).removeFromSuperview()
+                    reindex(previousColumns: Array(0 ..< columnCount))
+                case let .insertedColumn(column) where rowDelta == 0 && columnDelta == 1 && column >= 0 && column <= columnCount:
+                    for (row, rowStack) in rowStacks.enumerated() {
+                        let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
+                        rowStack.insertArrangedSubview(makeField(at: MarkdownTableCellPosition(section: section, column: column)), at: column)
+                    }
+                    reindex(previousColumns: (0 ... columnCount).map { $0 < column ? $0 : $0 == column ? nil : $0 - 1 })
+                case let .removedColumn(column) where rowDelta == 0 && columnDelta == -1 && column >= 0 && column < columnCount:
+                    for rowStack in rowStacks {
+                        rowStack.arrangedSubviews[column].removeFromSuperview()
+                    }
+                    reindex(previousColumns: (0 ..< columnCount - 1).map { $0 < column ? $0 : $0 + 1 })
+                default:
+                    rebuild()
+            }
+        }
+
+        /// Renumbers cells after rows or columns were inserted or removed, keeping the
+        /// measurements of moved cells and measuring only the new ones.
+        private func reindex(previousColumns: [Int?]) {
+            var updatedFields: [MarkdownTableCellPosition: MarkdownTableCellTextView] = [:]
+            var previousPositions: [MarkdownTableCellPosition: MarkdownTableCellPosition] = [:]
+            var updatedHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+            var newCells: [MarkdownTableCellPosition] = []
+            columnWidthConstraints = Array(repeating: [], count: previousColumns.count)
+            for (row, rowStack) in rowStacks.enumerated() {
+                let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
+                for case let (column, field as MarkdownTableCellTextView) in rowStack.arrangedSubviews.enumerated() {
+                    let position = MarkdownTableCellPosition(section: section, column: column)
+                    if fields[field.position] === field {
+                        previousPositions[position] = field.position
+                        updatedHeights[position] = cellHeights[field.position]
+                        if controller.activeSelection?.position == field.position, field.position != position {
+                            controller.updateSelection(at: position, range: field.selectedRange)
+                        }
+                    } else {
+                        newCells.append(position)
+                    }
+                    field.position = position
+                    field.accessibilityLabel = markdownTableAccessibilityLabel(for: position)
+                    updatedFields[position] = field
+                    columnWidthConstraints[column].append(field.widthConstraint)
+                }
+            }
+            fields = updatedFields
+            cellHeights = updatedHeights
+            cellLayout.reindex(
+                positions: Array(updatedFields.keys),
+                columnCount: previousColumns.count,
+                previousPositions: previousPositions,
+                previousColumns: previousColumns
+            )
+            updateColumnWidths(changedCells: newCells, remeasuringAllRows: true)
+        }
+
+        private func makeRow(section: MarkdownTableCellPosition.Section, columnCount: Int) -> MarkdownTableRowStackView {
+            let rowStack = MarkdownTableRowStackView()
             rowStack.axis = .horizontal
             rowStack.spacing = 0
             rowStack.distribution = .fill
             for column in 0 ..< columnCount {
-                let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
-                let position = MarkdownTableCellPosition(section: section, column: column)
-                let field = MarkdownTableCellTextView(position: position)
-                field.attributedText = controller.richText(at: position)
-                field.textAlignment = controller.alignment(at: position)
-                field.delegate = self
-                field.layer.borderColor = UIColor.opaqueSeparator.cgColor
-                field.layer.borderWidth = 1 / UIScreen.main.scale
-                field.typingAttributes = [.font: UIFont.preferredFont(forTextStyle: .body)]
-                field.backgroundColor = kind == .header ? .secondarySystemBackground : .systemBackground
-                field.isScrollEnabled = false
-                field.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
-                field.textContainer.lineFragmentPadding = 0
-                field.setContentHuggingPriority(.required, for: .vertical)
-                field.accessibilityLabel = kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)"
-                field.onTab = { [weak self, weak field] backwards in
-                    guard let self, let field else {
-                        return
-                    }
-                    let destination = backwards
-                        ? self.controller.moveBackward(from: field.position)
-                        : self.controller.moveForward(from: field.position)
-                    if let destination {
-                        self.rebuildIfNeededAndFocus(destination)
-                    }
-                }
-                fields[position] = field
-                let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
-                widthConstraint.isActive = true
-                if columnWidthConstraints.indices.contains(column) {
-                    columnWidthConstraints[column].append(widthConstraint)
-                } else {
-                    columnWidthConstraints.append([widthConstraint])
-                }
-                rowStack.addArrangedSubview(field)
+                rowStack.addArrangedSubview(makeField(at: MarkdownTableCellPosition(section: section, column: column)))
             }
-            stack.addArrangedSubview(rowStack)
-            rowStacks.append(rowStack)
-            let heightConstraint = rowStack.heightAnchor.constraint(equalToConstant: 28)
-            heightConstraint.isActive = true
-            rowHeightConstraints.append(heightConstraint)
+            rowStack.heightConstraint.isActive = true
+            return rowStack
         }
 
-        @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+        private func makeField(at position: MarkdownTableCellPosition) -> MarkdownTableCellTextView {
+            let field = MarkdownTableCellTextView(position: position)
+            configureText(of: field)
+            field.delegate = self
+            field.layer.borderColor = UIColor.opaqueSeparator.cgColor
+            field.layer.borderWidth = 1 / UIScreen.main.scale
+            field.backgroundColor = position.section == .header ? .secondarySystemBackground : .systemBackground
+            field.isScrollEnabled = false
+            field.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+            field.textContainer.lineFragmentPadding = 0
+            field.setContentHuggingPriority(.required, for: .vertical)
+            field.accessibilityLabel = markdownTableAccessibilityLabel(for: position)
+            field.onTab = { [weak self, weak field] backwards in
+                guard let self, let field else {
+                    return
+                }
+                let destination = backwards
+                    ? self.controller.moveBackward(from: field.position)
+                    : self.controller.moveForward(from: field.position)
+                if let destination {
+                    self.rebuildIfNeededAndFocus(destination)
+                }
+            }
+            field.widthConstraint.isActive = true
+            return field
+        }
+
+        /// Sets a cell's text the same way for new and updated cells.
+        private func configureText(of field: MarkdownTableCellTextView) {
+            field.attributedText = controller.richText(at: field.position)
+            field.textAlignment = controller.alignment(at: field.position)
+            field.typingAttributes = [.font: UIFont.preferredFont(forTextStyle: .body)]
+        }
+
+        /// Lays out changed cells, or every cell when nil. Removing cells can lower
+        /// any row's height, so structural changes check every row.
+        @discardableResult private func updateColumnWidths(
+            changedCells: [MarkdownTableCellPosition]? = nil,
+            remeasuringAllRows: Bool = false
+        ) -> Bool {
             let fields = self.fields
             let previousWidths = cellLayout.widths
-            let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+            let affected = cellLayout.update(changedCells: changedCells, availableWidth: maximumWidth) { position in
                 guard let field = fields[position] else {
                     return MarkdownTableColumnLayout.minimumColumnWidth
                 }
@@ -990,10 +1118,14 @@ private enum MarkdownTableCellSourceCodec {
                     constraint.constant = widths[column]
                 }
             }
-            var affectedRows = Set<Int>()
+            var affectedRows = remeasuringAllRows ? Set(rowStacks.indices) : []
             for position in affected {
                 guard let field = fields[position] else {
                     continue
+                }
+                // Cells inserted into an existing column take its width here.
+                if field.widthConstraint.constant != widths[position.column] {
+                    field.widthConstraint.constant = widths[position.column]
                 }
                 field.layoutWidth = widths[position.column]
                 let height = field.measuredHeight
@@ -1011,8 +1143,8 @@ private enum MarkdownTableCellSourceCodec {
             for row in affectedRows {
                 let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
                 let height = widths.indices.compactMap { cellHeights[.init(section: section, column: $0)] }.max() ?? 28
-                if rowHeightConstraints[row].constant != height {
-                    rowHeightConstraints[row].constant = height
+                if rowStacks[row].heightConstraint.constant != height {
+                    rowStacks[row].heightConstraint.constant = height
                     heightChanged = true
                 }
             }
@@ -1101,10 +1233,15 @@ private enum MarkdownTableCellSourceCodec {
         }
     }
 
+    @MainActor private final class MarkdownTableRowStackView: UIStackView {
+        private(set) lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 28)
+    }
+
     @MainActor private final class MarkdownTableCellTextView: UITextView {
-        let position: MarkdownTableCellPosition
+        var position: MarkdownTableCellPosition
         var onTab: ((Bool) -> Void)?
         var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
+        private(set) lazy var widthConstraint = widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
         private var lastLayoutWidth: CGFloat = 0
 
         init(position: MarkdownTableCellPosition) {
@@ -1253,11 +1390,11 @@ private enum MarkdownTableCellSourceCodec {
             self.maximumWidth = maximumWidth
             super.init(frame: .zero)
             rebuild()
-            controller.onPresentationChange = { [weak self] in
+            controller.onPresentationChange = { [weak self] change in
                 guard let self, !self.isEditingCell else {
                     return
                 }
-                self.rebuild()
+                self.apply(change)
                 self.resizeAttachment()
             }
             controller.onTypingAttributesChange = { [weak self] attributes in
@@ -1292,7 +1429,7 @@ private enum MarkdownTableCellSourceCodec {
                 controller.updateRichCell(at: field.position, text: field.attributedString())
                 isEditingCell = false
             }
-            if updateColumnWidths(changedCell: field.position) {
+            if updateColumnWidths(changedCells: [field.position]) {
                 resizeAttachment()
             }
         }
@@ -1341,9 +1478,14 @@ private enum MarkdownTableCellSourceCodec {
             rowHeights.removeAll()
             let count = max(controller.columnCount, 1)
             var rows: [[NSView]] = []
-            rows.append(makeRow(kind: .header, row: nil, columnCount: count))
+            rows.append(makeRow(section: .header, columnCount: count))
             for row in controller.table.rows.indices {
-                rows.append(makeRow(kind: .body, row: row, columnCount: count))
+                rows.append(makeRow(section: .body(row: row), columnCount: count))
+            }
+            columnWidthConstraints = Array(repeating: [], count: count)
+            for case let field as AppKitMarkdownTableCellTextView in rows.joined() {
+                fields[field.position] = field
+                columnWidthConstraints[field.position.column].append(field.widthConstraint)
             }
             gridView = NSGridView(views: rows)
             gridView.rowSpacing = 0
@@ -1363,47 +1505,137 @@ private enum MarkdownTableCellSourceCodec {
             invalidateIntrinsicContentSize()
         }
 
-        private func makeRow(kind: MarkdownTableRowKind, row: Int?, columnCount: Int) -> [NSView] {
-            (0 ..< columnCount).map { column in
-                let section: MarkdownTableCellPosition.Section = row.map { .body(row: $0) } ?? .header
-                let position = MarkdownTableCellPosition(section: section, column: column)
-                let field = AppKitMarkdownTableCellTextView(position: position)
-                field.onContextSelection = { [weak controller] range in
-                    controller?.updateSelection(at: position, range: range)
-                }
-                field.textStorage?.setAttributedString(controller.richText(at: position))
-                field.alignment = controller.alignment(at: position)
-                field.delegate = self
-                field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
-                field.backgroundColor = kind == .header ? .controlBackgroundColor : .textBackgroundColor
-                field.drawsBackground = true
-                field.isRichText = true
-                field.allowsUndo = false
-                field.isHorizontallyResizable = false
-                field.isVerticallyResizable = true
-                field.textContainerInset = NSSize(width: 8, height: 4)
-                field.textContainer?.lineFragmentPadding = 0
-                field.textContainer?.widthTracksTextView = true
-                field.wantsLayer = true
-                field.layer?.borderColor = NSColor.gridColor.cgColor
-                field.layer?.borderWidth = 0.5
-                field.setAccessibilityLabel(kind == .header ? "Table header, column \(column + 1)" : "Table row \((row ?? 0) + 1), column \(column + 1)")
-                fields[position] = field
-                let widthConstraint = field.widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
-                widthConstraint.isActive = true
-                if columnWidthConstraints.indices.contains(column) {
-                    columnWidthConstraints[column].append(widthConstraint)
-                } else {
-                    columnWidthConstraints.append([widthConstraint])
-                }
-                return field
+        /// Updates only the cells a table mutation changed, rebuilding when the change
+        /// does not describe the difference between the grid and the table.
+        private func apply(_ change: MarkdownTablePresentationChange) {
+            let columnCount = gridView.numberOfColumns
+            let rowCount = gridView.numberOfRows
+            let rowDelta = controller.table.rows.count + 1 - rowCount
+            let columnDelta = max(controller.columnCount, 1) - columnCount
+            switch change {
+                case let .cell(position) where rowDelta == 0 && columnDelta == 0 && fields[position] != nil:
+                    if let field = fields[position] {
+                        configureText(of: field)
+                    }
+                    updateColumnWidths(changedCells: [position])
+                case let .insertedRow(row) where rowDelta == 1 && columnDelta == 0 && row >= 0 && row < rowCount:
+                    gridView.insertRow(at: row + 1, with: makeRow(section: .body(row: row), columnCount: columnCount))
+                    reindex(previousColumns: Array(0 ..< columnCount))
+                case let .removedRow(row) where rowDelta == -1 && columnDelta == 0 && row >= 0 && row + 1 < rowCount:
+                    let removed = gridView.row(at: row + 1)
+                    let views = (0 ..< columnCount).compactMap { removed.cell(at: $0).contentView }
+                    gridView.removeRow(at: row + 1)
+                    views.forEach { $0.removeFromSuperview() }
+                    reindex(previousColumns: Array(0 ..< columnCount))
+                case let .insertedColumn(column) where rowDelta == 0 && columnDelta == 1 && column >= 0 && column <= columnCount:
+                    let views = (0 ..< rowCount).map { row in
+                        makeField(at: MarkdownTableCellPosition(section: row == 0 ? .header : .body(row: row - 1), column: column))
+                    }
+                    gridView.insertColumn(at: column, with: views)
+                    reindex(previousColumns: (0 ... columnCount).map { $0 < column ? $0 : $0 == column ? nil : $0 - 1 })
+                case let .removedColumn(column) where rowDelta == 0 && columnDelta == -1 && column >= 0 && column < columnCount:
+                    let removed = gridView.column(at: column)
+                    let views = (0 ..< rowCount).compactMap { removed.cell(at: $0).contentView }
+                    gridView.removeColumn(at: column)
+                    views.forEach { $0.removeFromSuperview() }
+                    reindex(previousColumns: (0 ..< columnCount - 1).map { $0 < column ? $0 : $0 + 1 })
+                default:
+                    rebuild()
             }
         }
 
-        @discardableResult private func updateColumnWidths(changedCell: MarkdownTableCellPosition? = nil) -> Bool {
+        /// Renumbers cells after rows or columns were inserted or removed, keeping the
+        /// measurements of moved cells and measuring only the new ones.
+        private func reindex(previousColumns: [Int?]) {
+            var updatedFields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
+            var previousPositions: [MarkdownTableCellPosition: MarkdownTableCellPosition] = [:]
+            var updatedHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+            var newCells: [MarkdownTableCellPosition] = []
+            columnWidthConstraints = Array(repeating: [], count: previousColumns.count)
+            for row in 0 ..< gridView.numberOfRows {
+                let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
+                for column in 0 ..< gridView.numberOfColumns {
+                    guard let field = gridView.cell(atColumnIndex: column, rowIndex: row).contentView as? AppKitMarkdownTableCellTextView else {
+                        continue
+                    }
+                    let position = MarkdownTableCellPosition(section: section, column: column)
+                    if fields[field.position] === field {
+                        previousPositions[position] = field.position
+                        updatedHeights[position] = cellHeights[field.position]
+                        if controller.activeSelection?.position == field.position, field.position != position {
+                            controller.updateSelection(at: position, range: field.selectedRange())
+                        }
+                    } else {
+                        newCells.append(position)
+                    }
+                    field.position = position
+                    field.setAccessibilityLabel(markdownTableAccessibilityLabel(for: position))
+                    updatedFields[position] = field
+                    columnWidthConstraints[column].append(field.widthConstraint)
+                }
+            }
+            fields = updatedFields
+            cellHeights = updatedHeights
+            rowHeights.removeAll()
+            cellLayout.reindex(
+                positions: Array(updatedFields.keys),
+                columnCount: previousColumns.count,
+                previousPositions: previousPositions,
+                previousColumns: previousColumns
+            )
+            updateColumnWidths(changedCells: newCells, remeasuringAllRows: true)
+            invalidateIntrinsicContentSize()
+        }
+
+        private func makeRow(section: MarkdownTableCellPosition.Section, columnCount: Int) -> [NSView] {
+            (0 ..< columnCount).map { column in
+                makeField(at: MarkdownTableCellPosition(section: section, column: column))
+            }
+        }
+
+        private func makeField(at position: MarkdownTableCellPosition) -> AppKitMarkdownTableCellTextView {
+            let field = AppKitMarkdownTableCellTextView(position: position)
+            field.onContextSelection = { [weak controller, weak field] range in
+                guard let field else {
+                    return
+                }
+                controller?.updateSelection(at: field.position, range: range)
+            }
+            configureText(of: field)
+            field.delegate = self
+            field.backgroundColor = position.section == .header ? .controlBackgroundColor : .textBackgroundColor
+            field.drawsBackground = true
+            field.isRichText = true
+            field.allowsUndo = false
+            field.isHorizontallyResizable = false
+            field.isVerticallyResizable = true
+            field.textContainerInset = NSSize(width: 8, height: 4)
+            field.textContainer?.lineFragmentPadding = 0
+            field.textContainer?.widthTracksTextView = true
+            field.wantsLayer = true
+            field.layer?.borderColor = NSColor.gridColor.cgColor
+            field.layer?.borderWidth = 0.5
+            field.setAccessibilityLabel(markdownTableAccessibilityLabel(for: position))
+            field.widthConstraint.isActive = true
+            return field
+        }
+
+        /// Sets a cell's text the same way for new and updated cells.
+        private func configureText(of field: AppKitMarkdownTableCellTextView) {
+            field.textStorage?.setAttributedString(controller.richText(at: field.position))
+            field.alignment = controller.alignment(at: field.position)
+            field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
+        }
+
+        /// Lays out changed cells, or every cell when nil. Removing cells can lower
+        /// any row's height, so structural changes check every row.
+        @discardableResult private func updateColumnWidths(
+            changedCells: [MarkdownTableCellPosition]? = nil,
+            remeasuringAllRows: Bool = false
+        ) -> Bool {
             let fields = self.fields
             let previousWidths = cellLayout.widths
-            let affected = cellLayout.update(changedCell: changedCell, availableWidth: maximumWidth) { position in
+            let affected = cellLayout.update(changedCells: changedCells, availableWidth: maximumWidth) { position in
                 guard let field = fields[position] else {
                     return MarkdownTableColumnLayout.minimumColumnWidth
                 }
@@ -1420,9 +1652,17 @@ private enum MarkdownTableCellSourceCodec {
                 }
             }
             var affectedRows = Set<MarkdownTableCellPosition.Section>()
+            if remeasuringAllRows {
+                affectedRows.insert(.header)
+                affectedRows.formUnion(controller.table.rows.indices.map { .body(row: $0) })
+            }
             for position in affected {
                 guard let field = fields[position] else {
                     continue
+                }
+                // Cells inserted into an existing column take its width here.
+                if field.widthConstraint.constant != widths[position.column] {
+                    field.widthConstraint.constant = widths[position.column]
                 }
                 field.layoutWidth = widths[position.column]
                 let height = field.intrinsicContentSize.height
@@ -1489,9 +1729,10 @@ private enum MarkdownTableCellSourceCodec {
     }
 
     @MainActor private final class AppKitMarkdownTableCellTextView: NSTextView {
-        let position: MarkdownTableCellPosition
+        var position: MarkdownTableCellPosition
         var onContextSelection: ((NSRange) -> Void)?
         var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
+        private(set) lazy var widthConstraint = widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
         private let cellTextStorage: NSTextStorage
 
         init(position: MarkdownTableCellPosition) {
