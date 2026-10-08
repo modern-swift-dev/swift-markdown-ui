@@ -272,11 +272,48 @@ private extension UnsafeNode {
     }
 
     var nodeType: NodeType {
-        let typeString = String(cString: cmark_node_get_type_string(self))
-        guard let nodeType = NodeType(rawValue: typeString) else {
-            fatalError("Unknown node type '\(typeString)' found.")
+        let type = cmark_node_get_type(self)
+        switch type {
+            case CMARK_NODE_DOCUMENT: return .document
+            case CMARK_NODE_BLOCK_QUOTE: return .blockquote
+            case CMARK_NODE_LIST: return .list
+            case CMARK_NODE_ITEM:
+                // The task list extension is the only one cmark attaches to list items.
+                return cmark_node_get_syntax_extension(self) == nil ? .item : .taskListItem
+            case CMARK_NODE_CODE_BLOCK: return .codeBlock
+            case CMARK_NODE_HTML_BLOCK: return .htmlBlock
+            case CMARK_NODE_CUSTOM_BLOCK: return .customBlock
+            case CMARK_NODE_PARAGRAPH: return .paragraph
+            case CMARK_NODE_HEADING: return .heading
+            case CMARK_NODE_THEMATIC_BREAK: return .thematicBreak
+            case CMARK_NODE_TEXT: return .text
+            case CMARK_NODE_SOFTBREAK: return .softBreak
+            case CMARK_NODE_LINEBREAK: return .lineBreak
+            case CMARK_NODE_CODE: return .code
+            case CMARK_NODE_HTML_INLINE: return .html
+            case CMARK_NODE_CUSTOM_INLINE: return .customInline
+            case CMARK_NODE_EMPH: return .emphasis
+            case CMARK_NODE_STRONG: return .strong
+            case CMARK_NODE_LINK: return .link
+            case CMARK_NODE_IMAGE: return .image
+            default:
+                break
         }
-        return nodeType
+        // Extension types are resolved once; unresolved ones are never equal to a
+        // parsed node's type, so they fall back to the extension's type string.
+        let extensionTypes = ExtensionNodeTypes.shared
+        switch type {
+            case extensionTypes.CMARK_NODE_TABLE: return .table
+            case extensionTypes.CMARK_NODE_TABLE_ROW: return .tableRow
+            case extensionTypes.CMARK_NODE_TABLE_CELL: return .tableCell
+            case extensionTypes.CMARK_NODE_STRIKETHROUGH: return .strikethrough
+            default:
+                let typeString = String(cString: cmark_node_get_type_string(self))
+                guard let nodeType = NodeType(rawValue: typeString) else {
+                    fatalError("Unknown node type '\(typeString)' found.")
+                }
+                return nodeType
+        }
     }
 
     var children: UnsafeNodeSequence {
