@@ -18,15 +18,44 @@ actor InlineImageLoader {
         let scale: CGFloat
     }
 
+    /// HTTP validators that let a stale decoded image be revalidated instead of downloaded again.
+    struct Validators: Hashable, Sendable {
+        var entityTag: String?
+        var lastModified: String?
+
+        /// Returns `nil` when the response has no validators or must not be stored.
+        init?(response: HTTPURLResponse, merging previous: Validators? = nil) {
+            guard !InlineImageLoader.cacheDirectives(of: response).contains(where: { $0.hasPrefix("no-store") }) else {
+                return nil
+            }
+            entityTag = response.value(forHTTPHeaderField: "ETag") ?? previous?.entityTag
+            lastModified = response.value(forHTTPHeaderField: "Last-Modified") ?? previous?.lastModified
+            guard entityTag != nil || lastModified != nil else {
+                return nil
+            }
+        }
+    }
+
     struct Resource: Sendable {
         let image: CGImage
         var scale: CGFloat = 1
+        /// Reuse without contacting the server until this date.
         let expiration: Date?
+        /// Reuse after a successful conditional request once the resource is stale.
+        var validators: Validators?
 
         var decoded: Decoded {
             Decoded(image: image, scale: scale)
         }
     }
+
+    enum LoadResult: Sendable {
+        case loaded(Resource)
+        /// The server confirmed that the revalidated image is still current.
+        case notModified(expiration: Date?, validators: Validators?)
+    }
+
+    typealias Fetch = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
     /// Responses larger than this are rejected before they are buffered in full.
     static let maximumResponseByteCount = 50 * 1024 * 1024
@@ -39,13 +68,17 @@ actor InlineImageLoader {
 
     private struct Job {
         let key: Key
+        /// The stale image a conditional request may confirm.
+        let revalidating: (image: Decoded, validators: Validators)?
         var waiters: [UUID: CheckedContinuation<Decoded, any Error>]
     }
 
     private struct CachedImage {
         let image: Decoded
         let cost: Int
-        let expiration: Date
+        /// `nil` once stale; stale entries are kept only when they have validators.
+        var expiration: Date?
+        var validators: Validators?
         var access: UInt64
     }
 
@@ -57,7 +90,7 @@ actor InlineImageLoader {
     private var scheduledExpiration: Date?
     private var expirationGeneration: UInt64 = 0
     private var memoryPressureObserver: MemoryPressureObserver?
-    private let load: @Sendable (Key) async throws -> Resource
+    private let load: @Sendable (Key, Validators?) async throws -> LoadResult
     private var jobs: [UUID: Job] = [:]
     private var jobForKey: [Key: UUID] = [:]
     private var pending: [UUID] = []
@@ -80,14 +113,51 @@ actor InlineImageLoader {
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
-        load: @escaping @Sendable (Key) async throws -> Resource = InlineImageLoader.download
+        fetch: @escaping Fetch = InlineImageLoader.fetch
+    ) {
+        self.init(
+            maximumConcurrentLoads: maximumConcurrentLoads,
+            maximumCacheCost: maximumCacheCost,
+            now: now,
+            sleepUntil: sleepUntil,
+            loadResult: { key, validators in
+                try await Self.load(key, validators: validators, fetch: fetch, now: now)
+            }
+        )
+    }
+
+    /// Loads resources without HTTP revalidation.
+    init(
+        maximumConcurrentLoads: Int = 4,
+        maximumCacheCost: Int = 64 * 1024 * 1024,
+        now: @escaping @Sendable () -> Date = { Date() },
+        sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
+            try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+        },
+        load: @escaping @Sendable (Key) async throws -> Resource
+    ) {
+        self.init(
+            maximumConcurrentLoads: maximumConcurrentLoads,
+            maximumCacheCost: maximumCacheCost,
+            now: now,
+            sleepUntil: sleepUntil,
+            loadResult: { key, _ in .loaded(try await load(key)) }
+        )
+    }
+
+    private init(
+        maximumConcurrentLoads: Int,
+        maximumCacheCost: Int,
+        now: @escaping @Sendable () -> Date,
+        sleepUntil: @escaping @Sendable (Date) async throws -> Void,
+        loadResult: @escaping @Sendable (Key, Validators?) async throws -> LoadResult
     ) {
         precondition(maximumConcurrentLoads > 0 && maximumCacheCost >= 0)
         self.maximumConcurrentLoads = maximumConcurrentLoads
         self.maximumCacheCost = maximumCacheCost
         self.now = now
         self.sleepUntil = sleepUntil
-        self.load = load
+        self.load = loadResult
     }
 
     deinit {
@@ -96,15 +166,24 @@ actor InlineImageLoader {
 
     func image(for key: Key) async throws -> Decoded {
         try Task.checkCancellation()
-        if var cached = cache[key], cached.expiration > now() {
+        var revalidating: (image: Decoded, validators: Validators)?
+        if var cached = cache[key] {
             access &+= 1
             cached.access = access
-            cache[key] = cached
-            return cached.image
-        }
-        if let expired = cache.removeValue(forKey: key) {
-            cacheCost -= expired.cost
-            scheduleExpiration()
+            if let expiration = cached.expiration, expiration > now() {
+                cache[key] = cached
+                return cached.image
+            }
+            if let validators = cached.validators {
+                // Keep the stale image so a 304 response can reuse it without decoding.
+                cached.expiration = nil
+                cache[key] = cached
+                revalidating = (cached.image, validators)
+            } else {
+                cache.removeValue(forKey: key)
+                cacheCost -= cached.cost
+                scheduleExpiration()
+            }
         }
         let waiterID = UUID()
         return try await withTaskCancellationHandler {
@@ -118,7 +197,7 @@ actor InlineImageLoader {
                     jobs[jobID]?.waiters[waiterID] = continuation
                 } else {
                     let jobID = UUID()
-                    jobs[jobID] = Job(key: key, waiters: [waiterID: continuation])
+                    jobs[jobID] = Job(key: key, revalidating: revalidating, waiters: [waiterID: continuation])
                     jobForKey[key] = jobID
                     pending.append(jobID)
                     pendingLoadCount += 1
@@ -157,11 +236,12 @@ actor InlineImageLoader {
             }
             pendingLoadCount -= 1
             let load = self.load
+            let validators = job.revalidating?.validators
             running[jobID] = Task.detached {
-                let result: Result<Resource, any Error>
+                let result: Result<LoadResult, any Error>
                 do {
                     try Task.checkCancellation()
-                    let image = try await load(job.key)
+                    let image = try await load(job.key, validators)
                     try Task.checkCancellation()
                     result = .success(image)
                 } catch {
@@ -185,25 +265,41 @@ actor InlineImageLoader {
         }
     }
 
-    private func finish(jobID: UUID, result: Result<Resource, any Error>) {
+    private func finish(jobID: UUID, result: Result<LoadResult, any Error>) {
         running.removeValue(forKey: jobID)
         if let job = jobs.removeValue(forKey: jobID) {
             jobForKey.removeValue(forKey: job.key)
-            if case let .success(resource) = result {
-                insert(resource, for: job.key)
+            let image: Result<Decoded, any Error> = result.flatMap { result in
+                switch result {
+                    case let .loaded(resource):
+                        insert(resource.decoded, expiration: resource.expiration, validators: resource.validators, for: job.key)
+                        return .success(resource.decoded)
+                    case let .notModified(expiration, validators):
+                        guard let revalidated = job.revalidating?.image else {
+                            return .failure(URLError(.badServerResponse))
+                        }
+                        insert(revalidated, expiration: expiration, validators: validators, for: job.key)
+                        return .success(revalidated)
+                }
             }
             for continuation in job.waiters.values {
-                continuation.resume(with: result.map(\.decoded))
+                continuation.resume(with: image)
             }
         }
         startPendingLoads()
     }
 
-    private func insert(_ resource: Resource, for key: Key) {
-        guard let expiration = resource.expiration, expiration > now() else {
+    /// Caches fresh images until they expire and images with validators until they are evicted.
+    private func insert(_ decoded: Decoded, expiration: Date?, validators: Validators?, for key: Key) {
+        // A replacement or an uncacheable response supersedes any stale entry.
+        if let replaced = cache.removeValue(forKey: key) {
+            cacheCost -= replaced.cost
+        }
+        let expiration = expiration.flatMap { $0 > now() ? $0 : nil }
+        guard expiration != nil || validators != nil else {
             return
         }
-        let image = resource.image
+        let image = decoded.image
         let (cost, overflow) = image.bytesPerRow.multipliedReportingOverflow(by: image.height)
         guard !overflow, cost <= maximumCacheCost else {
             return
@@ -227,7 +323,9 @@ actor InlineImageLoader {
             }
         }
         access &+= 1
-        cache[key] = CachedImage(image: resource.decoded, cost: cost, expiration: expiration, access: access)
+        cache[key] = CachedImage(
+            image: decoded, cost: cost, expiration: expiration, validators: validators, access: access
+        )
         cacheCost += cost
         if memoryPressureObserver == nil {
             memoryPressureObserver = MemoryPressureObserver { [weak self] in
@@ -235,7 +333,7 @@ actor InlineImageLoader {
             }
         }
         // Keep the existing earlier wake-up: it also handles eviction of its original entry.
-        if scheduledExpiration.map({ expiration < $0 }) ?? true {
+        if let expiration, scheduledExpiration.map({ expiration < $0 }) ?? true {
             scheduleExpiration(at: expiration)
         }
     }
@@ -248,7 +346,7 @@ actor InlineImageLoader {
     }
 
     private func scheduleExpiration() {
-        scheduleExpiration(at: cache.values.lazy.map(\.expiration).min())
+        scheduleExpiration(at: cache.values.lazy.compactMap(\.expiration).min())
     }
 
     private func scheduleExpiration(at deadline: Date?) {
@@ -277,24 +375,64 @@ actor InlineImageLoader {
             return
         }
         let currentDate = now()
-        for (key, entry) in cache where entry.expiration <= currentDate {
-            cache.removeValue(forKey: key)
-            cacheCost -= entry.cost
+        for (key, entry) in cache {
+            guard let expiration = entry.expiration, expiration <= currentDate else {
+                continue
+            }
+            if entry.validators == nil {
+                cache.removeValue(forKey: key)
+                cacheCost -= entry.cost
+            } else {
+                // Stale images with validators stay cached for conditional requests.
+                cache[key]?.expiration = nil
+            }
         }
         scheduleExpiration()
     }
 
-    private static func download(_ key: Key) async throws -> Resource {
-        // Streaming the body lets oversized responses fail before they are fully buffered.
-        let (bytes, response) = try await URLSession.shared.bytes(from: key.url)
+    /// Downloads and decodes a resource, or revalidates a stale one when validators are given.
+    static func load(
+        _ key: Key, validators: Validators?, fetch: Fetch, now: () -> Date
+    ) async throws -> LoadResult {
+        var request = URLRequest(url: key.url)
+        if let validators {
+            // Ask the server itself so URLCache can't turn its 304 into a stored 200 body.
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            if let entityTag = validators.entityTag {
+                request.setValue(entityTag, forHTTPHeaderField: "If-None-Match")
+            }
+            if let lastModified = validators.lastModified {
+                request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
+            }
+        }
+        let (data, response) = try await fetch(request)
         try Task.checkCancellation()
-        guard let response = response as? HTTPURLResponse,
-              200 ..< 300 ~= response.statusCode else {
+        if response.statusCode == 304, validators != nil {
+            return .notModified(
+                expiration: cacheExpiration(for: response, now: now()),
+                validators: Validators(response: response, merging: validators)
+            )
+        }
+        guard 200 ..< 300 ~= response.statusCode else {
             throw URLError(.badServerResponse)
         }
-        let data = try await body(of: bytes, expectedContentLength: response.expectedContentLength)
         let decoded = try decode(data, resolution: key.resolution)
-        return Resource(image: decoded.image, scale: decoded.scale, expiration: cacheExpiration(for: response))
+        return .loaded(Resource(
+            image: decoded.image,
+            scale: decoded.scale,
+            expiration: cacheExpiration(for: response, now: now()),
+            validators: Validators(response: response)
+        ))
+    }
+
+    private static func fetch(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        // Streaming the body lets oversized responses fail before they are fully buffered.
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        try Task.checkCancellation()
+        guard let response = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        return (try await body(of: bytes, expectedContentLength: response.expectedContentLength), response)
     }
 
     /// Collects a response body, rejecting it once its declared or received size exceeds the limit.
@@ -331,10 +469,14 @@ actor InlineImageLoader {
         return formatter
     }()
 
-    /// Honor explicit freshness only; URLSession owns revalidation and heuristic HTTP caching.
-    static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
-        let directives = (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
+    static func cacheDirectives(of response: HTTPURLResponse) -> [String] {
+        (response.value(forHTTPHeaderField: "Cache-Control") ?? "")
             .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Honor explicit freshness only; stale images with validators are revalidated instead.
+    static func cacheExpiration(for response: HTTPURLResponse, now: Date = Date()) -> Date? {
+        let directives = cacheDirectives(of: response)
         guard !directives.contains(where: { $0.hasPrefix("no-store") || $0.hasPrefix("no-cache") }),
               let maxAge = directives.first(where: { $0.hasPrefix("max-age=") }),
               let seconds = TimeInterval(maxAge.dropFirst("max-age=".count)

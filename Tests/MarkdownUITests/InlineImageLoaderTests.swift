@@ -375,6 +375,99 @@ import XCTest
         }
     }
 
+    func testStaleImageWithEntityTagIsRevalidatedAndReusedAfterNotModified() async throws {
+        let clock = ImageExpirationClock()
+        let sleeper = ImageExpirationSleeper()
+        let probe = try FetchProbe()
+        await probe.enqueue(.init(status: 200, headers: ["ETag": "\"a\"", "Cache-Control": "max-age=10"], body: probe.png))
+        let loader = InlineImageLoader(
+            now: { clock.now }, sleepUntil: { await sleeper.sleep(until: $0) }, fetch: { try await probe.fetch($0) }
+        )
+        let key = try key("etag")
+        let first = try await loader.image(for: key).image
+        _ = try await loader.image(for: key)
+        var requests = await probe.requests
+        XCTAssertEqual(requests.count, 1, "Fresh images are reused without a request")
+        XCTAssertNil(requests[0].value(forHTTPHeaderField: "If-None-Match"))
+
+        // The expiration timer keeps stale images that can be revalidated.
+        try await wait { await sleeper.isSleeping }
+        clock.advance(by: 10)
+        await sleeper.wake()
+        await probe.enqueue(.init(status: 304, headers: ["Cache-Control": "max-age=10"]))
+        let revalidated = try await loader.image(for: key).image
+        XCTAssertTrue(first === revalidated, "A 304 response reuses the decoded bitmap")
+        _ = try await loader.image(for: key)
+        requests = await probe.requests
+        XCTAssertEqual(requests.count, 2, "A 304 response renews freshness")
+        XCTAssertEqual(requests[1].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
+        XCTAssertEqual(requests[1].cachePolicy, .reloadIgnoringLocalCacheData)
+    }
+
+    func testLastModifiedRevalidationReplacesImageOnSuccess() async throws {
+        let probe = try FetchProbe()
+        let modified = "Sun, 05 Jul 2026 11:59:40 GMT"
+        await probe.enqueue(.init(status: 200, headers: ["Last-Modified": modified, "Cache-Control": "no-cache"], body: probe.png))
+        let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+        let key = try key("modified")
+        let first = try await loader.image(for: key).image
+
+        let replacement = try encodedPNG(width: 8, height: 8)
+        await probe.enqueue(.init(status: 200, headers: ["ETag": "\"b\""], body: replacement))
+        let second = try await loader.image(for: key).image
+        XCTAssertFalse(first === second)
+        XCTAssertEqual(second.width, 8)
+
+        await probe.enqueue(.init(status: 304, headers: [:]))
+        let third = try await loader.image(for: key).image
+        XCTAssertTrue(second === third)
+        let requests = await probe.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "If-Modified-Since") }, [nil, modified, nil])
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "If-None-Match") }, [nil, nil, "\"b\""])
+    }
+
+    func testNoStoreResponsesAreNeverCachedOrRevalidated() async throws {
+        let probe = try FetchProbe()
+        let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+        let key = try key("no-store")
+        for _ in 0 ..< 2 {
+            await probe.enqueue(.init(status: 200, headers: ["ETag": "\"a\"", "Cache-Control": "no-store"], body: probe.png))
+            _ = try await loader.image(for: key)
+        }
+        let requests = await probe.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "If-None-Match") }, [nil, nil])
+        XCTAssertEqual(requests.map(\.cachePolicy), [.useProtocolCachePolicy, .useProtocolCachePolicy])
+    }
+
+    func testConcurrentRevalidationsCoalesceAndCancellationKeepsStaleImage() async throws {
+        let probe = try FetchProbe()
+        await probe.enqueue(.init(status: 200, headers: ["ETag": "\"a\""], body: probe.png))
+        let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+        let key = try key("coalesced")
+        let stale = try await loader.image(for: key).image
+
+        await probe.hold()
+        let cancelled = Task { try await loader.image(for: key) }
+        try await wait { await probe.requests.count == 2 }
+        cancelled.cancel()
+        _ = await cancelled.result
+        try await wait { await probe.cancellations == 1 }
+
+        await probe.enqueue(.init(status: 304, headers: [:]))
+        let first = Task { try await loader.image(for: key).image }
+        let second = Task { try await loader.image(for: key).image }
+        try await wait { await probe.requests.count == 3 }
+        try await Task.sleep(for: .milliseconds(30))
+        await probe.release()
+        let firstImage = try await first.value
+        let secondImage = try await second.value
+        XCTAssertTrue(stale === firstImage)
+        XCTAssertTrue(stale === secondImage)
+        let requests = await probe.requests
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[2].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
+    }
+
     private func key(_ name: String) throws -> InlineImageLoader.Key {
         .init(url: try XCTUnwrap(URL(string: "https://example.com/\(name)")), resolution: .original)
     }
@@ -418,6 +511,64 @@ private actor LoaderProbe {
         }
         return .init(image: try makeImage(), expiration: Date().addingTimeInterval(60))
     }
+}
+
+/// Scripts HTTP responses and records the requests the loader sends.
+private actor FetchProbe {
+    struct Reply {
+        var status: Int
+        var headers: [String: String]
+        var body = Data()
+    }
+
+    nonisolated let png: Data
+    private(set) var requests: [URLRequest] = []
+    private(set) var cancellations = 0
+    private var replies: [Reply] = []
+    private var suspended = false
+
+    init() throws {
+        png = try encodedPNG()
+    }
+
+    func enqueue(_ reply: Reply) {
+        replies.append(reply)
+    }
+
+    func hold() {
+        suspended = true
+    }
+
+    func release() {
+        suspended = false
+    }
+
+    func fetch(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        do {
+            while suspended {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+        } catch {
+            cancellations += 1
+            throw error
+        }
+        let reply = try XCTUnwrap(replies.first, "Unexpected request")
+        replies.removeFirst()
+        let url = try XCTUnwrap(request.url)
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: url, statusCode: reply.status, httpVersion: nil, headerFields: reply.headers
+        ))
+        return (reply.body, response)
+    }
+}
+
+private func encodedPNG(width: Int = 4, height: Int = 4) throws -> Data {
+    let data = NSMutableData()
+    let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, try makeImage(width: width, height: height), nil)
+    XCTAssertTrue(CGImageDestinationFinalize(destination))
+    return data as Data
 }
 
 private func makeImage(width: Int = 4, height: Int = 4) throws -> CGImage {
