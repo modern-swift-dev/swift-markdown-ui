@@ -8,7 +8,6 @@ import Foundation
 
 extension NSAttributedString.Key {
     static let markdownEditorNodeID = NSAttributedString.Key("MarkdownUIEditor.NodeID")
-    static let markdownEditorNodePath = NSAttributedString.Key("MarkdownUIEditor.NodePath")
     static let markdownEditorObjectKind = NSAttributedString.Key("MarkdownUIEditor.ObjectKind")
     static let markdownEditorTaskChecked = NSAttributedString.Key("MarkdownUIEditor.TaskChecked")
 }
@@ -27,6 +26,8 @@ struct DocumentProjection {
     var index: ProjectionIndex
     /// Native typing defers source mapping reconstruction until it is needed.
     private var hasUnreconciledSource = false
+    /// Top-level blocks whose native text was typed in place instead of rendered.
+    private var nativelyEditedBlocks: Set<Int> = []
 
     var string: String {
         attributedString.string
@@ -85,8 +86,60 @@ struct DocumentProjection {
         }
         attributedString = textStorage
         hasUnreconciledSource = true
+        if let block = path.rootBlockIndex {
+            nativelyEditedBlocks.insert(block)
+        }
         return true
     }
+
+    /// Top-level blocks whose native text differs from a fresh projection of `document`.
+    ///
+    /// Blocks equal at both ends of the document render identically, apart from
+    /// paths that move with insertions and removals. Natively typed blocks are
+    /// always rendered again, because typed text keeps the attributes TextKit
+    /// gave it, so they never end the common prefix or suffix. `forcing` names
+    /// an extra such block, for example one whose native edit was rejected.
+    func changedBlocks(in document: MarkdownDocument, forcing forcedBlock: Int? = nil) -> [ChangedBlocks] {
+        let old = sourceDocument.blocks
+        let new = document.blocks
+        var dirty = nativelyEditedBlocks
+        if let forcedBlock {
+            dirty.insert(forcedBlock)
+        }
+        let commonLength = min(old.count, new.count)
+        var prefix = 0
+        while prefix < commonLength, dirty.contains(prefix) || old[prefix] == new[prefix] {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < commonLength - prefix,
+              dirty.contains(old.count - 1 - suffix) || old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
+            suffix += 1
+        }
+        let changed = ChangedBlocks(old: prefix ..< old.count - suffix, new: prefix ..< new.count - suffix)
+        var result = changed.old.isEmpty && changed.new.isEmpty ? [] : [changed]
+        let delta = new.count - old.count
+        for block in dirty where old.indices.contains(block) && !changed.old.contains(block) {
+            let target = block < prefix ? block : block + delta
+            result.append(ChangedBlocks(old: block ..< block + 1, new: target ..< target + 1))
+        }
+        // An insertion before a block must move it before that block is rendered again.
+        return result.sorted { ($0.old.lowerBound, $0.old.count) < ($1.old.lowerBound, $1.old.count) }
+    }
+
+    /// Records native text that now matches a fresh projection of `document`.
+    mutating func didRenderChangedBlocks(of document: MarkdownDocument, in textStorage: NSTextStorage) {
+        attributedString = textStorage
+        sourceDocument = document
+        hasUnreconciledSource = false
+        nativelyEditedBlocks = []
+    }
+}
+
+/// Top-level blocks to render again, at their indices before and after a change.
+struct ChangedBlocks: Equatable {
+    var old: Range<Int>
+    var new: Range<Int>
 }
 
 /// Builds TextKit-ready attributed text and offset mappings from a document.
@@ -145,6 +198,14 @@ struct DocumentProjection {
         return BuildState.tableMarkdown(table, prefix: prefix).utf16.count + 1
     }
 
+    /// Callbacks that native attachments use to report edits to their document owner.
+    struct Callbacks {
+        var onTableChange: ((EditorNodePath, MarkdownTable) -> Void)?
+        var tableSelection: ((EditorNodePath) -> MarkdownTableCellSelection?)?
+        var onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)?
+        var onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
+    }
+
     /// Renders a complete document. Full builds are reserved for structural or configuration changes.
     func build(
         document: MarkdownDocument,
@@ -157,36 +218,100 @@ struct DocumentProjection {
         onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)? = nil,
         onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)? = nil
     ) -> DocumentProjection {
+        build(
+            document: document,
+            output: output,
+            theme: theme,
+            baseURL: baseURL,
+            imageProvider: imageProvider,
+            callbacks: Callbacks(
+                onTableChange: onTableChange,
+                tableSelection: tableSelection,
+                onTableSelectionChange: onTableSelectionChange,
+                onImageChange: onImageChange
+            )
+        )
+    }
+
+    func build(
+        document: MarkdownDocument,
+        output: Output = .nativeText,
+        theme: MarkdownEditorTheme,
+        baseURL: URL?,
+        imageProvider: (any MarkdownEditorImageProvider)?,
+        callbacks: Callbacks
+    ) -> DocumentProjection {
+        let fragment = build(
+            blocks: document.blocks.indices,
+            of: document,
+            projectionOrigin: 0,
+            sourceOrigin: 0,
+            output: output,
+            theme: theme,
+            baseURL: baseURL,
+            imageProvider: imageProvider,
+            callbacks: callbacks
+        )
+        return DocumentProjection(
+            attributedString: fragment.attributedString,
+            sourceDocument: document,
+            index: ProjectionIndex(
+                units: fragment.units,
+                projectionUTF16Length: fragment.projectionLength,
+                sourceUTF16Length: fragment.sourceLength
+            )
+        )
+    }
+
+    /// Renders consecutive top-level blocks exactly as they appear inside a full projection.
+    ///
+    /// Units are positioned from the given origins, so they can replace the units of
+    /// the blocks previously rendered at those offsets.
+    func build(
+        blocks: Range<Int>,
+        of document: MarkdownDocument,
+        projectionOrigin: Int,
+        sourceOrigin: Int,
+        output: Output = .nativeText,
+        theme: MarkdownEditorTheme,
+        baseURL: URL?,
+        imageProvider: (any MarkdownEditorImageProvider)?,
+        callbacks: Callbacks
+    ) -> ProjectionFragment {
         let state = BuildState(
             output: output,
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
-            onTableChange: onTableChange,
-            tableSelection: tableSelection,
-            onTableSelectionChange: onTableSelectionChange,
-            onImageChange: onImageChange
+            callbacks: callbacks,
+            projectionOrigin: projectionOrigin,
+            sourceOrigin: sourceOrigin
         )
         let root = EditorNodePath()
-        for (index, block) in document.blocks.enumerated() {
+        for index in blocks {
             state.render(
-                block: block,
+                block: document.blocks[index],
                 path: root.appending(.block(index)),
                 firstPrefix: "",
                 continuationPrefix: ""
             )
         }
-        let attributedString: NSAttributedString = state.projection
-        return DocumentProjection(
-            attributedString: attributedString,
-            sourceDocument: document,
-            index: ProjectionIndex(
-                units: state.units,
-                projectionUTF16Length: state.projectionLength,
-                sourceUTF16Length: state.sourceLength
-            )
+        return ProjectionFragment(
+            attributedString: state.projection,
+            units: state.units,
+            projectionLength: state.projectionLength - projectionOrigin,
+            sourceLength: state.sourceLength - sourceOrigin
         )
     }
+}
+
+/// Native text and units rendered for a run of top-level blocks.
+struct ProjectionFragment {
+    var attributedString: NSAttributedString
+    /// Units positioned at the fragment's place in the whole projection.
+    var units: [ProjectionUnit]
+    var projectionLength: Int
+    var sourceLength: Int
 }
 
 /// Native paragraph presentation inherited through block containers.
@@ -226,13 +351,12 @@ private struct BlockPresentation {
 
     private let output: MarkdownProjectionBuilder.Output
     private(set) var projectionLength = 0
+    /// Offset of the first rendered character in the whole projection.
+    private let projectionOrigin: Int
     private let theme: MarkdownEditorTheme
     private let baseURL: URL?
     private let imageProvider: (any MarkdownEditorImageProvider)?
-    private let onTableChange: ((EditorNodePath, MarkdownTable) -> Void)?
-    private let tableSelection: ((EditorNodePath) -> MarkdownTableCellSelection?)?
-    private let onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)?
-    private let onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
+    private let callbacks: MarkdownProjectionBuilder.Callbacks
     private let identities = EditorIdentityTree()
     /// Inline attributes already resolved during this build, including converted fonts.
     private var attributesByStyle: [InlineStyle: [NSAttributedString.Key: Any]] = [:]
@@ -242,19 +366,18 @@ private struct BlockPresentation {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
-        onTableChange: ((EditorNodePath, MarkdownTable) -> Void)?,
-        tableSelection: ((EditorNodePath) -> MarkdownTableCellSelection?)?,
-        onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)?,
-        onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
+        callbacks: MarkdownProjectionBuilder.Callbacks,
+        projectionOrigin: Int,
+        sourceOrigin: Int
     ) {
         self.output = output
         self.theme = theme
         self.baseURL = baseURL
         self.imageProvider = imageProvider
-        self.onTableChange = onTableChange
-        self.tableSelection = tableSelection
-        self.onTableSelectionChange = onTableSelectionChange
-        self.onImageChange = onImageChange
+        self.callbacks = callbacks
+        self.projectionOrigin = projectionOrigin
+        self.projectionLength = projectionOrigin
+        self.sourceLength = sourceOrigin
     }
 
     func render(
@@ -330,12 +453,14 @@ private struct BlockPresentation {
                         appendObjectPlaceholder(source: markdown, kind: "table")
                         return
                     }
-                    let attachment = MarkdownTableAttachment(table: table) { [onTableChange] table in
-                        onTableChange?(path, table)
+                    let reference = EditorPathReference(path)
+                    let attachment = MarkdownTableAttachment(table: table) { [onTableChange = callbacks.onTableChange] table in
+                        onTableChange?(reference.path, table)
                     }
-                    if let onTableSelectionChange {
-                        attachment.controller.configureSelection(tableSelection?(path)) { selection in
-                            onTableSelectionChange(path, selection)
+                    attachment.pathReference = reference
+                    if let onTableSelectionChange = callbacks.onTableSelectionChange {
+                        attachment.controller.configureSelection(callbacks.tableSelection?(path)) { selection in
+                            onTableSelectionChange(reference.path, selection)
                         }
                     }
                     appendAttachment(attachment, source: markdown, kind: "table")
@@ -418,24 +543,19 @@ private struct BlockPresentation {
             )
         )
         if output == .nativeText, projectionRange.length > 0 {
+            let range = NSRange(location: projectionRange.location - projectionOrigin, length: projectionRange.length)
             if let taskState = presentation.taskState {
-                projection.addAttribute(.markdownEditorTaskChecked, value: NSNumber(value: taskState == .checked), range: projectionRange.nsRange)
+                projection.addAttribute(.markdownEditorTaskChecked, value: NSNumber(value: taskState == .checked), range: range)
                 if taskState == .checked {
-                    projection.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: projectionRange.nsRange)
+                    projection.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
                 }
             }
-            projection.addAttributes(
-                [
-                    .markdownEditorNodeID: id.description,
-                    .markdownEditorNodePath: path.description
-                ],
-                range: projectionRange.nsRange
-            )
+            projection.addAttribute(.markdownEditorNodeID, value: id.description, range: range)
             if let paragraphStyle = paragraphStyle(for: presentation) {
                 projection.addAttribute(
                     .paragraphStyle,
                     value: paragraphStyle,
-                    range: projectionRange.nsRange
+                    range: range
                 )
             }
         }
@@ -573,13 +693,15 @@ private struct BlockPresentation {
                     return
                 }
                 let metadata = MarkdownImageMetadata(source: source, title: title, altText: MarkdownImageMetadata.altText(for: children))
+                let reference = EditorPathReference(path)
                 let attachment = MarkdownImageAttachment(
                     metadata: metadata,
                     baseURL: baseURL,
                     imageProvider: imageProvider
-                ) { [onImageChange] metadata in
-                    onImageChange?(path, metadata)
+                ) { [onImageChange = callbacks.onImageChange] metadata in
+                    onImageChange?(reference.path, metadata)
                 }
+                attachment.pathReference = reference
                 attachment.altContent = children
                 appendAttachment(
                     attachment,

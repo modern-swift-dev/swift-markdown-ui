@@ -42,17 +42,17 @@ import Foundation
         private(set) lazy var projection: DocumentProjection = makeProjection(document: document)
         /// Attributes used when building or refreshing the projection.
         private(set) var theme: MarkdownEditorTheme {
-            didSet { projectedTableCell = nil }
+            didSet { configurationDidChange() }
         }
 
         /// Base URL used by URL-backed image attachments.
         private(set) var baseURL: URL? {
-            didSet { projectedTableCell = nil }
+            didSet { configurationDidChange() }
         }
 
         /// Provider used by URL-backed image attachments.
         private(set) var imageProvider: (any MarkdownEditorImageProvider)? {
-            didSet { projectedTableCell = nil }
+            didSet { configurationDidChange() }
         }
 
         /// Platform adapter that owns TextKit storage and native selection.
@@ -65,6 +65,8 @@ import Foundation
         private var isUpdatingBridge = false
         /// Defers parsing until an IME composition completes.
         private var needsCompositionFlush = false
+        /// Native text was rendered with a previous configuration, so no block of it can be kept.
+        private var needsFullProjection = false
         /// Native edit captured before TextKit mutates the attributed storage.
         private var pendingNativeEdits: [PendingNativeEdit] = []
         /// Nested table selection that currently owns keyboard focus.
@@ -234,12 +236,11 @@ import Foundation
             guard Self.editableDocument(replacement) != document else {
                 return false
             }
-            needsCompositionFlush = false
             pendingNativeEdits = []
             document = Self.editableDocument(replacement)
             activeTableSelection = validated(activeTableSelection, in: replacement)
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: restoredRanges(bridge?.markdownSelectedRanges ?? [], in: projection))
+            refreshProjection(selectedRanges: restoredRanges(bridge?.markdownSelectedRanges ?? [], in: projection))
+            needsCompositionFlush = false
             return true
         }
 
@@ -384,9 +385,7 @@ import Foundation
             document = result.document
             activeTableSelection = tableSelection(for: result.selection)
             pendingNativeEdits = []
-            projection = makeProjection(document: document)
-            let selection = projectionRange(for: result.selection) ?? nativeSelection
-            installProjection(projection, selectedRanges: [selection])
+            refreshProjection(selectedRanges: [projectionRange(for: result.selection) ?? nativeSelection])
             publishDocumentChange()
 
             let after = Snapshot(
@@ -423,8 +422,7 @@ import Foundation
             )
             document = result.document
             pendingNativeEdits = []
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: before.selectedRanges)
+            refreshProjection(selectedRanges: before.selectedRanges)
             publishDocumentChange()
             let after = Snapshot(
                 document: document,
@@ -556,6 +554,12 @@ import Foundation
                 theme: theme,
                 baseURL: baseURL,
                 imageProvider: imageProvider,
+                callbacks: projectionCallbacks
+            )
+        }
+
+        var projectionCallbacks: MarkdownProjectionBuilder.Callbacks {
+            MarkdownProjectionBuilder.Callbacks(
                 onTableChange: { [weak self] path, table in
                     self?.replaceTable(at: path, with: table)
                 },
@@ -572,6 +576,113 @@ import Foundation
                     self?.replaceImage(at: path, with: metadata)
                 }
             )
+        }
+
+        func configurationDidChange() {
+            projectedTableCell = nil
+            needsFullProjection = true
+        }
+
+        /// Brings native text and the index up to date after `document` changed.
+        ///
+        /// Only top-level blocks that changed, or whose text was typed natively, are
+        /// rendered and replaced, leaving the remaining text and its layout in place.
+        /// Configuration changes, compositions, and storage the index does not
+        /// describe fall back to a full projection. Both produce identical text.
+        func refreshProjection(
+            selectedRanges: @autoclosure () -> [NSRange],
+            rejecting edit: PendingNativeEdit? = nil
+        ) {
+            guard let bridge, !needsFullProjection, !needsCompositionFlush, !bridge.markdownHasMarkedText,
+                  bridge.markdownTextStorage.length == projection.index.projectionUTF16Length + (edit?.projectionDelta ?? 0),
+                  edit.map({ projection.index.unit(at: $0.path) != nil && $0.path.rootBlockIndex != nil }) ?? true else {
+                projection = makeProjection(document: document)
+                installProjection(projection, selectedRanges: selectedRanges())
+                return
+            }
+            struct Replacement {
+                var range: NSRange
+                var text: NSAttributedString
+                var blockDelta: Int
+            }
+            let editedBlock = edit?.path.rootBlockIndex
+            // Index offsets after each replacement match the text after the previous one,
+            // so replacements are recorded first and applied in the same order.
+            var replacements: [Replacement] = []
+            var blockDelta = 0
+            for change in projection.changedBlocks(in: document, forcing: editedBlock) {
+                let span = projection.index.blockSpan(
+                    change.old.lowerBound + blockDelta ..< change.old.upperBound + blockDelta
+                )
+                let fragment = MarkdownProjectionBuilder().build(
+                    blocks: change.new,
+                    of: document,
+                    projectionOrigin: span.projection.location,
+                    sourceOrigin: span.source.location,
+                    theme: theme,
+                    baseURL: baseURL,
+                    imageProvider: imageProvider,
+                    callbacks: projectionCallbacks
+                )
+                var range = span.projection.nsRange
+                if let edit, let editedBlock, change.old.contains(editedBlock) {
+                    range.length += edit.projectionDelta
+                }
+                let changeDelta = change.new.count - change.old.count
+                replacements.append(Replacement(range: range, text: fragment.attributedString, blockDelta: changeDelta))
+                projection.index.replaceBlocks(
+                    span,
+                    with: fragment.units,
+                    projectionLength: fragment.projectionLength,
+                    sourceLength: fragment.sourceLength,
+                    blockDelta: changeDelta
+                )
+                blockDelta += changeDelta
+            }
+            let ranges = restoredRanges(selectedRanges(), in: projection)
+            let textStorage = bridge.markdownTextStorage
+            isUpdatingBridge = true
+            for replacement in replacements {
+                bridge.replaceAttributedCharacters(in: replacement.range, with: replacement.text)
+                if replacement.blockDelta != 0 {
+                    shiftAttachmentPaths(
+                        after: replacement.range.location + replacement.text.length,
+                        by: replacement.blockDelta,
+                        in: textStorage
+                    )
+                }
+            }
+            projection.didRenderChangedBlocks(of: document, in: textStorage)
+            restoreTableSelections(in: textStorage)
+            bridge.markdownSelectedRanges = ranges
+            isUpdatingBridge = false
+            if activeTableSelection == nil {
+                selectionDidChange()
+            }
+        }
+
+        /// Keeps callbacks of attachments after inserted or removed blocks pointing at their blocks.
+        func shiftAttachmentPaths(after location: Int, by blockDelta: Int, in textStorage: NSTextStorage) {
+            let range = NSRange(location: location, length: textStorage.length - location)
+            textStorage.enumerateAttribute(.attachment, in: range) { value, _, _ in
+                let reference = (value as? MarkdownTableAttachment)?.pathReference
+                    ?? (value as? MarkdownImageAttachment)?.pathReference
+                if let reference {
+                    reference.path = reference.path.shiftingRootBlock(by: blockDelta)
+                }
+            }
+        }
+
+        /// Gives kept tables the cell focus a full projection would give their new attachments.
+        func restoreTableSelections(in textStorage: NSTextStorage) {
+            let range = NSRange(location: 0, length: textStorage.length)
+            textStorage.enumerateAttribute(.attachment, in: range) { value, _, _ in
+                guard let attachment = value as? MarkdownTableAttachment,
+                      let path = attachment.pathReference?.path else {
+                    return
+                }
+                attachment.controller.restoreSelection(activeTableSelection?.path == path ? activeTableSelection?.cell : nil)
+            }
         }
 
         func tableSelectionDidChange(
@@ -712,8 +823,7 @@ import Foundation
             )
             document = replacement
             pendingNativeEdits = []
-            projection = makeProjection(document: replacement)
-            installProjection(projection, selectedRanges: ranges)
+            refreshProjection(selectedRanges: ranges)
             publishDocumentChange()
             let after = Snapshot(
                 document: document,
@@ -738,8 +848,7 @@ import Foundation
             document = replacement
             pendingNativeEdits = []
             if !projection.reconcileTable(at: path, document: replacement) {
-                projection = makeProjection(document: replacement)
-                installProjection(projection, selectedRanges: ranges)
+                refreshProjection(selectedRanges: ranges)
             }
             publishDocumentChange()
             let after = Snapshot(
@@ -760,7 +869,7 @@ import Foundation
             pendingNativeEdits = []
             if !edits.isEmpty {
                 for edit in edits {
-                    reconcileRichEdit(edit, bridge: bridge)
+                    reconcileRichEdit(edit, bridge: bridge, isOnlyEdit: edits.count == 1)
                 }
                 selectionDidChange()
                 return
@@ -818,7 +927,7 @@ import Foundation
             selectionDidChange()
         }
 
-        func reconcileRichEdit(_ edit: PendingNativeEdit, bridge: any TextViewBridge) {
+        func reconcileRichEdit(_ edit: PendingNativeEdit, bridge: any TextViewBridge, isOnlyEdit: Bool) {
             guard let oldUnit = projection.index.unit(at: edit.path) else {
                 rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges)
                 return
@@ -831,7 +940,7 @@ import Foundation
             guard unitLength > 0,
                   NSMaxRange(contentRange) <= bridge.markdownTextStorage.length,
                   let currentBlock = leafBlock(at: edit.path) else {
-                rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges)
+                rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges, rejecting: isOnlyEdit ? edit : nil)
                 return
             }
             let attributedContent = bridge.markdownTextStorage.attributedSubstring(from: contentRange)
@@ -843,7 +952,7 @@ import Foundation
                       projectionLength: unitLength,
                       kind: projectionKind(at: edit.path, in: replacement)
                   ) else {
-                rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges)
+                rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges, rejecting: isOnlyEdit ? edit : nil)
                 return
             }
             if replacement != document {
@@ -873,9 +982,17 @@ import Foundation
             }
         }
 
-        func rebuildAfterUnsafeNativeEdit(selectedRanges: [NSRange]) {
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: selectedRanges)
+        /// Replaces native text that the session could not map back to the document.
+        ///
+        /// A rejected edit that TextKit applied inside one known leaf only needs that
+        /// leaf's block rendered again. Edits located by guessing rebuild everything.
+        func rebuildAfterUnsafeNativeEdit(selectedRanges: [NSRange], rejecting edit: PendingNativeEdit? = nil) {
+            guard let edit else {
+                projection = makeProjection(document: document)
+                installProjection(projection, selectedRanges: selectedRanges)
+                return
+            }
+            refreshProjection(selectedRanges: selectedRanges, rejecting: edit)
         }
 
         func typingAttributes(
@@ -895,7 +1012,6 @@ import Foundation
             var attributes = textStorage.attributes(at: index, effectiveRange: nil)
             attributes.removeValue(forKey: .attachment)
             attributes.removeValue(forKey: .markdownEditorNodeID)
-            attributes.removeValue(forKey: .markdownEditorNodePath)
             attributes.removeValue(forKey: .markdownEditorObjectKind)
             return attributes
         }
@@ -1300,11 +1416,7 @@ import Foundation
             )
             document = replacement
             pendingNativeEdits = []
-            projection = makeProjection(document: replacement)
-            installProjection(
-                projection,
-                selectedRanges: [projectionRange(for: selection) ?? NSRange(location: 0, length: 0)]
-            )
+            refreshProjection(selectedRanges: [projectionRange(for: selection) ?? NSRange(location: 0, length: 0)])
             publishDocumentChange()
             let after = Snapshot(
                 document: document,
@@ -1585,6 +1697,7 @@ import Foundation
             guard let bridge else {
                 return
             }
+            needsFullProjection = false
             isUpdatingBridge = true
             bridge.replaceAttributedCharacters(
                 in: NSRange(location: 0, length: bridge.markdownTextStorage.length),
@@ -1727,9 +1840,8 @@ import Foundation
             document = snapshot.document
             activeTableSelection = validated(snapshot.tableSelection, in: snapshot.document)
             pendingNativeEdits = []
+            refreshProjection(selectedRanges: snapshot.selectedRanges)
             needsCompositionFlush = false
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: snapshot.selectedRanges)
             bridge?.markdownTypingAttributes = snapshot.typingAttributes
             publishDocumentChange()
             registerUndo(from: snapshot, to: inverse, using: undoManager)
@@ -2152,8 +2264,7 @@ import Foundation
             }
             document = replacement
             pendingNativeEdits = []
-            projection = makeProjection(document: document)
-            installProjection(projection, selectedRanges: before.selectedRanges)
+            refreshProjection(selectedRanges: before.selectedRanges)
             publishDocumentChange()
             registerUndo(from: Snapshot(document: document, selectedRanges: bridge.markdownSelectedRanges, typingAttributes: bridge.markdownTypingAttributes), to: before)
             return true

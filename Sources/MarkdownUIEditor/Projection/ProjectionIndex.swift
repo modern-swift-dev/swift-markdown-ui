@@ -101,6 +101,15 @@ struct ProjectionIndex {
         return baseUnits[index].projectionRange.location + delta
     }
 
+    private func sourceStart(at index: Int) -> Int {
+        let delta = if let activeReplacement, index > activeReplacement.unitIndex {
+            activeReplacement.sourceDelta
+        } else {
+            0
+        }
+        return baseUnits[index].sourceRange.location + delta
+    }
+
     private func projectionRange(at index: Int) -> ProjectionUTF16Range {
         if let activeReplacement, index == activeReplacement.unitIndex {
             return activeReplacement.unit.projectionRange
@@ -234,47 +243,86 @@ struct ProjectionIndex {
         return SourceUTF16Range(location: lowerBound, length: upperBound - lowerBound)
     }
 
-    /// Updates every range after an arbitrary projection and source replacement.
-    ///
-    /// Structural editing uses this general operation. Normal leaf typing uses
-    /// ``replaceUnit(at:kind:projectionLength:sourceLength:)`` instead.
-    mutating func applyReplacement(
-        projectionRange: ProjectionUTF16Range,
-        projectionReplacementUTF16Length: Int,
-        sourceRange: SourceUTF16Range,
-        sourceReplacementUTF16Length: Int
-    ) {
-        precondition(projectionReplacementUTF16Length >= 0 && sourceReplacementUTF16Length >= 0)
-        materializeActiveReplacement()
-        let projectionDelta = projectionReplacementUTF16Length - projectionRange.length
-        let sourceDelta = sourceReplacementUTF16Length - sourceRange.length
+    /// The units, native text, and source rendered for consecutive top-level blocks.
+    struct BlockSpan: Equatable {
+        var units: Range<Int>
+        var projection: ProjectionUTF16Range
+        var source: SourceUTF16Range
+    }
 
-        for index in baseUnits.indices {
-            baseUnits[index].projectionRange = Self.adjust(
-                baseUnits[index].projectionRange,
-                replacing: projectionRange,
-                replacementLength: projectionReplacementUTF16Length
-            )
-            baseUnits[index].sourceRange = Self.adjust(
-                baseUnits[index].sourceRange,
-                replacing: sourceRange,
-                replacementLength: sourceReplacementUTF16Length
-            )
-            for segmentIndex in baseUnits[index].segments.indices {
-                baseUnits[index].segments[segmentIndex].projectionRange = Self.adjust(
-                    baseUnits[index].segments[segmentIndex].projectionRange,
-                    replacing: projectionRange,
-                    replacementLength: projectionReplacementUTF16Length
-                )
-                baseUnits[index].segments[segmentIndex].sourceRange = Self.adjust(
-                    baseUnits[index].segments[segmentIndex].sourceRange,
-                    replacing: sourceRange,
-                    replacementLength: sourceReplacementUTF16Length
-                )
+    /// Locates the units rendered for consecutive top-level blocks.
+    ///
+    /// Blocks that render no units, such as empty lists, occupy an empty span
+    /// where the next block's text begins.
+    func blockSpan(_ blocks: Range<Int>) -> BlockSpan {
+        let lower = firstUnitIndex(atOrAfterBlock: blocks.lowerBound)
+        let upper = firstUnitIndex(atOrAfterBlock: blocks.upperBound)
+        let projectionLower = lower < baseUnits.count ? projectionStart(at: lower) : projectionUTF16Length
+        let projectionUpper = upper < baseUnits.count ? projectionStart(at: upper) : projectionUTF16Length
+        let sourceLower = lower < baseUnits.count ? sourceStart(at: lower) : sourceUTF16Length
+        let sourceUpper = upper < baseUnits.count ? sourceStart(at: upper) : sourceUTF16Length
+        return BlockSpan(
+            units: lower ..< upper,
+            projection: ProjectionUTF16Range(location: projectionLower, length: projectionUpper - projectionLower),
+            source: SourceUTF16Range(location: sourceLower, length: sourceUpper - sourceLower)
+        )
+    }
+
+    /// Replaces the units of consecutive top-level blocks with units rendered at the span's offsets.
+    ///
+    /// Later units move by the length changes, and their top-level block index
+    /// moves by `blockDelta` when blocks were inserted or removed.
+    mutating func replaceBlocks(
+        _ span: BlockSpan,
+        with units: [ProjectionUnit],
+        projectionLength: Int,
+        sourceLength: Int,
+        blockDelta: Int
+    ) {
+        materializeActiveReplacement()
+        let projectionDelta = projectionLength - span.projection.length
+        let sourceDelta = sourceLength - span.source.length
+        for index in span.units {
+            unitIndicesByPath.removeValue(forKey: baseUnits[index].path)
+        }
+        for index in span.units.upperBound ..< baseUnits.count {
+            if blockDelta != 0 {
+                unitIndicesByPath.removeValue(forKey: baseUnits[index].path)
+                baseUnits[index].path = baseUnits[index].path.shiftingRootBlock(by: blockDelta)
             }
+            guard projectionDelta != 0 || sourceDelta != 0 else {
+                continue
+            }
+            baseUnits[index].projectionRange.location += projectionDelta
+            baseUnits[index].sourceRange.location += sourceDelta
+            for segmentIndex in baseUnits[index].segments.indices {
+                baseUnits[index].segments[segmentIndex].projectionRange.location += projectionDelta
+                baseUnits[index].segments[segmentIndex].sourceRange.location += sourceDelta
+            }
+        }
+        baseUnits.replaceSubrange(span.units, with: units)
+        let reindexedEnd = blockDelta != 0 || units.count != span.units.count
+            ? baseUnits.count
+            : span.units.lowerBound + units.count
+        for index in span.units.lowerBound ..< reindexedEnd {
+            unitIndicesByPath[baseUnits[index].path] = index
         }
         projectionUTF16Length += projectionDelta
         sourceUTF16Length += sourceDelta
+    }
+
+    private func firstUnitIndex(atOrAfterBlock block: Int) -> Int {
+        var low = 0
+        var high = baseUnits.count
+        while low < high {
+            let middle = (low + high) / 2
+            if (baseUnits[middle].path.rootBlockIndex ?? .max) < block {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
     }
 
     /// Replaces one rich leaf without rewriting later ranges.
@@ -684,57 +732,5 @@ struct ProjectionIndex {
             return toLocation + toLength
         }
         return affinity == .upstream ? toLocation : toLocation + toLength
-    }
-
-    private static func adjust(
-        _ range: ProjectionUTF16Range,
-        replacing replaced: ProjectionUTF16Range,
-        replacementLength: Int
-    ) -> ProjectionUTF16Range {
-        let delta = replacementLength - replaced.length
-        if replaced.length == 0 {
-            if range.location >= replaced.location {
-                return ProjectionUTF16Range(location: range.location + delta, length: range.length)
-            }
-            if range.upperBound > replaced.location {
-                return ProjectionUTF16Range(location: range.location, length: range.length + delta)
-            }
-            return range
-        }
-        if range.upperBound <= replaced.location {
-            return range
-        }
-        if range.location >= replaced.upperBound {
-            return ProjectionUTF16Range(location: range.location + delta, length: range.length)
-        }
-        let newEnd = max(replaced.location + replacementLength, range.upperBound + delta)
-        let newStart = min(range.location, replaced.location)
-        return ProjectionUTF16Range(location: newStart, length: max(0, newEnd - newStart))
-    }
-
-    private static func adjust(
-        _ range: SourceUTF16Range,
-        replacing replaced: SourceUTF16Range,
-        replacementLength: Int
-    ) -> SourceUTF16Range {
-        let delta = replacementLength - replaced.length
-        if replaced.length == 0 {
-            if range.location >= replaced.location {
-                return SourceUTF16Range(location: range.location + delta, length: range.length)
-            }
-            if range.upperBound > replaced.location {
-                return SourceUTF16Range(location: range.location, length: range.length + delta)
-            }
-            return range
-        }
-        if range.upperBound <= replaced.location {
-            return range
-        }
-        if range.location >= replaced.upperBound {
-            return SourceUTF16Range(location: range.location + delta, length: range.length)
-        }
-        let newEnd = max(replaced.location + replacementLength, range.upperBound + delta)
-        let newStart = min(range.location, replaced.location)
-        return SourceUTF16Range(location: newStart, length: max(0, newEnd - newStart))
     }
 }

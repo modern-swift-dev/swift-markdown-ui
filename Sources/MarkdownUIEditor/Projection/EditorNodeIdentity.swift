@@ -40,6 +40,24 @@ struct EditorNodePath: Hashable, Sendable, CustomStringConvertible {
         Self(components + [component])
     }
 
+    /// The same address after top-level blocks are inserted or removed before it.
+    func shiftingRootBlock(by delta: Int) -> Self {
+        guard delta != 0, case let .block(index)? = components.first else {
+            return self
+        }
+        var copy = self
+        copy.components[0] = .block(index + delta)
+        return copy
+    }
+
+    /// The top-level block containing the addressed node.
+    var rootBlockIndex: Int? {
+        guard case let .block(index)? = components.first else {
+            return nil
+        }
+        return index
+    }
+
     var description: String {
         components.map(\.description).joined(separator: "/")
     }
@@ -58,6 +76,15 @@ private extension EditorNodePath.Component {
             case let .tableRow(index): "row[\(index)]"
             case let .tableCell(index): "cell[\(index)]"
         }
+    }
+}
+
+/// A path captured by attachment callbacks that stays current when earlier blocks change.
+@MainActor final class EditorPathReference {
+    var path: EditorNodePath
+
+    init(_ path: EditorNodePath) {
+        self.path = path
     }
 }
 

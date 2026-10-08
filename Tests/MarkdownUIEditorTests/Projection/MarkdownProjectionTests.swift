@@ -2,6 +2,12 @@ import Foundation
 @testable import MarkdownUIEditor
 import XCTest
 
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
+
 @MainActor final class MarkdownProjectionTests: XCTestCase {
     func testPlainTextMappingRoundTripsUTF16() {
         let text = "ASCII e\u{301} 👩‍👩‍👧‍👦 אבג"
@@ -232,13 +238,8 @@ import XCTest
                 location: first.projectionRange.location,
                 length: last.projectionRange.upperBound - first.projectionRange.location
             )
-            let fragment = NSMutableAttributedString(attributedString: projection.attributedString.attributedSubstring(from: range))
-            let alone = NSMutableAttributedString(
-                attributedString: MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [block]), theme: .docC).attributedString
-            )
-            for text in [fragment, alone] {
-                text.removeAttribute(.markdownEditorNodePath, range: NSRange(location: 0, length: text.length))
-            }
+            let fragment = projection.attributedString.attributedSubstring(from: range)
+            let alone = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [block]), theme: .docC).attributedString
             let expected = ProjectionComparison.runs(of: alone)
             let actual = ProjectionComparison.runs(of: fragment)
             XCTAssertEqual(actual.map(\.range), expected.map(\.range), "block \(index)")
@@ -407,48 +408,98 @@ import XCTest
         )
     }
 
-    func testApplyReplacementShiftsLaterUnits() throws {
-        let projection = MarkdownProjectionBuilder().build(
-            document: MarkdownDocument(blocks: [
-                .paragraph([.text("one")]),
-                .paragraph([.text("two")])
-            ])
-        )
-        var index = projection.index
-        let originalSecond = try XCTUnwrap(index.units.last)
+    func testReplacingChangedBlocksMatchesAFreshProjection() {
+        let blocks = ProjectionComparison.richDocument.blocks
+        let emptyList = MarkdownBlock.list(MarkdownList(kind: .unordered, isTight: true, items: []))
+        let paragraph = MarkdownBlock.paragraph([.text("inserted")])
+        var variants: [(String, [MarkdownBlock])] = [
+            ("unchanged", blocks),
+            ("insert first", [paragraph] + blocks),
+            ("append", blocks + [paragraph]),
+            ("remove first", Array(blocks.dropFirst())),
+            ("remove last", Array(blocks.dropLast())),
+            ("replace all", [paragraph]),
+            ("empty", []),
+            ("insert empty list", [emptyList] + blocks),
+            ("reverse", Array(blocks.reversed()))
+        ]
+        for index in blocks.indices {
+            var inserted = blocks
+            inserted.insert(paragraph, at: index)
+            var removed = blocks
+            removed.remove(at: index)
+            var replaced = blocks
+            replaced[index] = paragraph
+            var split = blocks
+            split.insert(blocks[index], at: index)
+            variants += [
+                ("insert at \(index)", inserted),
+                ("remove \(index)", removed),
+                ("replace \(index)", replaced),
+                ("duplicate \(index)", split)
+            ]
+        }
+        let withEmptyList = [emptyList, paragraph, emptyList]
+        variants += [
+            ("remove empty list", Array(withEmptyList.dropFirst())),
+            ("replace empty list", [paragraph, paragraph, emptyList])
+        ]
 
-        index.applyReplacement(
-            projectionRange: ProjectionUTF16Range(location: 1, length: 1),
-            projectionReplacementUTF16Length: 4,
-            sourceRange: SourceUTF16Range(location: 1, length: 1),
-            sourceReplacementUTF16Length: 4
+        for (name, variant) in variants {
+            let new = MarkdownDocument(blocks: variant)
+            let (text, index) = spliced(from: ProjectionComparison.richDocument, to: new)
+            ProjectionComparison.assertEquivalent(
+                text,
+                index,
+                to: MarkdownProjectionBuilder().build(document: new, theme: .docC),
+                name
+            )
+        }
+        let (text, index) = spliced(from: MarkdownDocument(blocks: withEmptyList), to: MarkdownDocument(blocks: [paragraph]))
+        ProjectionComparison.assertEquivalent(
+            text,
+            index,
+            to: MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [paragraph]), theme: .docC),
+            "remove around empty lists"
         )
-
-        XCTAssertEqual(index.units.last?.projectionRange.location, originalSecond.projectionRange.location + 3)
-        XCTAssertEqual(index.units.last?.sourceRange.location, originalSecond.sourceRange.location + 3)
-        XCTAssertEqual(index.projectionUTF16Length, (projection.string as NSString).length + 3)
-        XCTAssertEqual(index.sourceUTF16Length, projection.index.sourceUTF16Length + 3)
     }
 
-    func testInsertionAtUnitBoundaryShiftsFollowingUnit() throws {
-        let projection = MarkdownProjectionBuilder().build(
-            document: MarkdownDocument(blocks: [
-                .paragraph([.text("one")]),
-                .paragraph([.text("two")])
-            ])
-        )
-        var index = projection.index
-        let second = try XCTUnwrap(index.units.last)
+    func testChangedBlocksRenderNativelyTypedBlocksAgain() throws {
+        let document = MarkdownDocument(blocks: [
+            .paragraph([.text("typed")]),
+            .paragraph([.text("middle")]),
+            .heading(level: .one, content: [.text("tail")])
+        ])
+        var projection = MarkdownProjectionBuilder().build(document: document)
+        let storage = NSTextStorage(attributedString: projection.attributedString)
+        let typed = try XCTUnwrap(projection.index.units.first)
+        storage.replaceCharacters(in: NSRange(location: 1, length: 0), with: "!")
+        XCTAssertTrue(projection.reconcileRichLeaf(
+            at: typed.path,
+            textStorage: storage,
+            projectionLength: typed.projectionRange.length + 1
+        ))
 
-        index.applyReplacement(
-            projectionRange: ProjectionUTF16Range(location: second.projectionRange.location, length: 0),
-            projectionReplacementUTF16Length: 2,
-            sourceRange: SourceUTF16Range(location: second.sourceRange.location, length: 0),
-            sourceReplacementUTF16Length: 2
-        )
+        var updated = document
+        updated.blocks[0] = .paragraph([.text("t!yped")])
+        updated.blocks.insert(.paragraph([.text("new")]), at: 2)
+        XCTAssertEqual(projection.changedBlocks(in: updated), [
+            ChangedBlocks(old: 0 ..< 1, new: 0 ..< 1),
+            ChangedBlocks(old: 2 ..< 2, new: 2 ..< 3)
+        ])
+        // A forced block matches any block, so the insertion moves after it.
+        XCTAssertEqual(projection.changedBlocks(in: updated, forcing: 2), [
+            ChangedBlocks(old: 0 ..< 1, new: 0 ..< 1),
+            ChangedBlocks(old: 2 ..< 3, new: 2 ..< 3),
+            ChangedBlocks(old: 3 ..< 3, new: 3 ..< 4)
+        ])
 
-        XCTAssertEqual(index.units.last?.projectionRange.location, second.projectionRange.location + 2)
-        XCTAssertEqual(index.units.last?.sourceRange.location, second.sourceRange.location + 2)
+        // Spans of later blocks include the typed character before it is rendered again.
+        let span = projection.index.blockSpan(2 ..< 3)
+        let tail = try XCTUnwrap(projection.index.units.last)
+        XCTAssertEqual(span.projection, tail.projectionRange)
+        XCTAssertEqual(span.source, tail.sourceRange)
+        XCTAssertEqual(span.units, 2 ..< 3)
     }
 
     func testReplaceFirstUnitWithPositiveDeltas() throws {
@@ -549,11 +600,23 @@ import XCTest
             ))
             assertTargetedLookupsMatchMaterializedUnits(index)
         }
-        index.applyReplacement(
-            projectionRange: ProjectionUTF16Range(location: 2, length: 1),
-            projectionReplacementUTF16Length: 3,
-            sourceRange: SourceUTF16Range(location: 2, length: 1),
-            sourceReplacementUTF16Length: 3
+        let span = index.blockSpan(1 ..< 3)
+        let fragment = MarkdownProjectionBuilder().build(
+            blocks: 1 ..< 3,
+            of: Self.replacementDocument,
+            projectionOrigin: span.projection.location,
+            sourceOrigin: span.source.location,
+            theme: .basic,
+            baseURL: nil,
+            imageProvider: nil,
+            callbacks: MarkdownProjectionBuilder.Callbacks()
+        )
+        index.replaceBlocks(
+            span,
+            with: fragment.units,
+            projectionLength: fragment.projectionLength,
+            sourceLength: fragment.sourceLength,
+            blockDelta: 0
         )
         assertTargetedLookupsMatchMaterializedUnits(index)
         XCTAssertEqual(index.units.map(\.path), paths)
@@ -731,20 +794,55 @@ import XCTest
         }
     }
 
+    /// Replaces the text and units of changed blocks the way an editing session does.
+    private func spliced(
+        from old: MarkdownDocument,
+        to new: MarkdownDocument
+    ) -> (text: NSAttributedString, index: ProjectionIndex) {
+        let builder = MarkdownProjectionBuilder()
+        let projection = builder.build(document: old, theme: .docC)
+        let text = NSMutableAttributedString(attributedString: projection.attributedString)
+        var index = projection.index
+        var blockDelta = 0
+        for change in projection.changedBlocks(in: new) {
+            let span = index.blockSpan(change.old.lowerBound + blockDelta ..< change.old.upperBound + blockDelta)
+            let fragment = builder.build(
+                blocks: change.new,
+                of: new,
+                projectionOrigin: span.projection.location,
+                sourceOrigin: span.source.location,
+                theme: .docC,
+                baseURL: nil,
+                imageProvider: nil,
+                callbacks: MarkdownProjectionBuilder.Callbacks()
+            )
+            text.replaceCharacters(in: span.projection.nsRange, with: fragment.attributedString)
+            index.replaceBlocks(
+                span,
+                with: fragment.units,
+                projectionLength: fragment.projectionLength,
+                sourceLength: fragment.sourceLength,
+                blockDelta: change.new.count - change.old.count
+            )
+            blockDelta += change.new.count - change.old.count
+        }
+        return (text, index)
+    }
+
+    private static let replacementDocument = MarkdownDocument(blocks: [
+        .paragraph([.strong([.text("first")]), .text(" tail")]),
+        .heading(level: .two, content: [.emphasis([.text("second")])]),
+        .paragraph([
+            .text("before "),
+            .link(destination: "/target", title: "title", children: [.text("middle")]),
+            .text(" after")
+        ]),
+        .paragraph([.strikethrough([.text("fourth")]), .text(" tail")]),
+        .codeBlock(info: "swift", content: "let value = 5")
+    ])
+
     private func makeReplacementProjection() -> DocumentProjection {
-        MarkdownProjectionBuilder().build(
-            document: MarkdownDocument(blocks: [
-                .paragraph([.strong([.text("first")]), .text(" tail")]),
-                .heading(level: .two, content: [.emphasis([.text("second")])]),
-                .paragraph([
-                    .text("before "),
-                    .link(destination: "/target", title: "title", children: [.text("middle")]),
-                    .text(" after")
-                ]),
-                .paragraph([.strikethrough([.text("fourth")]), .text(" tail")]),
-                .codeBlock(info: "swift", content: "let value = 5")
-            ])
-        )
+        MarkdownProjectionBuilder().build(document: Self.replacementDocument)
     }
 
     private func measureUnitReplacement(at unitIndex: Int) throws {

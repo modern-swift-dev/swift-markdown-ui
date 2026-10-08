@@ -96,6 +96,11 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         onSelectionChange = onChange
     }
 
+    /// Replaces the remembered nested selection without reporting it.
+    func restoreSelection(_ selection: MarkdownTableCellSelection?) {
+        activeSelection = selection
+    }
+
     func updateSelection(at position: MarkdownTableCellPosition, range: NSRange) {
         let selection = MarkdownTableCellSelection(position: position, range: range)
         guard selection != activeSelection else {
@@ -656,6 +661,9 @@ private enum MarkdownTableCellSourceCodec {
             get { controller.onChange }
             set { controller.onChange = newValue }
         }
+
+        /// The editor path reported by table callbacks, updated when earlier blocks change.
+        @MainActor var pathReference: EditorPathReference?
 
         @MainActor public init(table: MarkdownTable, onChange: ((MarkdownTable) -> Void)? = nil) {
             self.controller = MarkdownTableController(table: table, onChange: onChange)

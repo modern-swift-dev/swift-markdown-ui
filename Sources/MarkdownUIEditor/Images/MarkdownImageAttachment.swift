@@ -144,6 +144,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         public let imageProvider: (any MarkdownEditorImageProvider)?
         /// Callback invoked when a native view changes the image metadata.
         public var onChange: ((MarkdownImageMetadata) -> Void)?
+        /// The editor path reported by `onChange`, updated when earlier blocks change.
+        var pathReference: EditorPathReference?
 
         /// Absolute image URL after resolving `metadata.source` against `baseURL`.
         public var resolvedURL: URL? {
