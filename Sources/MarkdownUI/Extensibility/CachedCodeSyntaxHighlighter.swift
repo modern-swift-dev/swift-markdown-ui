@@ -8,20 +8,67 @@ import SwiftUI
 /// wrapped highlighter produces the same result for those inputs, and create a
 /// new wrapper when the highlighter's configuration (such as its theme) changes.
 ///
-/// The cache evicts entries in insertion order. Entry and source-size limits bound
+/// The cache evicts the least recently used entry. Entry and source-size limits bound
 /// retained inputs and result count, rather than the exact memory used by `Text`.
 /// Concurrent misses may invoke the wrapped highlighter more than once; cache
 /// access is synchronized without holding a lock while calling user code.
 public struct CachedCodeSyntaxHighlighter<Base: CodeSyntaxHighlighter>: CodeSyntaxHighlighter {
-    private struct Key: Hashable {
-        let code: String
-        let language: String?
+    private typealias Key = CodeSyntaxHighlighterCacheKey
+
+    private struct Entry {
+        var key: Key
+        var text: Text
+        var older: Int?
+        var newer: Int?
     }
 
+    /// Entries form a recency list over array slots, so hits and evictions take constant time.
     private struct State {
-        var values: [Key: Text] = [:]
-        var insertionOrder: [Key] = []
-        var nextEvictionIndex = 0
+        var indices: [Key: Int] = [:]
+        var entries: [Entry] = []
+        var oldest: Int?
+        var newest: Int?
+
+        mutating func text(for key: Key) -> Text? {
+            guard let index = self.indices[key] else {
+                return nil
+            }
+            self.markRecentlyUsed(index)
+            return self.entries[index].text
+        }
+
+        mutating func markRecentlyUsed(_ index: Int) {
+            guard index != self.newest else {
+                return
+            }
+            self.unlink(index)
+            self.linkNewest(index)
+        }
+
+        mutating func unlink(_ index: Int) {
+            let (older, newer) = (self.entries[index].older, self.entries[index].newer)
+            if let older {
+                self.entries[older].newer = newer
+            } else {
+                self.oldest = newer
+            }
+            if let newer {
+                self.entries[newer].older = older
+            } else {
+                self.newest = older
+            }
+        }
+
+        mutating func linkNewest(_ index: Int) {
+            self.entries[index].older = self.newest
+            self.entries[index].newer = nil
+            if let newest {
+                self.entries[newest].newer = index
+            } else {
+                self.oldest = index
+            }
+            self.newest = index
+        }
     }
 
     private let base: Base
@@ -54,26 +101,57 @@ public struct CachedCodeSyntaxHighlighter<Base: CodeSyntaxHighlighter>: CodeSynt
             return self.base.highlightCode(code, language: language)
         }
 
+        // Hash the code before taking the lock; lookups inside it reuse this value.
         let key = Key(code: code, language: language)
-        if let cached = self.state.withLock({ $0.values[key] }) {
+        if let cached = self.state.withLock({ $0.text(for: key) }) {
             return cached
         }
 
         let result = self.base.highlightCode(code, language: language)
         return self.state.withLock { state in
-            if let cached = state.values[key] {
+            if let cached = state.text(for: key) {
                 return cached
             }
-            if state.insertionOrder.count == self.maximumEntryCount {
-                state.values.removeValue(forKey: state.insertionOrder[state.nextEvictionIndex])
-                state.insertionOrder[state.nextEvictionIndex] = key
-                state.nextEvictionIndex = (state.nextEvictionIndex + 1) % state.insertionOrder.count
+            let index: Int
+            if state.entries.count == self.maximumEntryCount, let oldest = state.oldest {
+                // Reuse the least recently used slot.
+                index = oldest
+                state.indices.removeValue(forKey: state.entries[index].key)
+                state.entries[index].key = key
+                state.entries[index].text = result
+                state.markRecentlyUsed(index)
             } else {
-                state.insertionOrder.append(key)
+                index = state.entries.count
+                state.entries.append(Entry(key: key, text: result))
+                state.linkNewest(index)
             }
-            state.values[key] = result
+            state.indices[key] = index
             return result
         }
+    }
+}
+
+/// A cache key that hashes its code once while still comparing the full inputs.
+struct CodeSyntaxHighlighterCacheKey: Hashable, Sendable {
+    let code: String
+    let language: String?
+    let precomputedHash: Int
+
+    init(code: String, language: String?) {
+        var hasher = Hasher()
+        hasher.combine(code)
+        hasher.combine(language)
+        self.init(code: code, language: language, precomputedHash: hasher.finalize())
+    }
+
+    init(code: String, language: String?, precomputedHash: Int) {
+        self.code = code
+        self.language = language
+        self.precomputedHash = precomputedHash
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(self.precomputedHash)
     }
 }
 

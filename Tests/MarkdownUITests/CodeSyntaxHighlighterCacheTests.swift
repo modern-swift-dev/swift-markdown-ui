@@ -40,15 +40,47 @@ final class CodeSyntaxHighlighterCacheTests: XCTestCase {
         XCTAssertEqual(base.callCount, 8)
     }
 
-    func testEvictsInInsertionOrder() {
+    func testHitsRefreshRecencyBeforeEviction() {
         let base = CountingHighlighter()
         let cached = base.cached(maximumEntryCount: 2)
-        for code in ["one", "two", "one", "three", "two"] {
+        // The hit on "one" makes "two" the least recently used entry.
+        for code in ["one", "two", "one", "three", "one"] {
             _ = cached.highlightCode(code, language: nil)
         }
         XCTAssertEqual(base.callCount, 3)
+        _ = cached.highlightCode("two", language: nil)
+        XCTAssertEqual(base.callCount, 4)
+        // "three" was used less recently than "one", so "two" replaced it.
         _ = cached.highlightCode("one", language: nil)
         XCTAssertEqual(base.callCount, 4)
+        _ = cached.highlightCode("three", language: nil)
+        XCTAssertEqual(base.callCount, 5)
+    }
+
+    func testRepeatedHitsKeepFrequentlyUsedEntryAcrossManyInsertions() {
+        let base = CountingHighlighter()
+        let cached = base.cached(maximumEntryCount: 3)
+        _ = cached.highlightCode("hot", language: "swift")
+        for index in 0 ..< 50 {
+            _ = cached.highlightCode("cold \(index)", language: "swift")
+            _ = cached.highlightCode("hot", language: "swift")
+        }
+        XCTAssertEqual(base.callCount, 51)
+    }
+
+    func testKeysCompareFullInputsWhenPrecomputedHashesMatch() {
+        typealias Key = CodeSyntaxHighlighterCacheKey
+        XCTAssertEqual(Key(code: "one", language: "swift"), Key(code: "one", language: "swift"))
+        XCTAssertEqual(Key(code: "one", language: "swift").hashValue, Key(code: "one", language: "swift").hashValue)
+        XCTAssertNotEqual(Key(code: "one", language: nil), Key(code: "one", language: ""))
+        // A colliding hash must not make different inputs share a result.
+        let colliding = [
+            Key(code: "one", language: nil, precomputedHash: 7),
+            Key(code: "two", language: nil, precomputedHash: 7),
+            Key(code: "one", language: "swift", precomputedHash: 7)
+        ]
+        XCTAssertEqual(Set(colliding).count, 3)
+        XCTAssertEqual(colliding[0], Key(code: "one", language: nil, precomputedHash: 7))
     }
 
     func testEvictionKeepsNewestEntriesAcrossMultipleRotations() {
