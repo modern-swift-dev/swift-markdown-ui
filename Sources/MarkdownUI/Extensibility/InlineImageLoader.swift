@@ -51,11 +51,14 @@ actor InlineImageLoader {
 
     enum LoadResult: Sendable {
         case loaded(Resource)
+        /// A response body that still needs to be decoded.
+        case downloaded(Data, expiration: Date?, validators: Validators?)
         /// The server confirmed that the revalidated image is still current.
         case notModified(expiration: Date?, validators: Validators?)
     }
 
     typealias Fetch = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+    typealias Decode = @Sendable (Data, Key) async throws -> Decoded
 
     /// Responses larger than this are rejected before they are buffered in full.
     static let maximumResponseByteCount = 50 * 1024 * 1024
@@ -82,7 +85,9 @@ actor InlineImageLoader {
         var access: UInt64
     }
 
+    /// Limits downloads; decoding has its own limit so CPU-bound work doesn't hold network slots.
     private let maximumConcurrentLoads: Int
+    private let maximumConcurrentDecodes: Int
     private let maximumCacheCost: Int
     private let now: @Sendable () -> Date
     private let sleepUntil: @Sendable (Date) async throws -> Void
@@ -91,6 +96,7 @@ actor InlineImageLoader {
     private var expirationGeneration: UInt64 = 0
     private var memoryPressureObserver: MemoryPressureObserver?
     private let load: @Sendable (Key, Validators?) async throws -> LoadResult
+    private let decode: Decode
     private var jobs: [UUID: Job] = [:]
     private var jobForKey: [Key: UUID] = [:]
     private var pending: [UUID] = []
@@ -102,27 +108,34 @@ actor InlineImageLoader {
     }
 
     private var running: [UUID: Task<Void, Never>] = [:]
+    private var downloadCount = 0
+    private var decodeCount = 0
+    private var decodeWaiters: [(jobID: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
     private var cache: [Key: CachedImage] = [:]
     private var cacheCost = 0
     private var access: UInt64 = 0
 
     init(
-        maximumConcurrentLoads: Int = 4,
+        maximumConcurrentLoads: Int = 6,
+        maximumConcurrentDecodes: Int = max(1, min(4, ProcessInfo.processInfo.activeProcessorCount / 2)),
         maximumCacheCost: Int = 64 * 1024 * 1024,
         now: @escaping @Sendable () -> Date = { Date() },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
-        fetch: @escaping Fetch = InlineImageLoader.fetch
+        fetch: @escaping Fetch = InlineImageLoader.fetch,
+        decode: @escaping Decode = { data, key in try InlineImageLoader.decode(data, resolution: key.resolution) }
     ) {
         self.init(
             maximumConcurrentLoads: maximumConcurrentLoads,
+            maximumConcurrentDecodes: maximumConcurrentDecodes,
             maximumCacheCost: maximumCacheCost,
             now: now,
             sleepUntil: sleepUntil,
             loadResult: { key, validators in
                 try await Self.load(key, validators: validators, fetch: fetch, now: now)
-            }
+            },
+            decode: decode
         )
     }
 
@@ -138,26 +151,32 @@ actor InlineImageLoader {
     ) {
         self.init(
             maximumConcurrentLoads: maximumConcurrentLoads,
+            maximumConcurrentDecodes: 1,
             maximumCacheCost: maximumCacheCost,
             now: now,
             sleepUntil: sleepUntil,
-            loadResult: { key, _ in .loaded(try await load(key)) }
+            loadResult: { key, _ in .loaded(try await load(key)) },
+            decode: { data, key in try InlineImageLoader.decode(data, resolution: key.resolution) }
         )
     }
 
     private init(
         maximumConcurrentLoads: Int,
+        maximumConcurrentDecodes: Int,
         maximumCacheCost: Int,
         now: @escaping @Sendable () -> Date,
         sleepUntil: @escaping @Sendable (Date) async throws -> Void,
-        loadResult: @escaping @Sendable (Key, Validators?) async throws -> LoadResult
+        loadResult: @escaping @Sendable (Key, Validators?) async throws -> LoadResult,
+        decode: @escaping Decode
     ) {
-        precondition(maximumConcurrentLoads > 0 && maximumCacheCost >= 0)
+        precondition(maximumConcurrentLoads > 0 && maximumConcurrentDecodes > 0 && maximumCacheCost >= 0)
         self.maximumConcurrentLoads = maximumConcurrentLoads
+        self.maximumConcurrentDecodes = maximumConcurrentDecodes
         self.maximumCacheCost = maximumCacheCost
         self.now = now
         self.sleepUntil = sleepUntil
         self.load = loadResult
+        self.decode = decode
     }
 
     deinit {
@@ -228,29 +247,88 @@ actor InlineImageLoader {
     }
 
     private func startPendingLoads() {
-        while running.count < maximumConcurrentLoads, pendingHead < pending.count {
+        while downloadCount < maximumConcurrentLoads, pendingHead < pending.count {
             let jobID = pending[pendingHead]
             pendingHead += 1
             guard let job = jobs[jobID] else {
                 continue
             }
             pendingLoadCount -= 1
+            downloadCount += 1
             let load = self.load
+            let decode = self.decode
             let validators = job.revalidating?.validators
             running[jobID] = Task.detached {
+                var downloading = true
                 let result: Result<LoadResult, any Error>
                 do {
                     try Task.checkCancellation()
-                    let image = try await load(job.key, validators)
+                    var image = try await load(job.key, validators)
+                    if case let .downloaded(data, expiration, validators) = image {
+                        // Let other downloads start while this body waits to be decoded.
+                        downloading = false
+                        await self.finishDownload()
+                        try await self.acquireDecodeSlot(for: jobID)
+                        let decoded: Result<Decoded, any Error>
+                        do {
+                            decoded = try .success(await decode(data, job.key))
+                        } catch {
+                            decoded = .failure(error)
+                        }
+                        await self.releaseDecodeSlot()
+                        let resource = try decoded.get()
+                        image = .loaded(Resource(
+                            image: resource.image, scale: resource.scale, expiration: expiration, validators: validators
+                        ))
+                    }
                     try Task.checkCancellation()
                     result = .success(image)
                 } catch {
                     result = .failure(error)
                 }
-                await self.finish(jobID: jobID, result: result)
+                await self.finish(jobID: jobID, result: result, releasingDownload: downloading)
             }
         }
         compactPendingIfNeeded()
+    }
+
+    private func finishDownload() {
+        downloadCount -= 1
+        startPendingLoads()
+    }
+
+    private func acquireDecodeSlot(for jobID: UUID) async throws {
+        try Task.checkCancellation()
+        guard decodeCount >= maximumConcurrentDecodes else {
+            decodeCount += 1
+            return
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                decodeWaiters.append((jobID, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelDecodeWait(for: jobID) }
+        }
+    }
+
+    private func releaseDecodeSlot() {
+        if decodeWaiters.isEmpty {
+            decodeCount -= 1
+        } else {
+            // Hand the slot directly to the oldest waiter.
+            decodeWaiters.removeFirst().continuation.resume()
+        }
+    }
+
+    private func cancelDecodeWait(for jobID: UUID) {
+        if let index = decodeWaiters.firstIndex(where: { $0.jobID == jobID }) {
+            decodeWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        }
     }
 
     /// Compact only after consuming/cancelling at least half the storage, so total
@@ -265,8 +343,11 @@ actor InlineImageLoader {
         }
     }
 
-    private func finish(jobID: UUID, result: Result<LoadResult, any Error>) {
+    private func finish(jobID: UUID, result: Result<LoadResult, any Error>, releasingDownload: Bool) {
         running.removeValue(forKey: jobID)
+        if releasingDownload {
+            downloadCount -= 1
+        }
         if let job = jobs.removeValue(forKey: jobID) {
             jobForKey.removeValue(forKey: job.key)
             let image: Result<Decoded, any Error> = result.flatMap { result in
@@ -274,6 +355,8 @@ actor InlineImageLoader {
                     case let .loaded(resource):
                         insert(resource.decoded, expiration: resource.expiration, validators: resource.validators, for: job.key)
                         return .success(resource.decoded)
+                    case .downloaded:
+                        preconditionFailure("Downloaded bodies are decoded before the job finishes")
                     case let .notModified(expiration, validators):
                         guard let revalidated = job.revalidating?.image else {
                             return .failure(URLError(.badServerResponse))
@@ -416,18 +499,29 @@ actor InlineImageLoader {
         guard 200 ..< 300 ~= response.statusCode else {
             throw URLError(.badServerResponse)
         }
-        let decoded = try decode(data, resolution: key.resolution)
-        return .loaded(Resource(
-            image: decoded.image,
-            scale: decoded.scale,
+        return .downloaded(
+            data,
             expiration: cacheExpiration(for: response, now: now()),
             validators: Validators(response: response)
-        ))
+        )
     }
+
+    /// A session created on first use, so its HTTP cache stays separate from `URLSession.shared`.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("MarkdownUI.InlineImageLoader", isDirectory: true)
+        configuration.urlCache = URLCache(
+            memoryCapacity: 20 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024, directory: directory
+        )
+        configuration.timeoutIntervalForRequest = 15
+        configuration.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: configuration)
+    }()
 
     private static func fetch(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         // Streaming the body lets oversized responses fail before they are fully buffered.
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)

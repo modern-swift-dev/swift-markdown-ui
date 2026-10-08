@@ -468,6 +468,54 @@ import XCTest
         XCTAssertEqual(requests[2].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
     }
 
+    func testDecodingHasItsOwnLimitAndDoesNotHoldDownloadSlots() async throws {
+        let fetches = try FetchProbe()
+        let decodes = DecodeProbe()
+        let loader = InlineImageLoader(
+            maximumConcurrentLoads: 1,
+            maximumConcurrentDecodes: 1,
+            fetch: { request in
+                let url = try XCTUnwrap(request.url)
+                let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:]))
+                await fetches.record(request)
+                return (fetches.png, response)
+            },
+            decode: { data, key in try await decodes.decode(data, key: key) }
+        )
+        let tasks = try ["a", "b", "c"].map { name in
+            let key = try key(name)
+            return (name, Task { try await loader.image(for: key) })
+        }
+        // All downloads finish through one network slot while the first decode is still running.
+        try await wait { await fetches.requests.count == 3 }
+        try await wait { await decodes.started.count == 1 }
+        try await Task.sleep(for: .milliseconds(30))
+        var started = await decodes.started
+        XCTAssertEqual(started.count, 1)
+
+        // A job waiting for a decode slot can still be cancelled.
+        let waiting = try XCTUnwrap(tasks.first { !started.contains($0.0) })
+        waiting.1.cancel()
+        _ = await waiting.1.result
+        await decodes.release()
+        for (name, task) in tasks where name != waiting.0 {
+            _ = try await task.value
+        }
+        started = await decodes.started
+        XCTAssertEqual(started.count, 2)
+        XCTAssertFalse(started.contains(waiting.0))
+    }
+
+    func testImagesUseADedicatedBoundedSession() {
+        let session = InlineImageLoader.session
+        XCTAssertFalse(session === URLSession.shared)
+        XCTAssertEqual(session.configuration.timeoutIntervalForRequest, 15)
+        XCTAssertEqual(session.configuration.httpMaximumConnectionsPerHost, 4)
+        XCTAssertEqual(session.configuration.urlCache?.memoryCapacity, 20 * 1024 * 1024)
+        XCTAssertEqual(session.configuration.urlCache?.diskCapacity, 200 * 1024 * 1024)
+        XCTAssertFalse(session.configuration.urlCache === URLCache.shared)
+    }
+
     private func key(_ name: String) throws -> InlineImageLoader.Key {
         .init(url: try XCTUnwrap(URL(string: "https://example.com/\(name)")), resolution: .original)
     }
@@ -543,6 +591,10 @@ private actor FetchProbe {
         suspended = false
     }
 
+    func record(_ request: URLRequest) {
+        requests.append(request)
+    }
+
     func fetch(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
         do {
@@ -560,6 +612,24 @@ private actor FetchProbe {
             url: url, statusCode: reply.status, httpVersion: nil, headerFields: reply.headers
         ))
         return (reply.body, response)
+    }
+}
+
+/// Suspends decoding until released and records which images started decoding.
+private actor DecodeProbe {
+    private(set) var started: [String] = []
+    private var suspended = true
+
+    func release() {
+        suspended = false
+    }
+
+    func decode(_ data: Data, key: InlineImageLoader.Key) async throws -> InlineImageLoader.Decoded {
+        started.append(key.url.lastPathComponent)
+        while suspended {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return try InlineImageLoader.decode(data, resolution: key.resolution)
     }
 }
 

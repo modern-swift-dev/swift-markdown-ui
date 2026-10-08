@@ -220,6 +220,8 @@ allocations.
 
 Whatever the resolution, images with more than 32 megapixels decode at a reduced pixel
 size that keeps their layout size, and responses larger than 50 MB fail to load.
+Downloads use a dedicated URL session with its own HTTP cache, limited to 20 MB in memory
+and 200 MB on disk, and a 15-second request timeout.
 
 ### Rendering long or streaming documents
 
