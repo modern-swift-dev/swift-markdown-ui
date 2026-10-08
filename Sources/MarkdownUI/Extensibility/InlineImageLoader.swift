@@ -371,12 +371,13 @@ actor InlineImageLoader {
 
         // Pixel dimensions come from the header, so oversized images never decode at full size.
         let longestSide = max(width, height)
-        let layoutLongestSide = switch resolution {
-            case .original: longestSide
-            case let .maximumPixelDimension(dimension): min(longestSide, dimension)
+        let (layoutLongestSide, decodingLimit) = switch resolution {
+            case .original: (longestSide, longestSide)
+            case let .maximumPixelDimension(dimension): (min(longestSide, dimension), min(longestSide, dimension))
+            case let .downsampled(dimension): (longestSide, min(longestSide, dimension))
         }
         let pixelBudgetScale = (Double(maximumPixelCount) / (Double(width) * Double(height))).squareRoot()
-        let decodedLongestSide = max(1, Int(min(Double(layoutLongestSide), Double(longestSide) * pixelBudgetScale)))
+        let decodedLongestSide = max(1, Int(min(Double(decodingLimit), Double(longestSide) * pixelBudgetScale)))
 
         let image: CGImage? = if decodedLongestSide == longestSide, orientation == .up {
             CGImageSourceCreateImageAtIndex(source, 0, [

@@ -7,11 +7,12 @@ public struct DefaultImageProvider: ImageProvider {
 
     private let resolution: Resolution
 
-    /// Creates a provider. Downsampling is opt-in because it changes intrinsic image size.
-    public init(resolution: Resolution = .original) {
-        if case let .maximumPixelDimension(dimension) = resolution {
-            precondition(dimension > 0, "The maximum pixel dimension must be positive.")
-        }
+    /// Creates a provider.
+    ///
+    /// By default, images decode with at most 2048 pixels along their longest side and keep their
+    /// original intrinsic size. Pass `.original` to decode every pixel.
+    public init(resolution: Resolution = .downsampled(maximumPixelDimension: 2048)) {
+        resolution.validate()
         self.resolution = resolution
     }
 
@@ -32,7 +33,7 @@ struct DefaultImageView: View {
 
     init(
         url: URL?,
-        resolution: DefaultImageProvider.Resolution = .original,
+        resolution: DefaultImageProvider.Resolution = .downsampled(maximumPixelDimension: 2048),
         loader: InlineImageLoader = .shared
     ) {
         self.key = url.map { .init(url: $0.absoluteURL, resolution: resolution) }

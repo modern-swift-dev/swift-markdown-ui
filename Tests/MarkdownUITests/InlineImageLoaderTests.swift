@@ -298,6 +298,34 @@ import XCTest
         )
     }
 
+    func testDownsamplingIsTheDefaultAndPreservesLayoutSize() throws {
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try makeImage(width: 80, height: 40), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        XCTAssertEqual(DefaultInlineImageProvider().resolution, .downsampled(maximumPixelDimension: 2048))
+        let belowLimit = try InlineImageLoader.decode(data as Data, resolution: DefaultInlineImageProvider().resolution)
+        XCTAssertEqual(belowLimit.image.width, 80)
+        XCTAssertEqual(belowLimit.scale, 1)
+
+        let downsampled = try InlineImageLoader.decode(data as Data, resolution: .downsampled(maximumPixelDimension: 20))
+        XCTAssertEqual(downsampled.image.width, 20)
+        XCTAssertEqual(downsampled.image.height, 10)
+        XCTAssertEqual(CGFloat(downsampled.image.width) / downsampled.scale, 80)
+        XCTAssertEqual(CGFloat(downsampled.image.height) / downsampled.scale, 40)
+
+        let ids = [
+            DefaultInlineImageProvider(),
+            DefaultInlineImageProvider(resolution: .original),
+            DefaultInlineImageProvider(resolution: .maximumPixelDimension(20)),
+            DefaultInlineImageProvider(resolution: .downsampled(maximumPixelDimension: 20))
+        ].map { InlineImageProviderContext(provider: $0).id }
+        for (index, id) in ids.enumerated() {
+            XCTAssertEqual(ids.firstIndex(of: id), index, "Each resolution needs its own identity")
+        }
+    }
+
     func testPixelBudgetReducesDecodeAndPreservesLayoutSize() throws {
         let data = NSMutableData()
         let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))

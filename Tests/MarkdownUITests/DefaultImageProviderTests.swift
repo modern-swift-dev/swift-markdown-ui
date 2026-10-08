@@ -17,11 +17,12 @@
             let window = makeWindow(host)
             defer { window.contentView = nil }
             // The default inline provider requests this same absolute URL/resolution key.
-            let inlineBacking = try await loader.image(for: .init(url: url, resolution: .original)).image
+            let resolution = DefaultInlineImageProvider().resolution
+            let inlineBacking = try await loader.image(for: .init(url: url, resolution: resolution)).image
             try await wait { host.fittingSize == CGSize(width: 80, height: 80) }
             let requests = await probe.requests
             XCTAssertEqual(requests.count, 1)
-            let cachedBacking = try await loader.image(for: .init(url: url, resolution: .original)).image
+            let cachedBacking = try await loader.image(for: .init(url: url, resolution: resolution)).image
             XCTAssertTrue(inlineBacking === cachedBacking)
         }
 
@@ -42,11 +43,19 @@
 
             host.rootView = DefaultImageView(url: image, resolution: .maximumPixelDimension(20), loader: loader)
             try await wait { host.fittingSize == CGSize(width: 20, height: 10) }
+
+            // Downsampling keeps the original intrinsic size.
+            host.rootView = DefaultImageView(url: image, resolution: .downsampled(maximumPixelDimension: 20), loader: loader)
+            try await wait { await probe.requests.count == 4 }
+            try await wait { host.fittingSize == CGSize(width: 80, height: 40) }
             let requests = await probe.requests
-            XCTAssertEqual(requests.map(\.resolution), [.original, .original, .maximumPixelDimension(20)])
+            let defaultResolution = DefaultImageProvider.Resolution.downsampled(maximumPixelDimension: 2048)
+            XCTAssertEqual(requests.map(\.resolution), [
+                defaultResolution, defaultResolution, .maximumPixelDimension(20), .downsampled(maximumPixelDimension: 20)
+            ])
 
             host.rootView = DefaultImageView(url: slow, loader: loader)
-            try await wait { await probe.requests.count == 4 }
+            try await wait { await probe.requests.count == 5 }
             host.rootView = DefaultImageView(url: nil, loader: loader)
             try await wait { await probe.cancellations == 2 }
             XCTAssertGreaterThan(host.fittingSize.width, 0, "A missing URL renders the failure placeholder")

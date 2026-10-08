@@ -15,7 +15,9 @@ final class ImageDecodingOrientationTests: XCTestCase {
             (.rightMirrored, [.yellow, .green, .blue, .red], true),
             (.left, [.green, .yellow, .red, .blue], true)
         ]
-        let resolutions: [DefaultInlineImageProvider.Resolution] = [.original, .maximumPixelDimension(40)]
+        let resolutions: [DefaultInlineImageProvider.Resolution] = [
+            .original, .maximumPixelDimension(40), .downsampled(maximumPixelDimension: 40)
+        ]
         for (orientation, expectedColors, swapsAxes) in cases {
             let data = try encodedImage(orientation: orientation)
             for resolution in resolutions {

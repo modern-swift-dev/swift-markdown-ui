@@ -199,19 +199,24 @@ extension Theme {
 ### Limiting decoded image size
 
 The default block and inline image providers share downloads and decoded images for
-matching URLs and resolutions. Both preserve original resolution by default. For
-large source images, configure a maximum decoded pixel dimension:
+matching URLs and resolutions. By default, both decode images with at most 2048 pixels
+along their longest side, which keeps a large photo from filling the decoded-image cache.
+Downsampled images keep the intrinsic layout size of the original image, so this only
+changes how many pixels back each point.
+
+To use a different limit, or to decode every pixel, pass a resolution:
 
 ```swift
 MarkdownView(markdownString)
-  .markdownImageProvider(DefaultImageProvider(resolution: .maximumPixelDimension(1200)))
-  .markdownInlineImageProvider(DefaultInlineImageProvider(resolution: .maximumPixelDimension(1200)))
+  .markdownImageProvider(DefaultImageProvider(resolution: .downsampled(maximumPixelDimension: 4096)))
+  .markdownInlineImageProvider(DefaultInlineImageProvider(resolution: .original))
 ```
 
-The limit applies to the longest decoded dimension and also changes the image's
-intrinsic layout size. Choose it with the desired display size and screen scale in
-mind. The decoded-image cache budget does not include images retained by visible
-views, downloads in progress, or active decoding allocations.
+The `.maximumPixelDimension(_:)` resolution also limits the longest decoded dimension, but
+it changes the image's intrinsic layout size to the decoded size. Choose limits with the
+desired display size and screen scale in mind. The decoded-image cache budget does not
+include images retained by visible views, downloads in progress, or active decoding
+allocations.
 
 Whatever the resolution, images with more than 32 megapixels decode at a reduced pixel
 size that keeps their layout size, and responses larger than 50 MB fail to load.

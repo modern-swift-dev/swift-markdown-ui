@@ -4,20 +4,35 @@ import SwiftUI
 
 /// The default inline image provider, which loads and caches images from the network.
 public struct DefaultInlineImageProvider: InlineImageProvider {
-    /// Controls the decoded image size. Original resolution preserves intrinsic image sizing.
+    /// Controls the decoded image size.
     public enum Resolution: Hashable, Sendable {
+        /// Decodes every pixel of the source image.
         case original
         /// Limits the longest decoded dimension in pixels. This also changes intrinsic image size.
         case maximumPixelDimension(Int)
+        /// Limits the longest decoded dimension in pixels while keeping the intrinsic image size
+        /// of the original resolution, so larger images render with fewer pixels per point.
+        case downsampled(maximumPixelDimension: Int)
+
+        func validate() {
+            switch self {
+                case .original:
+                    break
+                case let .maximumPixelDimension(dimension),
+                     let .downsampled(dimension):
+                    precondition(dimension > 0, "The maximum pixel dimension must be positive.")
+            }
+        }
     }
 
     let resolution: Resolution
 
-    /// Creates a provider. Downsampling is opt-in because it changes intrinsic image size.
-    public init(resolution: Resolution = .original) {
-        if case let .maximumPixelDimension(dimension) = resolution {
-            precondition(dimension > 0, "The maximum pixel dimension must be positive.")
-        }
+    /// Creates a provider.
+    ///
+    /// By default, images decode with at most 2048 pixels along their longest side and keep their
+    /// original intrinsic size. Pass `.original` to decode every pixel.
+    public init(resolution: Resolution = .downsampled(maximumPixelDimension: 2048)) {
+        resolution.validate()
         self.resolution = resolution
     }
 
