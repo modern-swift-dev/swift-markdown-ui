@@ -28,7 +28,7 @@ struct TaskListItemLabel: View {
 
     var body: some View {
         Label {
-            BlockSequence(self.item.children, renderingMode: self.blockRenderingMode.nestedRenderingMode)
+            ListItemBlocks(self.item.children, renderingMode: self.blockRenderingMode.nestedRenderingMode)
         } icon: {
             self.taskListMarker.makeBody(configuration: .init(isCompleted: self.item.isCompleted))
                 .textStyleFont()

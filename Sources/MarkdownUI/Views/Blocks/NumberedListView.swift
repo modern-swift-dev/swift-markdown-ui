@@ -37,7 +37,8 @@ struct NumberedListView: View {
             items: self.items,
             start: self.start,
             markerStyle: self.numberedListMarker,
-            markerWidth: self.markerWidth
+            markerWidth: self.markerWidth,
+            readsMarkerWidth: true
         )
         .environment(\.listLevel, self.listLevel + 1)
         .environment(\.tightSpacingEnabled, self.isTight)
