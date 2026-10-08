@@ -158,6 +158,89 @@
             XCTAssertFalse(context.canPerform(.toggleInline(.strong)))
         }
 
+        func testToolbarCommandStateMatchesDirectQueriesAcrossSelections() throws {
+            let context = MarkdownEditorContext()
+            let textView = MarkdownTextView(usingTextLayoutManager: true)
+            textView.document = MarkdownDocument(markdown: """
+            # Title
+
+            Plain **bold** [link](https://example.com) text
+
+            - First
+            - Second
+              - Nested
+
+            - [ ] Task
+            - [x] Done
+
+            > Quote
+
+            ```
+            code
+            ```
+
+            | A | B |
+            | --- | :-: |
+            | one | two |
+            | three | four |
+            """)
+            context.setTextView(textView)
+            let source = textView.string as NSString
+            let selections: [(String, NSRange)] = [
+                ("caret in heading", NSRange(location: 2, length: 0)),
+                ("word in paragraph", source.range(of: "Plain")),
+                ("bold text", source.range(of: "bold")),
+                ("link text", source.range(of: "link")),
+                ("caret in link", NSRange(location: source.range(of: "link").location + 1, length: 0)),
+                ("first list item", NSRange(location: source.range(of: "First").location, length: 0)),
+                ("second list item", source.range(of: "Second")),
+                ("nested list item", NSRange(location: source.range(of: "Nested").location, length: 0)),
+                ("checked task", source.range(of: "Done")),
+                ("quote", source.range(of: "Quote")),
+                ("code block", NSRange(location: source.range(of: "code").location, length: 0)),
+                ("whole document", NSRange(location: 0, length: source.length))
+            ]
+            for (name, range) in selections {
+                textView.selectedRange = range
+                assertCommandStateMatchesDirectQueries(context, name)
+            }
+
+            let storage = try XCTUnwrap(textView.textStorage)
+            var table: MarkdownTableAttachment?
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
+                if let value = value as? MarkdownTableAttachment {
+                    table = value
+                    stop.pointee = true
+                }
+            }
+            let controller = try XCTUnwrap(table).controller
+            let cells = [
+                MarkdownTableCellPosition(section: .header, column: 0),
+                MarkdownTableCellPosition(section: .body(row: 0), column: 1),
+                MarkdownTableCellPosition(section: .body(row: 1), column: 0)
+            ]
+            for position in cells {
+                controller.updateSelection(at: position, range: NSRange(location: 0, length: 1))
+                assertCommandStateMatchesDirectQueries(context, "table cell \(position)")
+                XCTAssertTrue(context.commandState.canPerform(.insertTableRow))
+                XCTAssertEqual(context.commandState.isActive(.setTableColumnAlignment(.center)), position.column == 1)
+            }
+            controller.endSelection(at: cells[2])
+            textView.selectedRange = NSRange(location: 2, length: 0)
+            assertCommandStateMatchesDirectQueries(context, "caret after leaving the table")
+            XCTAssertFalse(context.commandState.canPerform(.insertTableRow))
+        }
+
+        private func assertCommandStateMatchesDirectQueries(
+            _ context: MarkdownEditorContext, _ name: String, file: StaticString = #filePath, line: UInt = #line
+        ) {
+            let state = context.commandState
+            for command in MarkdownEditorCommandState.toolbarCommands {
+                XCTAssertEqual(state.canPerform(command), context.canPerform(command), "canPerform(\(command)) at \(name)", file: file, line: line)
+                XCTAssertEqual(state.isActive(command), context.isActive(command), "isActive(\(command)) at \(name)", file: file, line: line)
+            }
+        }
+
         func testHostedToolbarEnablesAfterAttachmentAndFormatsSelection() async throws {
             var document = MarkdownDocument(markdown: "hello")
             let hostingView = NSHostingView(rootView:

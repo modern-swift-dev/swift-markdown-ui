@@ -174,10 +174,10 @@
                     } label: { Label("Table", systemImage: "tablecells") }
                     Menu {
                         Button("Add or edit link") { showsLinkEditor = true }
-                            .disabled(!context.canPerform(.setLink(destination: "https://", title: nil)))
+                            .disabled(!context.commandState.canPerform(MarkdownEditorCommandState.linkPlaceholder))
                         commandItem("Remove link", command: .removeLink)
                         Button("Insert image") { showsImageEditor = true }
-                            .disabled(!context.canPerform(.insertImage(source: "https://", title: nil, alt: "")))
+                            .disabled(!context.commandState.canPerform(MarkdownEditorCommandState.imagePlaceholder))
                     } label: { Label("Links and images", systemImage: "link") }
                 }
                 .labelStyle(.iconOnly)
@@ -205,24 +205,27 @@
         }
 
         private func commandButton(_ title: String, symbol: String, command: MarkdownEditorCommand) -> some View {
-            Button { context.perform(command) } label: { Label(title, systemImage: symbol) }
-                .disabled(!context.canPerform(command))
-                .tint(context.isActive(command) ? Color.accentColor : Color.secondary)
+            let state = context.commandState
+            let isActive = state.isActive(command)
+            return Button { context.perform(command) } label: { Label(title, systemImage: symbol) }
+                .disabled(!state.canPerform(command))
+                .tint(isActive ? Color.accentColor : Color.secondary)
                 .accessibilityLabel(title)
-                .accessibilityValue(context.isActive(command) ? "Selected" : "Not selected")
+                .accessibilityValue(isActive ? "Selected" : "Not selected")
                 .help(title)
         }
 
         private func commandItem(_ title: String, command: MarkdownEditorCommand) -> some View {
-            Button { context.perform(command) } label: {
-                if context.isActive(command) {
+            let state = context.commandState
+            return Button { context.perform(command) } label: {
+                if state.isActive(command) {
                     Label(title, systemImage: "checkmark")
                 } else {
                     Text(title)
                 }
             }
             .labelStyle(.titleAndIcon)
-            .disabled(!context.canPerform(command))
+            .disabled(!state.canPerform(command))
         }
     }
 

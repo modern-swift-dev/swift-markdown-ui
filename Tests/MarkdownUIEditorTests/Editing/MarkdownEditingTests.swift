@@ -2,6 +2,52 @@
 import XCTest
 
 final class MarkdownEditingTests: XCTestCase {
+    func testStructuralPrechecksOnlyRejectCommandsThatCannotChangeTheDocument() {
+        let document = MarkdownDocument(markdown: """
+        Plain
+
+        - First
+        - Second
+          - Nested
+
+        > - [ ] Quoted task
+
+        | A | B |
+        | --- | --- |
+        | one | two |
+        """)
+        let paths: [MarkdownLogicalPath] = [
+            .block(0),
+            .listItemBlock(list: .block(1), item: 0, block: 0),
+            .listItemBlock(list: .block(1), item: 1, block: 0),
+            .listItemBlock(list: .listItemBlock(list: .block(1), item: 1, block: 1), item: 0, block: 0),
+            .listItemBlock(list: .blockquote(parent: .block(2), child: 0), item: 0, block: 0),
+            .tableCell(table: .block(3), row: 0, column: 0),
+            .tableCell(table: .block(3), row: 1, column: 1)
+        ]
+        let commands: [MarkdownEditorCommand] = [
+            .toggleTask, .indent, .outdent,
+            .insertTableRow, .deleteTableRow, .moveTableRow(.backward), .moveTableRow(.forward),
+            .insertTableColumn, .deleteTableColumn, .moveTableColumn(.backward), .moveTableColumn(.forward),
+            .setTableColumnAlignment(.center)
+        ]
+        var rejected = 0
+        for path in paths {
+            for command in commands {
+                let selection = MarkdownLogicalSelection(path: path, utf16Offset: 1)
+                guard !MarkdownEditingEngine.mayChange(command, selection: selection) else {
+                    continue
+                }
+                rejected += 1
+                XCTAssertEqual(
+                    MarkdownEditingEngine.apply(command, to: document, selection: selection).document, document,
+                    "\(command) at \(path)"
+                )
+            }
+        }
+        XCTAssertGreaterThan(rejected, 0)
+    }
+
     func testInlineStyleCommandsToggleEveryStyle() {
         let styles: [(MarkdownInlineStyle, MarkdownInline)] = [
             (.emphasis, .emphasis([.text("word")])),

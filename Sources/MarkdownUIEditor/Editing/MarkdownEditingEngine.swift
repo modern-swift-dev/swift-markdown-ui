@@ -300,6 +300,35 @@ private extension MarkdownEditingEngine {
 }
 
 extension MarkdownEditingEngine {
+    /// Returns false when the command's own guards leave any document unchanged
+    /// for this selection, so callers can skip a trial application.
+    static func mayChange(_ command: MarkdownEditorCommand, selection: MarkdownLogicalSelection) -> Bool {
+        switch command {
+            case .toggleTask:
+                return listItemLocation(selection.path) != nil
+            case .indent:
+                return (listItemLocation(selection.path)?.item ?? 0) > 0
+            case .outdent:
+                guard case .listItemBlock? = listItemLocation(selection.path)?.list else {
+                    return false
+                }
+                return true
+            case .insertTableRow,
+                 .deleteTableRow,
+                 .moveTableRow,
+                 .insertTableColumn,
+                 .deleteTableColumn,
+                 .moveTableColumn,
+                 .setTableColumnAlignment:
+                guard case .tableCell = selection.path else {
+                    return false
+                }
+                return true
+            default:
+                return true
+        }
+    }
+
     /// Canonicalizes native formatting runs before they become Markdown delimiters.
     static func normalized(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
         let result = mergeAdjacent(inlines).flatMap { inline -> [MarkdownInline] in

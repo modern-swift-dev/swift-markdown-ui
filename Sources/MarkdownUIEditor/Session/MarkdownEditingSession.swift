@@ -1746,7 +1746,8 @@ import Foundation
                      .insertThematicBreak:
                     return activeTableSelection == nil
                 default:
-                    return MarkdownEditingEngine.apply(command, to: document, selection: selection).document != document
+                    return MarkdownEditingEngine.mayChange(command, selection: selection)
+                        && MarkdownEditingEngine.apply(command, to: document, selection: selection).document != document
             }
         }
 
