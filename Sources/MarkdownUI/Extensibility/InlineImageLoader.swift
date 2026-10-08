@@ -82,13 +82,16 @@ actor InlineImageLoader {
         /// `nil` once stale; stale entries are kept only when they have validators.
         var expiration: Date?
         var validators: Validators?
-        var access: UInt64
+        /// Neighbors in recency order, so lookups and evictions don't scan the cache.
+        var older: Key?
+        var newer: Key?
     }
 
     /// Limits downloads; decoding has its own limit so CPU-bound work doesn't hold network slots.
     private let maximumConcurrentLoads: Int
     private let maximumConcurrentDecodes: Int
     private let maximumCacheCost: Int
+    private let maximumCacheCount: Int
     private let now: @Sendable () -> Date
     private let sleepUntil: @Sendable (Date) async throws -> Void
     private var expirationTask: Task<Void, Never>?
@@ -113,12 +116,14 @@ actor InlineImageLoader {
     private var decodeWaiters: [(jobID: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
     private var cache: [Key: CachedImage] = [:]
     private var cacheCost = 0
-    private var access: UInt64 = 0
+    private var oldestKey: Key?
+    private var newestKey: Key?
 
     init(
         maximumConcurrentLoads: Int = 6,
         maximumConcurrentDecodes: Int = max(1, min(4, ProcessInfo.processInfo.activeProcessorCount / 2)),
         maximumCacheCost: Int = 64 * 1024 * 1024,
+        maximumCacheCount: Int = 256,
         now: @escaping @Sendable () -> Date = { Date() },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
@@ -130,6 +135,7 @@ actor InlineImageLoader {
             maximumConcurrentLoads: maximumConcurrentLoads,
             maximumConcurrentDecodes: maximumConcurrentDecodes,
             maximumCacheCost: maximumCacheCost,
+            maximumCacheCount: maximumCacheCount,
             now: now,
             sleepUntil: sleepUntil,
             loadResult: { key, validators in
@@ -143,6 +149,7 @@ actor InlineImageLoader {
     init(
         maximumConcurrentLoads: Int = 4,
         maximumCacheCost: Int = 64 * 1024 * 1024,
+        maximumCacheCount: Int = 256,
         now: @escaping @Sendable () -> Date = { Date() },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
@@ -153,6 +160,7 @@ actor InlineImageLoader {
             maximumConcurrentLoads: maximumConcurrentLoads,
             maximumConcurrentDecodes: 1,
             maximumCacheCost: maximumCacheCost,
+            maximumCacheCount: maximumCacheCount,
             now: now,
             sleepUntil: sleepUntil,
             loadResult: { key, _ in .loaded(try await load(key)) },
@@ -164,15 +172,18 @@ actor InlineImageLoader {
         maximumConcurrentLoads: Int,
         maximumConcurrentDecodes: Int,
         maximumCacheCost: Int,
+        maximumCacheCount: Int,
         now: @escaping @Sendable () -> Date,
         sleepUntil: @escaping @Sendable (Date) async throws -> Void,
         loadResult: @escaping @Sendable (Key, Validators?) async throws -> LoadResult,
         decode: @escaping Decode
     ) {
-        precondition(maximumConcurrentLoads > 0 && maximumConcurrentDecodes > 0 && maximumCacheCost >= 0)
+        precondition(maximumConcurrentLoads > 0 && maximumConcurrentDecodes > 0)
+        precondition(maximumCacheCost >= 0 && maximumCacheCount > 0)
         self.maximumConcurrentLoads = maximumConcurrentLoads
         self.maximumConcurrentDecodes = maximumConcurrentDecodes
         self.maximumCacheCost = maximumCacheCost
+        self.maximumCacheCount = maximumCacheCount
         self.now = now
         self.sleepUntil = sleepUntil
         self.load = loadResult
@@ -186,21 +197,18 @@ actor InlineImageLoader {
     func image(for key: Key) async throws -> Decoded {
         try Task.checkCancellation()
         var revalidating: (image: Decoded, validators: Validators)?
-        if var cached = cache[key] {
-            access &+= 1
-            cached.access = access
+        if let cached = cache[key] {
             if let expiration = cached.expiration, expiration > now() {
-                cache[key] = cached
+                markRecentlyUsed(key)
                 return cached.image
             }
             if let validators = cached.validators {
                 // Keep the stale image so a 304 response can reuse it without decoding.
-                cached.expiration = nil
-                cache[key] = cached
+                cache[key]?.expiration = nil
+                markRecentlyUsed(key)
                 revalidating = (cached.image, validators)
             } else {
-                cache.removeValue(forKey: key)
-                cacheCost -= cached.cost
+                removeCachedImage(for: key)
                 scheduleExpiration()
             }
         }
@@ -375,9 +383,7 @@ actor InlineImageLoader {
     /// Caches fresh images until they expire and images with validators until they are evicted.
     private func insert(_ decoded: Decoded, expiration: Date?, validators: Validators?, for key: Key) {
         // A replacement or an uncacheable response supersedes any stale entry.
-        if let replaced = cache.removeValue(forKey: key) {
-            cacheCost -= replaced.cost
-        }
+        removeCachedImage(for: key)
         let expiration = expiration.flatMap { $0 > now() ? $0 : nil }
         guard expiration != nil || validators != nil else {
             return
@@ -387,29 +393,12 @@ actor InlineImageLoader {
         guard !overflow, cost <= maximumCacheCost else {
             return
         }
-        let targetCacheCost = maximumCacheCost - cost
-        if cacheCost > targetCacheCost,
-           let oldest = cache.min(by: { $0.value.access < $1.value.access }) {
-            cacheCost -= oldest.value.cost
-            cache.removeValue(forKey: oldest.key)
-            if cacheCost > targetCacheCost {
-                // Keep single-entry eviction linear, but order multiple victims only
-                // once instead of rescanning the shrinking cache for every removal.
-                let evictionOrder = cache.sorted { $0.value.access < $1.value.access }
-                for (key, entry) in evictionOrder {
-                    guard cacheCost > targetCacheCost else {
-                        break
-                    }
-                    cacheCost -= entry.cost
-                    cache.removeValue(forKey: key)
-                }
-            }
+        while let oldestKey, cacheCost > maximumCacheCost - cost || cache.count >= maximumCacheCount {
+            removeCachedImage(for: oldestKey)
         }
-        access &+= 1
-        cache[key] = CachedImage(
-            image: decoded, cost: cost, expiration: expiration, validators: validators, access: access
-        )
+        cache[key] = CachedImage(image: decoded, cost: cost, expiration: expiration, validators: validators)
         cacheCost += cost
+        appendNewest(key)
         if memoryPressureObserver == nil {
             memoryPressureObserver = MemoryPressureObserver { [weak self] in
                 Task { await self?.purgeCache() }
@@ -421,10 +410,53 @@ actor InlineImageLoader {
         }
     }
 
+    private func removeCachedImage(for key: Key) {
+        guard let entry = cache.removeValue(forKey: key) else {
+            return
+        }
+        cacheCost -= entry.cost
+        unlink(older: entry.older, newer: entry.newer)
+    }
+
+    private func markRecentlyUsed(_ key: Key) {
+        guard key != newestKey, let entry = cache[key] else {
+            return
+        }
+        unlink(older: entry.older, newer: entry.newer)
+        appendNewest(key)
+    }
+
+    /// Links an entry that is already in the cache as the most recently used one.
+    private func appendNewest(_ key: Key) {
+        cache[key]?.older = newestKey
+        cache[key]?.newer = nil
+        if let newestKey {
+            cache[newestKey]?.newer = key
+        } else {
+            oldestKey = key
+        }
+        newestKey = key
+    }
+
+    private func unlink(older: Key?, newer: Key?) {
+        if let older {
+            cache[older]?.newer = newer
+        } else {
+            oldestKey = newer
+        }
+        if let newer {
+            cache[newer]?.older = older
+        } else {
+            newestKey = older
+        }
+    }
+
     /// Releases decoded storage without disturbing downloads or their waiters.
     func purgeCache() {
         cache.removeAll(keepingCapacity: false)
         cacheCost = 0
+        oldestKey = nil
+        newestKey = nil
         scheduleExpiration(at: nil)
     }
 
@@ -458,13 +490,13 @@ actor InlineImageLoader {
             return
         }
         let currentDate = now()
-        for (key, entry) in cache {
-            guard let expiration = entry.expiration, expiration <= currentDate else {
-                continue
-            }
-            if entry.validators == nil {
-                cache.removeValue(forKey: key)
-                cacheCost -= entry.cost
+        // Collect keys first instead of mutating the cache while iterating over it.
+        let expiredKeys = cache.compactMap { key, entry in
+            entry.expiration.map { $0 <= currentDate } == true ? key : nil
+        }
+        for key in expiredKeys {
+            if cache[key]?.validators == nil {
+                removeCachedImage(for: key)
             } else {
                 // Stale images with validators stay cached for conditional requests.
                 cache[key]?.expiration = nil

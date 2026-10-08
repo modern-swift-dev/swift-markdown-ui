@@ -180,6 +180,25 @@ import XCTest
         try await wait { backings.allSatisfy { $0.value == nil } }
     }
 
+    func testCountLimitEvictsLeastRecentlyUsedImage() async throws {
+        let probe = LoaderProbe(suspended: false)
+        let loader = InlineImageLoader(maximumCacheCount: 3, load: { try await probe.load($0) })
+        for name in ["a", "b", "c"] {
+            _ = try await loader.image(for: key(name))
+        }
+        // A hit makes "a" the most recently used, so "b" is evicted for "d".
+        _ = try await loader.image(for: key("a"))
+        _ = try await loader.image(for: key("d"))
+        for name in ["a", "c", "d"] {
+            _ = try await loader.image(for: key(name))
+        }
+        var names = await probe.startedNames
+        XCTAssertEqual(names, ["a", "b", "c", "d"])
+        _ = try await loader.image(for: key("b"))
+        names = await probe.startedNames
+        XCTAssertEqual(names.last, "b")
+    }
+
     func testIdleExpirationReleasesDecodedBackingAndPreservesFreshEntries() async throws {
         let clock = ImageExpirationClock()
         let sleeper = ImageExpirationSleeper()
