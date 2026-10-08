@@ -82,8 +82,9 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
 
     let colorSchemeImageIndex: ColorSchemeImageIndex
 
-    /// Style configurations rarely render their content again. Defer their metadata scan
-    /// until a caller actually uses the content in another Markdown view.
+    /// Style configurations rarely render their content again, and builder elements are
+    /// usually nested in other content. Defer their metadata scan until a caller actually
+    /// uses the content in a Markdown view.
     var colorSchemeImageBlockIndices: [Int] {
         switch self.colorSchemeImageIndex {
             case let .known(indices):
@@ -121,8 +122,21 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
         lhs.blocks == rhs.blocks
     }
 
+    /// Combines builder components, reusing their conditional-image indices when all are known.
     init(_ components: [MarkdownContentProtocol]) {
-        self.init(blocks: components.map(\._markdownContent).flatMap(\.blocks))
+        var blocks: [BlockNode] = []
+        var indices: [Int]? = []
+        for component in components {
+            let content = component._markdownContent
+            if case let .known(known) = content.colorSchemeImageIndex {
+                indices?.append(contentsOf: known.map { $0 + blocks.count })
+            } else {
+                indices = nil
+            }
+            blocks.append(contentsOf: content.blocks)
+        }
+        self.blocks = blocks
+        self.colorSchemeImageIndex = indices.map(ColorSchemeImageIndex.known) ?? .deferred
     }
 
     /// Creates a Markdown content value from a Markdown-formatted string.
@@ -134,7 +148,15 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
     /// Creates a Markdown content value composed of any number of blocks.
     /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
     public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
-        self = content()
+        self = content().resolvingColorSchemeImageIndex()
+    }
+
+    /// Scans deferred content once so that views rendering it do not rescan it.
+    func resolvingColorSchemeImageIndex() -> MarkdownContent {
+        guard case .deferred = self.colorSchemeImageIndex else {
+            return self
+        }
+        return .init(blocks: self.blocks)
     }
 
     /// Renders this Markdown content value as a Markdown-formatted text.

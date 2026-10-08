@@ -25,7 +25,7 @@ import Foundation
 /// ![](Paragraph)
 public struct Paragraph: MarkdownContentProtocol {
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.paragraph(content: self.content.inlines)])
+        .init(configurationBlock: .paragraph(content: self.content.inlines))
     }
 
     private let content: InlineContent

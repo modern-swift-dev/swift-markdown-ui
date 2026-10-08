@@ -57,7 +57,7 @@ import Foundation
 /// ![](ListItem)
 public struct NumberedList: MarkdownContentProtocol {
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.numberedList(isTight: self.tight, start: self.start, items: self.items)])
+        .init(configurationBlock: .numberedList(isTight: self.tight, start: self.start, items: self.items))
     }
 
     private let tight: Bool

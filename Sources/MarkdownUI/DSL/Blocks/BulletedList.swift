@@ -63,7 +63,7 @@ import Foundation
 /// ![](NestedBulletedList)
 public struct BulletedList: MarkdownContentProtocol {
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.bulletedList(isTight: self.tight, items: self.items)])
+        .init(configurationBlock: .bulletedList(isTight: self.tight, items: self.items))
     }
 
     private let tight: Bool

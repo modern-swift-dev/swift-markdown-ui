@@ -302,7 +302,7 @@ public extension MarkdownView {
         imageBaseURL: URL? = nil,
         @MarkdownContentBuilder content: () -> MarkdownContent
     ) {
-        self.init(content(), baseURL: baseURL, imageBaseURL: imageBaseURL)
+        self.init(MarkdownContent(content: content), baseURL: baseURL, imageBaseURL: imageBaseURL)
     }
 }
 

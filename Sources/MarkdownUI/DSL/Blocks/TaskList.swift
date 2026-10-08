@@ -62,7 +62,7 @@ import Foundation
 /// ```
 public struct TaskList: MarkdownContentProtocol {
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.taskList(isTight: self.tight, items: self.items)])
+        .init(configurationBlock: .taskList(isTight: self.tight, items: self.items))
     }
 
     private let tight: Bool

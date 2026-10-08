@@ -30,7 +30,7 @@ public struct Heading: MarkdownContentProtocol {
     }
 
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.heading(level: self.level.rawValue, content: self.content.inlines)])
+        .init(configurationBlock: .heading(level: self.level.rawValue, content: self.content.inlines))
     }
 
     private let level: Level

@@ -16,7 +16,7 @@ import Foundation
     }
 
     public static func buildExpression(_ expression: String) -> MarkdownContent {
-        .init(expression)
+        MarkdownSourceCache.shared.content(for: expression)
     }
 
     public static func buildArray(_ components: [MarkdownContentProtocol]) -> MarkdownContent {

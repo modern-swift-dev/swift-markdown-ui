@@ -59,7 +59,7 @@ import Foundation
 /// ![](Table-Static)
 public struct TextTable: MarkdownContentProtocol {
     public var _markdownContent: MarkdownContent {
-        .init(blocks: [.table(columnAlignments: self.columnAlignments, rows: self.rows)])
+        .init(configurationBlock: .table(columnAlignments: self.columnAlignments, rows: self.rows))
     }
 
     private let columnAlignments: [RawTableColumnAlignment]
