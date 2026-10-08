@@ -13,6 +13,13 @@ import Foundation
         var projectionDelta: Int
     }
 
+    /// A published document that a binding may still echo back.
+    private struct LocalEcho {
+        var document: MarkdownDocument
+        /// The document as a Markdown source binding reads it back, parsed on first use.
+        var sourceDocument: MarkdownDocument?
+    }
+
     private struct ActiveTableSelection: Equatable, Sendable {
         var path: EditorNodePath
         var cell: MarkdownTableCellSelection
@@ -39,7 +46,7 @@ import Foundation
         /// Delivers committed document changes to the owning text view.
         private let onDocumentChange: (MarkdownDocument) -> Void
         /// Suppresses delayed binding echoes of documents the session recently published.
-        private var pendingLocalEchoes: [MarkdownDocument] = []
+        private var pendingLocalEchoes: [LocalEcho] = []
         /// Prevents bridge callbacks from treating projection installation as user input.
         private var isUpdatingBridge = false
         /// Defers parsing until an IME composition completes.
@@ -175,13 +182,23 @@ import Foundation
         /// Acknowledges a value read back from a binding after publication.
         /// Once acknowledged, the same value can later be restored intentionally.
         @discardableResult func acknowledgeBindingDocument(_ value: MarkdownDocument) -> Bool {
-            guard let echoIndex = pendingLocalEchoes.lastIndex(where: {
-                value == $0 || value == MarkdownDocument(markdown: $0.markdown)
-            }) else {
-                return false
+            // A binding that stores the published value returns it unchanged, which
+            // compares by storage identity. Only a normalized read-back needs the
+            // echo's source round trip, and each echo computes it at most once.
+            for index in pendingLocalEchoes.indices.reversed() {
+                if value == pendingLocalEchoes[index].document {
+                    pendingLocalEchoes.removeFirst(index + 1)
+                    return true
+                }
+                let sourceDocument = pendingLocalEchoes[index].sourceDocument ??
+                    MarkdownDocument(markdown: pendingLocalEchoes[index].document.markdown)
+                pendingLocalEchoes[index].sourceDocument = sourceDocument
+                if value == sourceDocument {
+                    pendingLocalEchoes.removeFirst(index + 1)
+                    return true
+                }
             }
-            pendingLocalEchoes.removeFirst(echoIndex + 1)
-            return true
+            return false
         }
 
         /// Synchronizes a binding without letting delayed echoes overwrite newer edits.
@@ -1539,7 +1556,7 @@ import Foundation
 
         func publishDocumentChange() {
             onCommandStateChange?()
-            pendingLocalEchoes.append(document)
+            pendingLocalEchoes.append(LocalEcho(document: document))
             if pendingLocalEchoes.count > 32 {
                 pendingLocalEchoes.removeFirst(pendingLocalEchoes.count - 32)
             }

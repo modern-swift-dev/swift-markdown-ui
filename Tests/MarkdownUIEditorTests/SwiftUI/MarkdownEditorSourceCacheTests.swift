@@ -1,5 +1,6 @@
 #if canImport(SwiftUI) && (os(macOS) || os(iOS))
     @testable import MarkdownUIEditor
+    import SwiftUI
     import XCTest
 
     @MainActor final class MarkdownEditorSourceCacheTests: XCTestCase {
@@ -28,6 +29,38 @@
             _ = cache.document(for: "source")
             cache.clear()
             _ = cache.document(for: "source")
+            XCTAssertEqual(parses, 2)
+        }
+
+        func testPublishedDocumentReadsBackWithoutParsing() {
+            var parses = 0
+            var serializations = 0
+            let cache = MarkdownEditorSourceCache(
+                parse: { source in
+                    parses += 1
+                    return MarkdownDocument(markdown: source)
+                },
+                serialize: { document in
+                    serializations += 1
+                    return document.markdown
+                }
+            )
+            var markdown = "text"
+            let binding = cache.documentBinding(for: Binding(get: { markdown }, set: { markdown = $0 }))
+            XCTAssertEqual(binding.wrappedValue, MarkdownDocument(markdown: "text"))
+            XCTAssertEqual(parses, 1)
+
+            // Markdown drops the empty paragraph, but the read-back is the published draft.
+            let draft = MarkdownDocument(blocks: [.paragraph([.text("textX")]), .paragraph([])])
+            binding.wrappedValue = draft
+            XCTAssertEqual(markdown, "textX\n")
+            XCTAssertEqual(binding.wrappedValue, draft)
+            XCTAssertEqual(binding.wrappedValue, draft)
+            XCTAssertEqual(parses, 1)
+            XCTAssertEqual(serializations, 1)
+
+            markdown = "external"
+            XCTAssertEqual(binding.wrappedValue, MarkdownDocument(markdown: "external"))
             XCTAssertEqual(parses, 2)
         }
 

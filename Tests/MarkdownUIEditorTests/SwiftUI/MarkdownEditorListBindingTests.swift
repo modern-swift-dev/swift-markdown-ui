@@ -75,6 +75,43 @@
             XCTAssertEqual(textView.document.markdown, state.markdown)
         }
 
+        func testTypingThroughSourceBindingSerializesOnceWithoutParsing() async throws {
+            var parses = 0
+            var serializations = 0
+            let cache = MarkdownEditorSourceCache(
+                parse: { source in
+                    parses += 1
+                    return MarkdownDocument(markdown: source)
+                },
+                serialize: { document in
+                    serializations += 1
+                    return document.markdown
+                }
+            )
+            let state = SourceState()
+            let host = makeHost(state, sourceCache: cache)
+            defer { closeHost(host) }
+            try await Task.sleep(for: .milliseconds(100))
+            let textView = try XCTUnwrap(findEditor(in: hostView(host)))
+            focus(textView, in: host)
+            textView.markdownSelectedRanges = [NSRange(location: 5, length: 0)]
+            try await Task.sleep(for: .milliseconds(100))
+            parses = 0
+            serializations = 0
+
+            typeText("X", into: textView)
+            try await Task.sleep(for: .milliseconds(100))
+
+            XCTAssertTrue(state.markdown.hasPrefix("IntroX\n"), state.markdown)
+            XCTAssertEqual(parses, 0, "The editor's own echo must not be reparsed")
+            XCTAssertEqual(serializations, 1)
+
+            state.markdown = "# External replacement"
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: state.markdown))
+            XCTAssertEqual(parses, 1)
+        }
+
         @MainActor private final class SourceState: ObservableObject {
             @Published var markdown = "Intro\n\n## Lists\n\n1. Existing"
             @Published var refresh = 0
@@ -82,9 +119,17 @@
 
         private struct TestScreen: View {
             @ObservedObject var state: SourceState
+            var sourceCache: MarkdownEditorSourceCache?
             var body: some View {
-                MarkdownEditor(markdown: $state.markdown)
-                    .padding(CGFloat(state.refresh % 2))
+                editor.padding(CGFloat(state.refresh % 2))
+            }
+
+            private var editor: MarkdownEditor {
+                if let sourceCache {
+                    MarkdownEditor(markdown: $state.markdown, sourceCache: sourceCache)
+                } else {
+                    MarkdownEditor(markdown: $state.markdown)
+                }
             }
         }
 
@@ -92,9 +137,9 @@
             private typealias Host = NSWindow
             private typealias NativeView = NSView
 
-            private func makeHost(_ state: SourceState) -> Host {
+            private func makeHost(_ state: SourceState, sourceCache: MarkdownEditorSourceCache? = nil) -> Host {
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
-                window.contentView = NSHostingView(rootView: TestScreen(state: state))
+                window.contentView = NSHostingView(rootView: TestScreen(state: state, sourceCache: sourceCache))
                 window.makeKeyAndOrderFront(nil)
                 return window
             }
@@ -122,9 +167,9 @@
             private typealias Host = UIWindow
             private typealias NativeView = UIView
 
-            private func makeHost(_ state: SourceState) -> Host {
+            private func makeHost(_ state: SourceState, sourceCache: MarkdownEditorSourceCache? = nil) -> Host {
                 let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
-                window.rootViewController = UIHostingController(rootView: TestScreen(state: state))
+                window.rootViewController = UIHostingController(rootView: TestScreen(state: state, sourceCache: sourceCache))
                 window.makeKeyAndVisible()
                 return window
             }

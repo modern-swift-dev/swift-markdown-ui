@@ -33,6 +33,12 @@
             self.baseURL = baseURL
         }
 
+        /// Creates a source editor that parses and serializes through a supplied cache.
+        init(markdown: Binding<String>, baseURL: URL? = nil, sourceCache: MarkdownEditorSourceCache) {
+            self.init(markdown: markdown, baseURL: baseURL)
+            _sourceCache = State(initialValue: sourceCache)
+        }
+
         /// The native text view and, when enabled, its SwiftUI formatting controls.
         public var body: some View {
             VStack(spacing: 0) {
@@ -57,16 +63,7 @@
                     sourceCache.clear()
                     return document
                 case let .markdown(markdown):
-                    let cache = sourceCache
-                    return Binding(
-                        get: { cache.document(for: markdown.wrappedValue) },
-                        set: { document in
-                            let normalized = document.markdown
-                            if markdown.wrappedValue != normalized {
-                                markdown.wrappedValue = normalized
-                            }
-                        }
-                    )
+                    return sourceCache.documentBinding(for: markdown)
             }
         }
     }
@@ -75,9 +72,39 @@
     @MainActor final class MarkdownEditorSourceCache {
         private var cached: (source: String, document: MarkdownDocument)?
         private let parse: (String) -> MarkdownDocument
+        private let serialize: (MarkdownDocument) -> String
 
-        init(parse: @escaping (String) -> MarkdownDocument = { MarkdownDocument(markdown: $0) }) {
+        init(
+            parse: @escaping (String) -> MarkdownDocument = { MarkdownDocument(markdown: $0) },
+            serialize: @escaping (MarkdownDocument) -> String = { $0.markdown }
+        ) {
             self.parse = parse
+            self.serialize = serialize
+        }
+
+        /// Adapts a source binding. The binding receives normalized Markdown after an edit.
+        func documentBinding(for markdown: Binding<String>) -> Binding<MarkdownDocument> {
+            Binding(
+                get: { self.document(for: markdown.wrappedValue) },
+                set: { document in
+                    let normalized = self.source(for: document)
+                    if markdown.wrappedValue != normalized {
+                        markdown.wrappedValue = normalized
+                    }
+                }
+            )
+        }
+
+        /// Serializes an editor document and remembers it as the document for that source.
+        ///
+        /// Reading the written source back then returns the published document
+        /// itself, so the editor recognizes its own echo without reparsing it.
+        /// Markdown cannot retain some editing states, such as empty paragraphs,
+        /// and the published document is the one the editor already shows.
+        func source(for document: MarkdownDocument) -> String {
+            let source = serialize(document)
+            cached = (source, document)
+            return source
         }
 
         func document(for source: String) -> MarkdownDocument {
