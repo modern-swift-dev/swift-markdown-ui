@@ -287,13 +287,12 @@ import ImageIO
                     NSLocalizedDescriptionKey: "The image's \(width)×\(height) pixels exceed the \(maximumPixelCount)-pixel limit."
                 ])
             }
-            let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 8)
-            let (allFrames, framesOverflow) = bytes.multipliedReportingOverflow(by: CGImageSourceGetCount(source))
-            let cost = byteOverflow || framesOverflow ? Int.max : max(data.count, allFrames)
+            // Native images keep the encoded data and decode one 4-byte-per-pixel frame when drawn.
+            let (nativeCost, nativeOverflow) = data.count.addingReportingOverflow(pixels * 4)
             #if !canImport(UIKit)
                 // NSImageView animates multi-frame bitmaps such as GIFs, which a single thumbnail can't.
                 if CGImageSourceGetCount(source) > 1 {
-                    return (try nativeImage(data), cost)
+                    return (try nativeImage(data), nativeOverflow ? Int.max : nativeCost)
                 }
             #endif
             let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)
@@ -307,9 +306,12 @@ import ImageIO
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceThumbnailMaxPixelSize: max(1, min(maximumPixelSize, max(width, height)))
             ] as CFDictionary) else {
-                return (try nativeImage(data), cost)
+                return (try nativeImage(data), nativeOverflow ? Int.max : nativeCost)
             }
             try Task.checkCancellation()
+            // Only this bitmap is retained; the encoded data and any other frames are released.
+            let (bitmapCost, bitmapOverflow) = bitmap.bytesPerRow.multipliedReportingOverflow(by: bitmap.height)
+            let cost = bitmapOverflow ? Int.max : bitmapCost
             #if canImport(UIKit)
                 // UIImage(data:) has a scale of 1, so a smaller bitmap gets a proportionally smaller scale.
                 let scale = CGFloat(max(bitmap.width, bitmap.height)) / CGFloat(max(orientedWidth, orientedHeight))

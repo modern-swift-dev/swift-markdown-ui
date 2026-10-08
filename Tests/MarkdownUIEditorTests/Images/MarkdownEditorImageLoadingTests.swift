@@ -329,6 +329,29 @@ import XCTest
         XCTAssertThrowsError(try MarkdownEditorImageLoader.decode(Data("not an image".utf8), maximumPixelSize: 100))
     }
 
+    func testCacheCostCountsTheRetainedBitmap() throws {
+        let animated = try encodedImage(.gif, width: 300, height: 200, frames: 100)
+        let photo = try encodedImage(.jpeg, width: 2000, height: 1000)
+        let (gif, gifCost) = try MarkdownEditorImageLoader.decode(animated, maximumPixelSize: 100)
+        #if canImport(AppKit)
+            // Animated images stay natively decoded: the encoded data plus the frame being drawn.
+            XCTAssertNotNil(gif.representations.first as? NSBitmapImageRep)
+            XCTAssertEqual(gifCost, animated.count + 300 * 200 * 4)
+        #else
+            // UIKit keeps only the first frame, so the other 99 frames cost nothing.
+            let gifBitmap = try XCTUnwrap(gif.cgImage)
+            XCTAssertEqual(gifCost, gifBitmap.bytesPerRow * gifBitmap.height)
+        #endif
+        let (image, cost) = try MarkdownEditorImageLoader.decode(photo, maximumPixelSize: 100)
+        #if canImport(AppKit)
+            let bitmap = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        #else
+            let bitmap = try XCTUnwrap(image.cgImage)
+        #endif
+        XCTAssertEqual(cost, bitmap.bytesPerRow * bitmap.height)
+        XCTAssertLessThan(cost, 2000 * 1000, "The full-size image is never retained")
+    }
+
     func testRejectsOversizedResponsesAndPixelDimensions() async throws {
         let declared = AsyncStream<UInt8> { $0.finish() }
         do {
