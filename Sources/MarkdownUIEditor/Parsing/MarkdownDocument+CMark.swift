@@ -300,7 +300,40 @@ private extension CMarkNode {
     }
 
     var type: CMarkNodeType {
-        CMarkNodeType(rawValue: String(cString: cmark_node_get_type_string(self))) ?? .unknown
+        let type = cmark_node_get_type(self)
+        switch type {
+            case CMARK_NODE_BLOCK_QUOTE: return .blockquote
+            case CMARK_NODE_LIST: return .list
+            case CMARK_NODE_ITEM:
+                // The task list extension is the only one cmark attaches to list items.
+                return cmark_node_get_syntax_extension(self) == nil ? .item : .taskListItem
+            case CMARK_NODE_CODE_BLOCK: return .codeBlock
+            case CMARK_NODE_HTML_BLOCK: return .htmlBlock
+            case CMARK_NODE_PARAGRAPH: return .paragraph
+            case CMARK_NODE_HEADING: return .heading
+            case CMARK_NODE_THEMATIC_BREAK: return .thematicBreak
+            case CMARK_NODE_TEXT: return .text
+            case CMARK_NODE_SOFTBREAK: return .softBreak
+            case CMARK_NODE_LINEBREAK: return .lineBreak
+            case CMARK_NODE_CODE: return .code
+            case CMARK_NODE_HTML_INLINE: return .htmlInline
+            case CMARK_NODE_EMPH: return .emphasis
+            case CMARK_NODE_STRONG: return .strong
+            case CMARK_NODE_LINK: return .link
+            case CMARK_NODE_IMAGE: return .image
+            default:
+                break
+        }
+        // Extension types are resolved once; unresolved ones are never equal to a
+        // parsed node's type, so they fall back to the extension's type string.
+        let extensionTypes = CMarkExtensionNodeTypes.shared
+        switch type {
+            case extensionTypes.table: return .table
+            case extensionTypes.tableRow: return .tableRow
+            case extensionTypes.tableCell: return .tableCell
+            case extensionTypes.strikethrough: return .strikethrough
+            default: return CMarkNodeType(rawValue: String(cString: cmark_node_get_type_string(self))) ?? .unknown
+        }
     }
 
     var children: CMarkNodeSequence {

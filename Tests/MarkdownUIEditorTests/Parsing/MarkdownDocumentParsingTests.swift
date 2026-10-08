@@ -130,6 +130,66 @@ final class MarkdownDocumentParsingTests: XCTestCase {
         assertSemanticRoundTrip(source)
     }
 
+    func testEveryNodeTypeParsesIntoItsModelValue() {
+        let document = MarkdownDocument(markdown: """
+        ## *a* **b** ~~c~~ `d`
+
+        e\\
+        f
+        g <b>h</b> [i](j "k") ![l](m)
+
+        > n
+
+        1. o
+        - [x] p
+        - q
+
+        ```swift
+        r
+        ```
+
+        <div>s</div>
+
+        | t | u |
+        | :- | -: |
+        | v | w |
+
+        ***
+        """)
+
+        XCTAssertEqual(document.blocks, [
+            .heading(level: .two, content: [
+                .emphasis([.text("a")]), .text(" "), .strong([.text("b")]), .text(" "),
+                .strikethrough([.text("c")]), .text(" "), .code("d")
+            ]),
+            .paragraph([
+                .text("e"), .lineBreak, .text("f"), .softBreak, .text("g "), .html("<b>"), .text("h"), .html("</b>"),
+                .text(" "), .link(destination: "j", title: "k", children: [.text("i")]), .text(" "),
+                .image(source: "m", title: nil, children: [.text("l")])
+            ]),
+            .blockquote([.paragraph([.text("n")])]),
+            .list(MarkdownList(kind: .ordered(start: 1), isTight: true, items: [
+                MarkdownListItem(blocks: [.paragraph([.text("o")])])
+            ])),
+            .list(MarkdownList(kind: .unordered, isTight: true, items: [
+                MarkdownListItem(taskState: .checked, blocks: [.paragraph([.text("p")])]),
+                MarkdownListItem(blocks: [.paragraph([.text("q")])])
+            ])),
+            .codeBlock(info: "swift", content: "r\n"),
+            .html("<div>s</div>\n"),
+            .table(MarkdownTable(
+                alignments: [.left, .right],
+                header: MarkdownTableRow(cells: [
+                    MarkdownTableCell(content: [.text("t")]), MarkdownTableCell(content: [.text("u")])
+                ]),
+                rows: [MarkdownTableRow(cells: [
+                    MarkdownTableCell(content: [.text("v")]), MarkdownTableCell(content: [.text("w")])
+                ])]
+            )),
+            .thematicBreak
+        ])
+    }
+
     func testLooseNestedListsRoundTrip() {
         let source = """
         - first paragraph
