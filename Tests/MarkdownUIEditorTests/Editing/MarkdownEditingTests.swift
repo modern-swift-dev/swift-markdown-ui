@@ -2,6 +2,48 @@
 import XCTest
 
 final class MarkdownEditingTests: XCTestCase {
+    func testNoOpEditsKeepSharingTheOriginalBlockStorage() {
+        let document = MarkdownDocument(markdown: """
+        Intro
+
+        > - First
+        >   - Nested
+
+        | A | B |
+        | :-: | --- |
+        | one | two |
+        """)
+        let cases: [(MarkdownEditorCommand, MarkdownLogicalPath)] = [
+            (.convertList(.unordered), .listItemBlock(list: .blockquote(parent: .block(1), child: 0), item: 0, block: 0)),
+            (.convertList(.unordered), .listItemBlock(
+                list: .listItemBlock(list: .blockquote(parent: .block(1), child: 0), item: 0, block: 1), item: 0, block: 0
+            )),
+            (.setTableColumnAlignment(.center), .tableCell(table: .block(2), row: 1, column: 0))
+        ]
+        for (command, path) in cases {
+            let result = MarkdownEditingEngine.apply(command, to: document, selection: MarkdownLogicalSelection(path: path))
+            XCTAssertEqual(result.document, document, "\(command)")
+            XCTAssertTrue(sharesStorage(result.document.blocks, document.blocks), "\(command) copied the unchanged document")
+        }
+
+        let changed = MarkdownEditingEngine.apply(
+            .setTableColumnAlignment(.right),
+            to: document,
+            selection: MarkdownLogicalSelection(path: .tableCell(table: .block(2), row: 1, column: 0))
+        )
+        guard case let .table(table) = changed.document.blocks[2] else {
+            return XCTFail("Expected a table")
+        }
+        XCTAssertEqual(table.alignments, [.right, .none])
+        XCTAssertEqual(changed.document.blocks[..<2], document.blocks[..<2])
+    }
+
+    private func sharesStorage(_ lhs: [MarkdownBlock], _ rhs: [MarkdownBlock]) -> Bool {
+        lhs.withUnsafeBufferPointer { lhs in
+            rhs.withUnsafeBufferPointer { rhs in lhs.baseAddress == rhs.baseAddress }
+        }
+    }
+
     func testStructuralPrechecksOnlyRejectCommandsThatCannotChangeTheDocument() {
         let document = MarkdownDocument(markdown: """
         Plain

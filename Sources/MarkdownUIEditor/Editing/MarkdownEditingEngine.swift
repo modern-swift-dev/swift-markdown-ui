@@ -883,20 +883,34 @@ private extension MarkdownEditingEngine {
         }
     }
 
+    /// Edits the block at a path, writing it back only when the edit changed it.
+    ///
+    /// Mutating an element in place copies an array that still shares storage
+    /// with the original document, so an edit that changes nothing would copy
+    /// every ancestor array and defeat the identity check in document equality.
     @discardableResult static func updateBlock(at path: MarkdownLogicalPath, in blocks: inout [MarkdownBlock], edit: (inout MarkdownBlock) -> Void) -> Bool {
         switch path {
             case let .block(index):
                 guard blocks.indices.contains(index) else {
                     return false
                 }
-                edit(&blocks[index])
+                var block = blocks[index]
+                edit(&block)
+                if block != blocks[index] {
+                    blocks[index] = block
+                }
                 return true
             case let .blockquote(parent, child):
                 return updateBlock(at: parent, in: &blocks) { block in
                     guard case var .blockquote(children) = block, children.indices.contains(child) else {
                         return
                     }
-                    edit(&children[child])
+                    var updated = children[child]
+                    edit(&updated)
+                    guard updated != children[child] else {
+                        return
+                    }
+                    children[child] = updated
                     block = .blockquote(children)
                 }
             case let .listItemBlock(listPath, item, blockIndex):
@@ -904,7 +918,12 @@ private extension MarkdownEditingEngine {
                     guard case var .list(list) = block, list.items.indices.contains(item), list.items[item].blocks.indices.contains(blockIndex) else {
                         return
                     }
-                    edit(&list.items[item].blocks[blockIndex])
+                    var updated = list.items[item].blocks[blockIndex]
+                    edit(&updated)
+                    guard updated != list.items[item].blocks[blockIndex] else {
+                        return
+                    }
+                    list.items[item].blocks[blockIndex] = updated
                     block = .list(list)
                 }
             case .tableCell:
