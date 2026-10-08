@@ -75,6 +75,8 @@ import Foundation
 
         var onCommandStateChange: (() -> Void)?
 
+        private static let nonWhitespaceCharacters = CharacterSet.whitespacesAndNewlines.inverted
+
         var hasActiveTableSelection: Bool {
             activeTableSelection != nil
         }
@@ -1903,12 +1905,14 @@ import Foundation
             guard range.length > 0, NSMaxRange(range) <= text.length else {
                 return false
             }
+            let string = text.string as NSString
             var enabled = true
-            text.enumerateAttribute(key, in: range) { value, run, _ in
-                let characters = (text.string as NSString).substring(with: run)
-                if !characters.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   (value as? NSNumber)?.boolValue != true {
+            text.enumerateAttribute(key, in: range) { value, run, stop in
+                // Whitespace-only runs do not count. Scan in place instead of copying each run.
+                if (value as? NSNumber)?.boolValue != true,
+                   string.rangeOfCharacter(from: Self.nonWhitespaceCharacters, range: run).location != NSNotFound {
                     enabled = false
+                    stop.pointee = true
                 }
             }
             return enabled

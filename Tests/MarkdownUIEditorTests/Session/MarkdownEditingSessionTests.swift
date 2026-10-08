@@ -961,6 +961,35 @@ import XCTest
         )
     }
 
+    func testInlineStyleIgnoresOnlyUnstyledWhitespaceRuns() {
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: """
+        **bold** **text**
+
+        **a**\u{00A0}\t**b**
+
+        **bold** 😀 **text**
+
+        *bold* **text**
+        """))
+        let bridge = FakeTextViewBridge()
+        session.attach(to: bridge)
+        let string = bridge.markdownTextStorage.string as NSString
+        func strongIsActive(_ text: String) -> Bool {
+            bridge.markdownSelectedRanges = [string.range(of: text)]
+            return session.isActive(.toggleInline(.strong))
+        }
+
+        XCTAssertTrue(strongIsActive("bold text"))
+        XCTAssertTrue(strongIsActive("a\u{00A0}\tb"))
+        XCTAssertFalse(strongIsActive("bold 😀 text"))
+        XCTAssertFalse(strongIsActive("😀"))
+        XCTAssertTrue(strongIsActive(" text"))
+        let lastParagraph = string.range(of: "bold text", options: .backwards)
+        bridge.markdownSelectedRanges = [lastParagraph]
+        XCTAssertNotEqual(lastParagraph, string.range(of: "bold text"))
+        XCTAssertFalse(session.isActive(.toggleInline(.strong)))
+    }
+
     func testTableCellInlineStylesFollowCellEditsAndThemeChanges() throws {
         let document = MarkdownDocument(markdown: "| Name |\n| --- |\n| **bold** plain |")
         let bridge = FakeTextViewBridge()
