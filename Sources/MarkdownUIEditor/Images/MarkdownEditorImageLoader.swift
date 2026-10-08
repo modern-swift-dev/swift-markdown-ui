@@ -77,6 +77,9 @@ import ImageIO
         private(set) var pendingLoadCount = 0
         private var running: [UUID: Task<Void, Never>] = [:]
 
+        /// The loader behind every `MarkdownURLSessionImageProvider()`, so editors share one cache.
+        static let shared = MarkdownEditorImageLoader()
+
         /// Responses larger than this are rejected before they are buffered in full.
         nonisolated static let maximumResponseByteCount = 50 * 1024 * 1024
 

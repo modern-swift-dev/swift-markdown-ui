@@ -33,6 +33,16 @@ import XCTest
         XCTAssertEqual(probe.started, 1)
     }
 
+    func testDefaultProvidersShareOneLoaderAndInjectedLoadersStaySeparate() {
+        let first = MarkdownURLSessionImageProvider()
+        let second = MarkdownURLSessionImageProvider()
+        XCTAssertFalse(first === second)
+        XCTAssertTrue(first.loader === second.loader)
+        XCTAssertTrue(first.loader === MarkdownEditorImageLoader.shared)
+        let isolated = MarkdownURLSessionImageProvider(loader: MarkdownEditorImageLoader(load: NativeImageProbe().load))
+        XCTAssertFalse(isolated.loader === first.loader)
+    }
+
     func testCancellingOneViewKeepsSharedRequestAndCancellingLastStopsIt() async throws {
         let probe = NativeImageProbe()
         let provider = MarkdownURLSessionImageProvider(loader: MarkdownEditorImageLoader(load: probe.load))

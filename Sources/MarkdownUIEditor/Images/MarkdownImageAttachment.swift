@@ -59,18 +59,21 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
     /// dedicated URL session with its own HTTP cache, limited to 20 MB in memory and 200 MB on
     /// disk, and a 15-second request timeout.
     @MainActor public final class MarkdownURLSessionImageProvider: MarkdownEditorImageProvider {
-        private let loader: MarkdownEditorImageLoader
+        let loader: MarkdownEditorImageLoader
 
         /// Creates the provider.
+        ///
+        /// Providers created this way share one bounded cache of decoded images, so editors
+        /// showing the same image reuse it instead of each keeping its own copy.
         public init() {
-            self.loader = MarkdownEditorImageLoader()
+            self.loader = MarkdownEditorImageLoader.shared
         }
 
         init(loader: MarkdownEditorImageLoader) {
             self.loader = loader
         }
 
-        /// Downloads and decodes an image, sharing fresh decoded resources within this provider.
+        /// Downloads and decodes an image, reusing decoded images cached by this provider's loader.
         public func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
             try await loader.image(for: url.absoluteURL)
         }
