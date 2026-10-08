@@ -23,6 +23,11 @@ extension Sequence<InlineNode> {
 struct TextInlineRenderer {
     private var result = Text("")
     private var pendingText = AttributedString()
+    /// Consecutive fragments with the same attributes, not yet in `pendingText`.
+    private var pendingRun = ""
+    private var pendingRunAttributes = AttributeContainer()
+    /// The font most recently resolved from font properties, reused by later runs.
+    private var resolvedFont: (properties: FontProperties, font: Font)?
     private(set) var textChunkCount = 0
 
     private let baseURL: URL?
@@ -158,17 +163,41 @@ struct TextInlineRenderer {
     }
 
     private mutating func append(_ text: String) {
+        // Fragments with identical attributes form a single run of the attributed
+        // string anyway, so join their text and build the run once.
+        if self.attributes != self.pendingRunAttributes {
+            self.appendPendingRun()
+            self.pendingRunAttributes = self.attributes
+        }
+        self.pendingRun += text
+    }
+
+    private mutating func appendPendingRun() {
+        guard !self.pendingRun.isEmpty else {
+            return
+        }
         // Keep the inherited attributes unresolved so nested styles can still modify
-        // font properties. Resolve only the fragment being appended.
-        var attributes = self.attributes
+        // font properties. Resolve only the run being appended.
+        var attributes = self.pendingRunAttributes
         if let fontProperties = attributes.fontProperties {
-            attributes.font = .withProperties(fontProperties)
+            attributes.font = self.font(for: fontProperties)
             attributes.fontProperties = nil
         }
-        self.pendingText.append(AttributedString(text, attributes: attributes))
+        self.pendingText.append(AttributedString(self.pendingRun, attributes: attributes))
+        self.pendingRun = ""
+    }
+
+    private mutating func font(for properties: FontProperties) -> Font {
+        if let resolvedFont = self.resolvedFont, resolvedFont.properties == properties {
+            return resolvedFont.font
+        }
+        let font = Font.withProperties(properties)
+        self.resolvedFont = (properties, font)
+        return font
     }
 
     private mutating func flushText() {
+        self.appendPendingRun()
         guard !self.pendingText.characters.isEmpty else {
             return
         }

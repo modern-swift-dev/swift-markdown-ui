@@ -43,6 +43,35 @@
             XCTAssertEqual(renderer.textChunkCount, 1)
         }
 
+        func testCoalescedFragmentsMatchFragmentByFragmentText() throws {
+            // Adjacent fragments with equal attributes, split across sibling styles,
+            // empty text, and a different run between equal ones.
+            let nodes: [InlineNode] = [
+                .text("one"), .text(" two"), .softBreak, .text(""),
+                .strong(children: [.text("bold")]), .strong(children: [.text(" again")]),
+                .emphasis(children: []), .text(" plain"), .code("code"), .code(" more"),
+                .text(" end"), .strong(children: [.text(" bold")]), .lineBreak, .text("  last")
+            ]
+            var code = attributes
+            code.fontProperties = FontProperties(familyVariant: .monospaced, size: 17)
+            let bold = styledAttributes(weight: .bold)
+            let fragments: [(String, AttributeContainer)] = [
+                ("one", attributes), (" two", attributes), (" ", attributes), ("", attributes),
+                ("bold", bold), (" again", bold), (" plain", attributes), ("code", code),
+                (" more", code), (" end", attributes), (" bold", bold), ("\n", attributes), ("last", attributes)
+            ]
+            var renderer = makeRenderer()
+            renderer.render(nodes)
+            let actual = renderer.finish()
+            var expected = AttributedString()
+            for (text, attributes) in fragments {
+                expected.append(AttributedString(text, attributes: attributes).resolvingFonts())
+            }
+            XCTAssertEqual(actual, Text("") + Text(expected))
+            try assertSamePixels(actual, legacyText(fragments))
+            XCTAssertEqual(renderer.textChunkCount, 1)
+        }
+
         func testNestedStylesAndLinksMatchIndividualTextFragments() throws {
             let nodes: [InlineNode] = [
                 .text("Before "),
