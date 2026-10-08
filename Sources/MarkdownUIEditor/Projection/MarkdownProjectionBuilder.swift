@@ -206,27 +206,44 @@ struct ChangedBlocks: Equatable {
         var onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
     }
 
-    /// Table attachments in text being replaced, which equal tables render with again.
+    /// Table attachments in text being replaced, which tables render with again.
     ///
     /// Keeping the attachment keeps its loaded grid, so an unchanged table inside
-    /// rebuilt text is not measured and laid out from scratch.
+    /// rebuilt text is not measured and laid out from scratch, and a changed table
+    /// at the same path updates only the cells that differ.
     @MainActor final class ReusableTables {
         private var attachments: [MarkdownTable: [MarkdownTableAttachment]] = [:]
+        private var attachmentsByPath: [EditorNodePath: MarkdownTableAttachment] = [:]
+        private var paths: [ObjectIdentifier: EditorNodePath] = [:]
 
-        init(in text: NSAttributedString, range: NSRange) {
+        /// `blockDelta` moves the paths of the replaced text's attachments to the
+        /// paths their blocks have after earlier blocks were inserted or removed.
+        init(in text: NSAttributedString, range: NSRange, blockDelta: Int = 0) {
             text.enumerateAttribute(.attachment, in: range) { value, _, _ in
-                if let attachment = value as? MarkdownTableAttachment, attachment.pathReference != nil {
+                if let attachment = value as? MarkdownTableAttachment, let reference = attachment.pathReference {
+                    let path = reference.path.shiftingRootBlock(by: blockDelta)
                     attachments[attachment.table, default: []].append(attachment)
+                    attachmentsByPath[path] = attachment
+                    paths[ObjectIdentifier(attachment)] = path
                 }
             }
         }
 
-        /// Removes and returns an attachment showing `table`.
-        func take(_ table: MarkdownTable) -> MarkdownTableAttachment? {
-            guard let attachment = attachments[table]?.first else {
+        /// Removes and returns an attachment showing `table`, or else the attachment
+        /// at `path` updated to show it.
+        func take(_ table: MarkdownTable, at path: EditorNodePath) -> MarkdownTableAttachment? {
+            if let attachment = attachments[table]?.first {
+                attachments[table]?.removeFirst()
+                if let path = paths[ObjectIdentifier(attachment)], attachmentsByPath[path] === attachment {
+                    attachmentsByPath[path] = nil
+                }
+                return attachment
+            }
+            guard let attachment = attachmentsByPath.removeValue(forKey: path) else {
                 return nil
             }
-            attachments[table]?.removeFirst()
+            attachments[attachment.table]?.removeAll { $0 === attachment }
+            attachment.controller.present(table)
             return attachment
         }
     }
@@ -485,7 +502,7 @@ private struct BlockPresentation {
                         appendObjectPlaceholder(source: markdown, kind: "table")
                         return
                     }
-                    let attachment = reusableTables?.take(table) ?? MarkdownTableAttachment(table: table)
+                    let attachment = reusableTables?.take(table, at: path) ?? MarkdownTableAttachment(table: table)
                     let reference = attachment.pathReference ?? EditorPathReference(path)
                     reference.path = path
                     attachment.pathReference = reference

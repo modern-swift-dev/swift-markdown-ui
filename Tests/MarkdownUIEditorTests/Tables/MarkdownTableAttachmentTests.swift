@@ -348,6 +348,37 @@ import XCTest
         XCTAssertFalse(text(content) === first, "A full cache starts over")
     }
 
+    func testTableDifferenceFindsOneChangedCellRowOrColumn() {
+        let table = makeTable()
+        func difference(_ mutate: (MarkdownTableController) -> Void) -> MarkdownTablePresentationChange {
+            let controller = MarkdownTableController(table: table)
+            mutate(controller)
+            return .difference(from: table, to: controller.table)
+        }
+        let cell = MarkdownTableCellPosition(section: .body(row: 0), column: 1)
+
+        XCTAssertEqual(difference { $0.updateCell(at: cell, source: "changed") }, .cell(cell))
+        XCTAssertEqual(difference { $0.insertRow(at: 0) }, .insertedRow(0))
+        XCTAssertEqual(difference { $0.appendRow() }, .insertedRow(1))
+        XCTAssertEqual(difference { $0.deleteRow(at: 0) }, .removedRow(0))
+        XCTAssertEqual(difference { $0.insertColumn(at: 1, alignment: .center) }, .insertedColumn(1))
+        XCTAssertEqual(difference { $0.deleteColumn(at: 0) }, .removedColumn(0))
+        XCTAssertEqual(difference {
+            $0.updateCell(at: cell, source: "changed")
+            $0.updateCell(at: .init(section: .header, column: 0), source: "changed")
+        }, .reload)
+        XCTAssertEqual(difference { $0.setAlignment(.center, forColumn: 0) }, .reload)
+        XCTAssertEqual(difference { $0.moveColumn(from: 0, to: 1) }, .reload)
+        XCTAssertEqual(difference {
+            $0.appendRow()
+            $0.updateCell(at: cell, source: "changed")
+        }, .reload)
+
+        var ragged = table
+        ragged.rows[0].cells.removeLast()
+        XCTAssertEqual(MarkdownTablePresentationChange.difference(from: table, to: ragged), .reload)
+    }
+
     func testGridUpdatesChangedCellsRowsAndColumnsInPlace() throws {
         let attachment = MarkdownTableAttachment(table: sizingTable())
         let controller = attachment.controller
@@ -550,6 +581,7 @@ import XCTest
                 undoManager.endUndoGrouping()
             }
             undoManager.removeAllActions()
+            let grid = try XCTUnwrap(firstSubview(of: AppKitMarkdownTableGridView.self, in: editor))
             undoManager.beginUndoGrouping()
             editor.perform(.insertTableRow)
             undoManager.endUndoGrouping()
@@ -564,6 +596,7 @@ import XCTest
             undoManager.redo()
             layout()
             XCTAssertEqual(editor.document, afterRow)
+            XCTAssertTrue(subviews(of: AppKitMarkdownTableGridView.self, in: editor) == [grid], "Table commands and undo update the grid in place")
 
             window.makeFirstResponder(editor)
             editor.selectedRange = NSRange(location: 0, length: 0)
@@ -922,12 +955,14 @@ import XCTest
                 undoManager.endUndoGrouping()
             }
             undoManager.removeAllActions()
+            let grid = try XCTUnwrap(subviews(of: UIKitMarkdownTableGridView.self, in: editor).first)
             undoManager.beginUndoGrouping()
             editor.perform(.insertTableRow)
             undoManager.endUndoGrouping()
             layout()
             XCTAssertEqual(try table().rows.count, 2)
             XCTAssertTrue(subviews(of: UITextView.self, in: editor).contains { $0 !== editor && $0.isFirstResponder })
+            XCTAssertTrue(subviews(of: UIKitMarkdownTableGridView.self, in: editor) == [grid], "Table commands update the grid in place")
             let afterRow = editor.document
             undoManager.undo()
             XCTAssertTrue(undoManager.canRedo, "Undo must register redo before layout")
@@ -942,8 +977,7 @@ import XCTest
             cell = try firstCell()
             cell.becomeFirstResponder()
             cell.selectedRange = NSRange(location: cell.textStorage.length, length: 0)
-            let row = try XCTUnwrap(cell.superview as? UIStackView)
-            let grid = try XCTUnwrap(row.superview?.superview)
+            XCTAssertTrue(subviews(of: UIKitMarkdownTableGridView.self, in: editor) == [grid], "Undo updates the grid in place")
             let initialHeight = grid.bounds.height
             cell.insertText(String(repeating: " wrapping content", count: 12))
             layout()

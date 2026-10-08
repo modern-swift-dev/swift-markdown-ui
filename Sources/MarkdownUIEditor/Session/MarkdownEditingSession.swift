@@ -633,10 +633,11 @@ import Foundation
                 if let edit, let editedBlock, change.old.contains(editedBlock) {
                     range.length += edit.projectionDelta
                 }
-                // Unchanged tables in the replaced text keep their attachments and grids.
+                // Tables in the replaced text keep their attachments and grids.
                 let tables = MarkdownProjectionBuilder.ReusableTables(
                     in: textStorage,
-                    range: NSRange(location: range.location - lengthDelta, length: range.length)
+                    range: NSRange(location: range.location - lengthDelta, length: range.length),
+                    blockDelta: blockDelta
                 )
                 let fragment = MarkdownProjectionBuilder().build(
                     blocks: change.new,

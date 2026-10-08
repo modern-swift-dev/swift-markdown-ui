@@ -379,7 +379,7 @@ import XCTest
         }
     }
 
-    func testUnchangedTablesKeepTheirAttachmentsWhenRenderedAgain() throws {
+    func testTablesKeepTheirAttachmentsWhenRenderedAgain() throws {
         let (session, bridge) = makeSession()
         let tables = attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self)
         XCTAssertEqual(tables.count, 2)
@@ -409,7 +409,7 @@ import XCTest
         assertMatchesFullProjection(session, bridge, "theme", requiresSplice: false)
         XCTAssertTrue(attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self).elementsEqual(tables, by: ===))
 
-        // A changed table gets a new attachment.
+        // A changed table keeps its attachment, which shows the new table.
         var changed = session.document
         guard case var .table(table) = changed.blocks[quoteIndex - 2] else {
             return XCTFail("Expected the first table")
@@ -419,9 +419,11 @@ import XCTest
         bridge.resetReplacements()
         session.replaceDocument(changed)
         assertMatchesFullProjection(session, bridge, "changed table")
-        let replaced = attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self)
-        XCTAssertFalse(replaced[0] === tables[0])
-        XCTAssertTrue(replaced[1] === tables[1])
+        XCTAssertTrue(attachments(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self).elementsEqual(tables, by: ===))
+        XCTAssertEqual(tables[0].table, table)
+        tables[0].controller.updateCell(at: MarkdownTableCellPosition(section: .header, column: 0), source: "Edited")
+        XCTAssertTrue(session.document.markdown.contains("|Edited|**Bold**|Right|"), session.document.markdown)
+        assertMatchesFullProjection(session, bridge, "changed table edit", requiresSplice: false)
     }
 
     func testConfigurationChangesStillReplaceAllText() {

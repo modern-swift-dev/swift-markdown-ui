@@ -58,6 +58,65 @@ enum MarkdownTablePresentationChange: Equatable {
     case insertedColumn(Int)
     case removedColumn(Int)
     case reload
+
+    /// The one cell, row, or column change that turns `old` into `new`, or `.reload`.
+    static func difference(from old: MarkdownTable, to new: MarkdownTable) -> Self {
+        guard old.isRectangular, new.isRectangular else {
+            return .reload
+        }
+        switch (new.rows.count - old.rows.count, new.alignments.count - old.alignments.count) {
+            case (0, 0):
+                guard old.alignments == new.alignments else {
+                    return .reload
+                }
+                let rows = [old.header] + old.rows
+                let changed = zip(rows, [new.header] + new.rows).enumerated().flatMap { row, pair in
+                    pair.0.cells.indices.filter { pair.0.cells[$0] != pair.1.cells[$0] }.map { column in
+                        MarkdownTableCellPosition(section: row == 0 ? .header : .body(row: row - 1), column: column)
+                    }
+                }
+                return changed.count == 1 ? .cell(changed[0]) : .reload
+            case (1, 0) where old.header == new.header && old.alignments == new.alignments:
+                return insertedIndex(in: new.rows, comparedTo: old.rows).map(insertedRow) ?? .reload
+            case (-1, 0) where old.header == new.header && old.alignments == new.alignments:
+                return insertedIndex(in: old.rows, comparedTo: new.rows).map(removedRow) ?? .reload
+            case (0, 1):
+                return insertedIndex(in: new.columns, comparedTo: old.columns).map(insertedColumn) ?? .reload
+            case (0, -1):
+                return insertedIndex(in: old.columns, comparedTo: new.columns).map(removedColumn) ?? .reload
+            default:
+                return .reload
+        }
+    }
+
+    /// The index of the one element `longer` adds to `shorter`, if that is their only difference.
+    private static func insertedIndex<Element: Equatable>(in longer: [Element], comparedTo shorter: [Element]) -> Int? {
+        let index = zip(longer, shorter).prefix { $0 == $1 }.count
+        guard longer.count == shorter.count + 1,
+              longer[(index + 1)...].elementsEqual(shorter[index...]) else {
+            return nil
+        }
+        return index
+    }
+}
+
+private struct MarkdownTableColumn: Equatable {
+    var alignment: MarkdownTableAlignment
+    var cells: [MarkdownTableCell]
+}
+
+private extension MarkdownTable {
+    /// Whether every row has one cell per column, as grids show it.
+    var isRectangular: Bool {
+        !alignments.isEmpty && header.cells.count == alignments.count
+            && rows.allSatisfy { $0.cells.count == alignments.count }
+    }
+
+    var columns: [MarkdownTableColumn] {
+        alignments.indices.map { column in
+            MarkdownTableColumn(alignment: alignments[column], cells: [header.cells[column]] + rows.map { $0.cells[column] })
+        }
+    }
 }
 
 /// The native caret or selection owned by one editable table cell.
@@ -86,6 +145,12 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     var onPresentationChange: ((MarkdownTablePresentationChange) -> Void)?
     var activeTypingAttributes: [NSAttributedString.Key: Any] = [:]
     var onTypingAttributesChange: (([NSAttributedString.Key: Any]) -> Void)?
+    /// Focuses the active selection's cell in a grid that stayed on screen.
+    var onFocusRequest: (() -> Void)?
+    /// Whether a presented table still needs its owner's cell selection focused.
+    private var needsFocusAfterPresentation = false
+    /// Cells whose text is replaced move their carets, which is not a user selection.
+    private var isPresenting = false
     /// The grid most recently loaded for this table and the layout showing it.
     private var loadedGrid: (view: AnyObject, textLayoutManager: ObjectIdentifier)?
 
@@ -106,6 +171,7 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     ) {
         activeSelection = selection
         onSelectionChange = onChange
+        focusAfterPresentation()
     }
 
     /// Returns the grid last loaded for this table into a text layout manager, or a new one.
@@ -125,14 +191,38 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         return grid
     }
 
+    /// Shows a table its document owner changed, as after a table command or undo,
+    /// updating only the cells that differ. The owner already has the table, so the
+    /// change is not reported, and the owner sets the cell selection afterward.
+    func present(_ updated: MarkdownTable) {
+        let change = MarkdownTablePresentationChange.difference(from: table, to: updated)
+        activeSelection = nil
+        table = updated
+        isPresenting = true
+        onPresentationChange?(change)
+        isPresenting = false
+        needsFocusAfterPresentation = true
+    }
+
     /// Replaces the remembered nested selection without reporting it.
     func restoreSelection(_ selection: MarkdownTableCellSelection?) {
         activeSelection = selection
+        focusAfterPresentation()
+    }
+
+    /// A new grid focuses the selected cell when it enters the window, so a kept
+    /// grid does once its owner sets the selection.
+    private func focusAfterPresentation() {
+        guard needsFocusAfterPresentation else {
+            return
+        }
+        needsFocusAfterPresentation = false
+        onFocusRequest?()
     }
 
     func updateSelection(at position: MarkdownTableCellPosition, range: NSRange) {
         let selection = MarkdownTableCellSelection(position: position, range: range)
-        guard selection != activeSelection else {
+        guard !isPresenting, selection != activeSelection else {
             return
         }
         activeSelection = selection
@@ -925,6 +1015,9 @@ private enum MarkdownTableCellSourceCodec {
                 self.apply(change)
                 self.resizeAttachment()
             }
+            controller.onFocusRequest = { [weak self] in
+                self?.focusActiveSelection()
+            }
             controller.onTypingAttributesChange = { [weak self] attributes in
                 guard let self, let selection = self.controller.activeSelection else {
                     return
@@ -1272,6 +1365,10 @@ private enum MarkdownTableCellSourceCodec {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            focusActiveSelection()
+        }
+
+        private func focusActiveSelection() {
             guard let selection = controller.activeSelection,
                   let field = fields[selection.position] else {
                 return
@@ -1444,6 +1541,9 @@ private enum MarkdownTableCellSourceCodec {
                 }
                 self.apply(change)
                 self.resizeAttachment()
+            }
+            controller.onFocusRequest = { [weak self] in
+                self?.focusActiveSelection()
             }
             controller.onTypingAttributesChange = { [weak self] attributes in
                 guard let self, let selection = self.controller.activeSelection else {
@@ -1767,6 +1867,10 @@ private enum MarkdownTableCellSourceCodec {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            focusActiveSelection()
+        }
+
+        private func focusActiveSelection() {
             guard let selection = controller.activeSelection,
                   let field = fields[selection.position] else {
                 return
