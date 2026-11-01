@@ -754,6 +754,136 @@ import XCTest
         XCTAssertFalse(session.insertHardLineBreak())
     }
 
+    func testMarkdownShortcutsConvertTheParagraphAndUndoRestoresTheTypedText() {
+        func list(_ kind: MarkdownListKind, _ taskState: MarkdownTaskState? = nil) -> MarkdownBlock {
+            .list(MarkdownList(kind: kind, isTight: true, items: [
+                MarkdownListItem(taskState: taskState, blocks: [.paragraph([.text("rest")])])
+            ]))
+        }
+        let cases: [(marker: String, typed: String, expected: MarkdownBlock)] = [
+            ("#", " ", .heading(level: .one, content: [.text("rest")])),
+            ("######", " ", .heading(level: .six, content: [.text("rest")])),
+            ("-", " ", list(.unordered)),
+            ("*", " ", list(.unordered)),
+            ("+", " ", list(.unordered)),
+            ("7.", " ", list(.ordered(start: 7))),
+            ("3)", " ", list(.ordered(start: 3))),
+            ("[ ]", " ", list(.unordered, .unchecked)),
+            ("[x]", " ", list(.unordered, .checked)),
+            (">", " ", .blockquote([.paragraph([.text("rest")])])),
+            ("```swift", "\n", .codeBlock(info: "swift", content: "rest")),
+            ("```", "\n", .codeBlock(info: nil, content: "rest"))
+        ]
+        for (marker, typed, expected) in cases {
+            let caret = marker.utf16.count
+            let original = MarkdownDocument(blocks: [.paragraph([.text("before")]), .paragraph([.text(marker + "rest")])])
+            let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 7 + caret, length: 0)])
+            let session = MarkdownEditingSession(document: original)
+            session.convertsMarkdownShortcuts = true
+            session.attach(to: bridge)
+
+            XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 7 + caret, length: 0), with: typed), marker)
+
+            XCTAssertEqual(session.document.blocks, [.paragraph([.text("before")]), expected], marker)
+            XCTAssertEqual(bridge.markdownTextStorage.string, MarkdownProjectionBuilder().build(document: session.document).string, marker)
+            XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 7, length: 0)], marker)
+
+            bridge.undoManager?.undo()
+            let literal = typed == "\n" ? marker + "rest" : marker + typed + "rest"
+            XCTAssertEqual(session.document.blocks, [.paragraph([.text("before")]), .paragraph([.text(literal)])], marker)
+            XCTAssertEqual(bridge.markdownTextStorage.string, "before\n\(literal)\n", marker)
+            let literalCaret = 7 + caret + (typed == "\n" ? 0 : 1)
+            XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: literalCaret, length: 0)], marker)
+        }
+    }
+
+    func testMarkdownShortcutsConvertOnlyAPlainMarkerAtTheStartOfAParagraph() {
+        let cases: [(document: MarkdownDocument, caret: Int, typed: String)] = [
+            (MarkdownDocument(blocks: [.paragraph([.text("a#")])]), 2, " "),
+            (MarkdownDocument(blocks: [.paragraph([.text("#######")])]), 7, " "),
+            (MarkdownDocument(blocks: [.paragraph([.strong([.text("#")])])]), 1, " "),
+            (MarkdownDocument(blocks: [.paragraph([.code("-")])]), 1, " "),
+            (MarkdownDocument(blocks: [.heading(level: .one, content: [.text("#")])]), 1, " "),
+            (MarkdownDocument(blocks: [.codeBlock(info: nil, content: "#")]), 1, " "),
+            (MarkdownDocument(blocks: [.codeBlock(info: nil, content: "```swift")]), 8, "\n"),
+            (MarkdownDocument(markdown: "- \\-"), 1, " "),
+            (MarkdownDocument(markdown: "- 1\\."), 2, " "),
+            (MarkdownDocument(markdown: "- [ ] \\[x]"), 3, " ")
+        ]
+        for (document, caret, typed) in cases {
+            let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: caret, length: 0)])
+            let session = MarkdownEditingSession(document: document)
+            session.convertsMarkdownShortcuts = true
+            session.attach(to: bridge)
+
+            _ = session.shouldReplaceCharacters(in: NSRange(location: caret, length: 0), with: typed)
+
+            XCTAssertEqual(session.document, document, document.markdown)
+            XCTAssertFalse(bridge.undoManager?.canUndo ?? true, document.markdown)
+        }
+    }
+
+    func testTaskMarkerTurnsAnOrdinaryListItemIntoATask() {
+        let document = MarkdownDocument(markdown: "- first\n- [x]rest")
+        let caret = 9
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: caret, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.convertsMarkdownShortcuts = true
+        session.attach(to: bridge)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "first\n[x]rest\n")
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: caret, length: 0), with: " "))
+
+        XCTAssertEqual(session.document.blocks, [.list(MarkdownList(kind: .unordered, isTight: true, items: [
+            MarkdownListItem(blocks: [.paragraph([.text("first")])]),
+            MarkdownListItem(taskState: .checked, blocks: [.paragraph([.text("rest")])])
+        ]))])
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document.blocks, [.list(MarkdownList(kind: .unordered, isTight: true, items: [
+            MarkdownListItem(blocks: [.paragraph([.text("first")])]),
+            MarkdownListItem(blocks: [.paragraph([.text("[x] rest")])])
+        ]))])
+    }
+
+    func testQuoteMarkerInsideAQuoteNestsAQuoteInsteadOfRemovingIt() {
+        let document = MarkdownDocument(blocks: [.blockquote([.paragraph([.text("a")]), .paragraph([.text(">rest")])])])
+        let caret = 3
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: caret, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.convertsMarkdownShortcuts = true
+        session.attach(to: bridge)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "a\n>rest\n")
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: caret, length: 0), with: " "))
+
+        XCTAssertEqual(session.document.blocks, [.blockquote([
+            .paragraph([.text("a")]),
+            .blockquote([.paragraph([.text("rest")])])
+        ])])
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document.blocks, [.blockquote([.paragraph([.text("a")]), .paragraph([.text("> rest")])])])
+    }
+
+    func testMarkdownShortcutsAreOffByDefaultAndWaitForComposition() {
+        let document = MarkdownDocument(blocks: [.paragraph([.text("#")])])
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.attach(to: bridge)
+        XCTAssertFalse(session.convertsMarkdownShortcuts)
+        XCTAssertTrue(session.shouldReplaceCharacters(in: NSRange(location: 1, length: 0), with: " "))
+        XCTAssertEqual(session.document, document)
+
+        session.convertsMarkdownShortcuts = true
+        bridge.markdownHasMarkedText = true
+        XCTAssertTrue(session.shouldReplaceCharacters(in: NSRange(location: 1, length: 0), with: " "))
+        XCTAssertEqual(session.document, document)
+
+        bridge.markdownHasMarkedText = false
+        session.compositionDidEnd()
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 1, length: 0), with: " "))
+        XCTAssertEqual(session.document.blocks, [.heading(level: .one, content: [])])
+    }
+
     func testBackwardDeletionJoinsAdjacentParagraphs() {
         let document = MarkdownDocument(blocks: [
             .paragraph([.strong([.text("one")])]),

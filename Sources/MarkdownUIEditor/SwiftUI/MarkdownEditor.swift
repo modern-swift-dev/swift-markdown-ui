@@ -23,6 +23,7 @@
         @Environment(\.markdownEditorIsEditable) private var isEditable
         @Environment(\.markdownEditorImageProvider) private var imageProvider
         @Environment(\.markdownEditorImageLoadingPolicy) private var imageLoadingPolicy
+        @Environment(\.markdownEditorConvertsMarkdownShortcuts) private var convertsMarkdownShortcuts
 
         /// Creates an editor for a structured Markdown document.
         public init(document: Binding<MarkdownDocument>, baseURL: URL? = nil) {
@@ -55,6 +56,7 @@
                     imageLoadingPolicy: imageLoadingPolicy,
                     isEditable: isEditable,
                     editorContext: editorContext,
+                    convertsMarkdownShortcuts: convertsMarkdownShortcuts,
                     presentLinkEditor: { showsLinkEditor = true }
                 )
 
@@ -253,6 +255,8 @@
             let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
+            /// Whether typing Markdown block markers converts paragraphs.
+            let convertsMarkdownShortcuts: Bool
             /// Presents the editor's link dialog for ⌘K.
             let presentLinkEditor: () -> Void
 
@@ -273,6 +277,7 @@
                 textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
                 textView.presentLinkEditor = presentLinkEditor
+                textView.convertsMarkdownShortcuts = convertsMarkdownShortcuts
                 return textView
             }
 
@@ -286,6 +291,7 @@
                 }
                 context.coordinator.context.setTextView(textView)
                 textView.presentLinkEditor = presentLinkEditor
+                textView.convertsMarkdownShortcuts = convertsMarkdownShortcuts
             }
 
             static func dismantleUIView(_ textView: MarkdownTextView, coordinator: Coordinator) {
@@ -353,6 +359,8 @@
             let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
+            /// Whether typing Markdown block markers converts paragraphs.
+            let convertsMarkdownShortcuts: Bool
             /// Presents the editor's link dialog for ⌘K.
             let presentLinkEditor: () -> Void
 
@@ -391,6 +399,7 @@
                 textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
                 textView.presentLinkEditor = presentLinkEditor
+                textView.convertsMarkdownShortcuts = convertsMarkdownShortcuts
                 return scrollView
             }
 
@@ -407,6 +416,7 @@
                 }
                 context.coordinator.context.setTextView(textView)
                 textView.presentLinkEditor = presentLinkEditor
+                textView.convertsMarkdownShortcuts = convertsMarkdownShortcuts
             }
 
             static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {

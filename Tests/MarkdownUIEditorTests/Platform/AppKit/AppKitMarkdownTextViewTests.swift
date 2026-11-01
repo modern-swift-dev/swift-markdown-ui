@@ -495,6 +495,36 @@
             XCTAssertEqual(link.keyEquivalentModifierMask, .command)
         }
 
+        func testTypedMarkdownShortcutConvertsOnlyWhenTurnedOnAndUndoKeepsTheText() throws {
+            let (textView, window) = makeFocusedTextView("")
+            defer { window.contentView = nil }
+            XCTAssertFalse(textView.convertsMarkdownShortcuts)
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text(">")])])
+            textView.selectedRange = NSRange(location: 1, length: 0)
+            textView.insertText(" ", replacementRange: textView.selectedRange)
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("> ")])])
+            // Tests run in one event, so keep the literal insertion out of the undo group below.
+            try XCTUnwrap(textView.undoManager).removeAllActions()
+
+            textView.convertsMarkdownShortcuts = true
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text(">")])])
+            textView.selectedRange = NSRange(location: 1, length: 0)
+            textView.insertText(" ", replacementRange: textView.selectedRange)
+            XCTAssertEqual(textView.document.blocks, [.blockquote([.paragraph([])])])
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 0, length: 0))
+
+            try XCTUnwrap(textView.undoManager).undo()
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("> ")])])
+            XCTAssertEqual(textView.string, "> \n")
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 2, length: 0))
+
+            textView.convertsMarkdownShortcuts = false
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text("```swift")])])
+            textView.selectedRange = NSRange(location: 8, length: 0)
+            textView.insertNewline(nil)
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("```swift")]), .paragraph([])])
+        }
+
         private func makeFocusedTextView(_ markdown: String) -> (MarkdownTextView, NSWindow) {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             textView.frame = NSRect(x: 0, y: 0, width: 400, height: 200)

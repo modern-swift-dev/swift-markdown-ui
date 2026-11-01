@@ -541,6 +541,35 @@
             }
         }
 
+        func testTypedMarkdownShortcutConvertsOnlyWhenTurnedOnAndUndoKeepsTheText() throws {
+            let textView = makeTextView()
+            XCTAssertTrue(textView.becomeFirstResponder())
+            XCTAssertFalse(textView.convertsMarkdownShortcuts)
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text("##")])])
+            textView.selectedRange = NSRange(location: 2, length: 0)
+            textView.insertText(" ")
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("## ")])])
+            // Tests run in one event, so keep the literal insertion out of the undo group below.
+            try XCTUnwrap(textView.undoManager).removeAllActions()
+
+            textView.convertsMarkdownShortcuts = true
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text("##")])])
+            textView.selectedRange = NSRange(location: 2, length: 0)
+            textView.insertText(" ")
+            XCTAssertEqual(textView.document.blocks, [.heading(level: .two, content: [])])
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 0, length: 0))
+
+            try XCTUnwrap(textView.undoManager).undo()
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("## ")])])
+            XCTAssertEqual(textView.text, "## \n")
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 3, length: 0))
+
+            textView.document = MarkdownDocument(blocks: [.paragraph([.text("```swift")])])
+            textView.selectedRange = NSRange(location: 8, length: 0)
+            textView.insertText("\n")
+            XCTAssertEqual(textView.document.blocks, [.codeBlock(info: "swift", content: "")])
+        }
+
         private func keyCommand(_ input: String, _ modifiers: UIKeyModifierFlags, in textView: MarkdownTextView) -> UIKeyCommand? {
             textView.keyCommands?.first { $0.input == input && $0.modifierFlags == modifiers }
         }

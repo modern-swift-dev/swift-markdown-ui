@@ -1308,6 +1308,64 @@ private extension MarkdownEditingEngine {
     }
 }
 
+extension MarkdownEditingEngine {
+    /// Converts a paragraph whose typed marker was already removed into the shortcut's block.
+    ///
+    /// Returns nil where the shortcut does not apply, so the typed characters stay text:
+    /// list markers inside a list, or a task marker anywhere but the first paragraph of
+    /// an ordinary list item or outside lists.
+    static func apply(
+        _ shortcut: MarkdownTypingShortcut,
+        toParagraphAt path: MarkdownLogicalPath,
+        in document: MarkdownDocument
+    ) -> MarkdownEditingResult? {
+        let selection = MarkdownLogicalSelection(path: path)
+        let isInList = containingListPath(path) != nil
+        let result: MarkdownEditingResult
+        switch shortcut {
+            case let .heading(level):
+                result = apply(.convertBlock(.heading(level)), to: document, selection: selection)
+            case .blockquote:
+                // Not the quote command, which removes the quote around a quoted paragraph:
+                // a marker typed inside a quote nests another, as `> > ` does in Markdown.
+                var copy = document
+                updateBlock(at: path, in: &copy.blocks) { block in
+                    block = .blockquote([block])
+                }
+                result = MarkdownEditingResult(document: copy, selection: MarkdownLogicalSelection(path: .blockquote(parent: path, child: 0)))
+            case let .codeBlock(info):
+                result = apply(.convertBlock(.code(info: info)), to: document, selection: selection)
+            case .bulletList where !isInList:
+                result = apply(.convertList(.unordered), to: document, selection: selection)
+            case let .orderedList(start) where !isInList:
+                result = apply(.convertList(.ordered(start: start)), to: document, selection: selection)
+            case let .task(state) where !isInList:
+                result = apply(.convertList(.task), to: document, selection: selection)
+                if state == .checked {
+                    return apply(.toggleTask, to: result.document, selection: result.selection)
+                }
+            case let .task(state):
+                guard case let .listItemBlock(listPath, item, 0) = path else {
+                    return nil
+                }
+                var copy = document
+                _ = updateBlock(at: listPath, in: &copy.blocks) { block in
+                    guard case var .list(list) = block, list.items.indices.contains(item),
+                          list.items[item].taskState == nil else {
+                        return
+                    }
+                    list.items[item].taskState = state
+                    block = .list(list)
+                }
+                result = MarkdownEditingResult(document: copy, selection: selection)
+            case .bulletList,
+                 .orderedList:
+                return nil
+        }
+        return result.document == document ? nil : result
+    }
+}
+
 private extension String.Index {
     func encodedOffsetInCharacter(in text: String) -> String.Index {
         guard self != text.endIndex else {

@@ -43,3 +43,18 @@ Apply `markdownEditorIsEditable(false)` to show a document read-only. People can
 `MarkdownEditorTheme` belongs to this product. It is not `MarkdownUI.Theme` and does not require the renderer. Choose `.basic`, `.gitHub`, or `.docC`, or initialize a theme with native attributed-string attributes. On iOS, iPadOS, and Mac Catalyst the built-in themes follow Dynamic Type; a custom theme follows it only when initialized with `adjustsFontForContentSizeCategory: true`.
 
 The default toolbar includes bold, italic, strikethrough, inline code, paragraph styles, lists, links, images, and table commands. Its enabled and selected states follow the current selection. Commands return keyboard focus to the edited text or table cell so typing can continue after using a control.
+
+## Markdown shortcuts while typing
+
+Turn on `markdownEditorConvertsMarkdownShortcuts(_:)` to convert a paragraph when the user types a Markdown block marker at its start. It is off by default.
+
+| Typed | Becomes |
+|---|---|
+| `#` … `######` then space | Heading of that level |
+| `-`, `*` or `+` then space | Bulleted list item |
+| A number, then `.` or `)`, then space | Numbered list item starting at that number |
+| `[ ] ` / `[x] ` | Unchecked / checked task item |
+| `> ` | Block quote |
+| Three backticks, an optional info string, then Return | Code block with that info string |
+
+Undo right after a conversion restores the typed characters as text. Markers don't convert inside code blocks, while an input method is composing text, or, for list markers, inside a list.

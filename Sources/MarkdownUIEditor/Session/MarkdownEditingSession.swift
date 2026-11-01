@@ -88,6 +88,8 @@ import Foundation
         private var restoredSnapshotSinceUndoNotification = false
 
         var onCommandStateChange: (() -> Void)?
+        /// Whether typing a Markdown block marker at the start of a paragraph converts it.
+        var convertsMarkdownShortcuts = false
 
         private static let nonWhitespaceCharacters = CharacterSet.whitespacesAndNewlines.inverted
 
@@ -153,6 +155,10 @@ import Foundation
                 atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)
             ) else {
                 return true
+            }
+            if convertsMarkdownShortcuts, range.length == 0,
+               convertMarkdownShortcut(typing: replacement, at: range.location) {
+                return false
             }
             let unit: ProjectionUnit = if replacement == "\n",
                                           range.length == 0,
@@ -548,6 +554,66 @@ import Foundation
                 return false
             }
             applyStructuralReplacement(replacement, selection: MarkdownLogicalSelection(path: logical, utf16Offset: localLocation + 1))
+            return true
+        }
+
+        /// Converts a paragraph when the user completes a Markdown block marker at its start.
+        ///
+        /// The conversion is one undo step whose undo restores the typed characters as
+        /// text, so the user can keep a literal `# ` by undoing right away.
+        func convertMarkdownShortcut(typing typed: String, at location: Int) -> Bool {
+            guard let bridge, activeTableSelection == nil, !needsCompositionFlush, !bridge.markdownHasMarkedText,
+                  let unit = projection.index.unit(atProjectionUTF16Offset: location),
+                  location > unit.projectionRange.location,
+                  location < unit.projectionRange.upperBound,
+                  case .paragraph? = leafBlock(at: unit.path),
+                  let logical = logicalPath(for: unit.path) else {
+                return false
+            }
+            let storage = bridge.markdownTextStorage
+            let start = unit.projectionRange.location
+            let contentRange = NSRange(location: start, length: unit.projectionRange.length - 1)
+            let marker = storage.attributedSubstring(from: NSRange(location: start, length: location - start))
+            // Only an unstyled marker converts, so `**#**` or `` `-` `` stay text.
+            guard let shortcut = MarkdownTypingShortcut(marker: marker.string, typed: typed),
+                  MarkdownAttributedInlineDecoder.decode(marker) == [.text(marker.string)] else {
+                return false
+            }
+            let rest = storage.attributedSubstring(from: NSRange(location: location, length: NSMaxRange(contentRange) - location))
+            guard let stripped = replacingBlock(at: unit.path, with: .paragraph(MarkdownAttributedInlineDecoder.decode(rest))),
+                  let result = MarkdownEditingEngine.apply(shortcut, toParagraphAt: logical, in: stripped) else {
+                return false
+            }
+            // A code fence converts on Return, which is not part of the literal text.
+            let literal = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: contentRange))
+            var literalCaret = location
+            if typed != "\n" {
+                literal.insert(NSAttributedString(string: typed, attributes: bridge.markdownTypingAttributes), at: location - start)
+                literalCaret += typed.utf16.count
+            }
+            guard let literalDocument = replacingBlock(
+                at: unit.path,
+                with: .paragraph(MarkdownAttributedInlineDecoder.decode(literal))
+            ) else {
+                return false
+            }
+            let before = Snapshot(
+                document: literalDocument,
+                selectedRanges: [NSRange(location: literalCaret, length: 0)],
+                typingAttributes: bridge.markdownTypingAttributes,
+                tableSelection: nil
+            )
+            document = result.document
+            pendingNativeEdits = []
+            refreshProjection(selectedRanges: [projectionRange(for: result.selection) ?? NSRange(location: start, length: 0)])
+            publishDocumentChange()
+            let after = Snapshot(
+                document: document,
+                selectedRanges: bridge.markdownSelectedRanges,
+                typingAttributes: bridge.markdownTypingAttributes,
+                tableSelection: activeTableSelection
+            )
+            registerUndo(from: after, to: before)
             return true
         }
 

@@ -66,6 +66,15 @@
             }
         }
 
+        /// Whether typing a Markdown block marker at the start of a paragraph converts it,
+        /// such as `# ` to a heading or `- ` to a bulleted list. Off by default.
+        ///
+        /// Undo right after a conversion restores the typed characters as text.
+        public var convertsMarkdownShortcuts: Bool {
+            get { editingSession.convertsMarkdownShortcuts }
+            set { editingSession.convertsMarkdownShortcuts = newValue }
+        }
+
         /// Presents the SwiftUI editor's link dialog. ⌘K is handled only while it is set.
         var presentLinkEditor: (() -> Void)?
 

@@ -313,6 +313,39 @@
             XCTAssertNotNil(window.attachedSheet, "The Add or edit link dialog should be presented")
         }
 
+        func testMarkdownShortcutsModifierTurnsConversionOnAndOff() throws {
+            func editor(convertsShortcuts: Bool?) -> some View {
+                let editor = MarkdownEditor(document: .constant(MarkdownDocument(markdown: "text")))
+                return Group {
+                    if let convertsShortcuts {
+                        editor.markdownEditorConvertsMarkdownShortcuts(convertsShortcuts)
+                    } else {
+                        editor
+                    }
+                }
+            }
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+                styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            defer { window.contentView = nil }
+            let host = NSHostingView(rootView: editor(convertsShortcuts: nil))
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            XCTAssertFalse(try XCTUnwrap(findTextView(in: host)).convertsMarkdownShortcuts, "Off by default")
+
+            let configuredHost = NSHostingView(rootView: editor(convertsShortcuts: true))
+            window.contentView = configuredHost
+            configuredHost.layoutSubtreeIfNeeded()
+            let textView = try XCTUnwrap(findTextView(in: configuredHost))
+            XCTAssertTrue(textView.convertsMarkdownShortcuts)
+
+            configuredHost.rootView = editor(convertsShortcuts: false)
+            configuredHost.layoutSubtreeIfNeeded()
+            XCTAssertTrue(try XCTUnwrap(findTextView(in: configuredHost)) === textView)
+            XCTAssertFalse(textView.convertsMarkdownShortcuts)
+        }
+
         func testToolbarRestoresFocusAndPreservesCaretTypingStyle() {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             let window = NSWindow(

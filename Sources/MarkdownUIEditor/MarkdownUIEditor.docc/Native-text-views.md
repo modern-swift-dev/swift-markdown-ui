@@ -26,6 +26,8 @@ final class EditorDelegate: NSObject, MarkdownTextViewDelegate {
 }
 ```
 
+Set ``MarkdownTextView/convertsMarkdownShortcuts`` to convert a paragraph when the user types a Markdown block marker such as `# ` or `- ` at its start. It matches the SwiftUI editor's `markdownEditorConvertsMarkdownShortcuts(_:)` modifier and is off by default.
+
 Set ``MarkdownTextView/document`` when external state replaces the document. The editor rebuilds its rich projection and restores the closest valid selection. Ordinary typing takes a localized path and does not recreate unrelated attachments.
 
 Set `isEditable` to `false` to make the whole editor read-only, including table cells, task checkboxes, and editing commands. Selecting, copying, and opening links still work.

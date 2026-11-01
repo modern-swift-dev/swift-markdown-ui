@@ -13,6 +13,10 @@
         static let defaultValue = true
     }
 
+    private struct MarkdownEditorConvertsMarkdownShortcutsKey: EnvironmentKey {
+        static let defaultValue = false
+    }
+
     private struct MarkdownEditorImageProviderKey: EnvironmentKey {
         static let defaultValue: (any MarkdownEditorImageProvider)? = nil
     }
@@ -38,6 +42,12 @@
         var markdownEditorIsEditable: Bool {
             get { self[MarkdownEditorIsEditableKey.self] }
             set { self[MarkdownEditorIsEditableKey.self] = newValue }
+        }
+
+        /// Whether `MarkdownEditor` descendants convert Markdown block markers while typing.
+        var markdownEditorConvertsMarkdownShortcuts: Bool {
+            get { self[MarkdownEditorConvertsMarkdownShortcutsKey.self] }
+            set { self[MarkdownEditorConvertsMarkdownShortcutsKey.self] = newValue }
         }
 
         /// The image provider inherited by `MarkdownEditor` descendants.
@@ -69,6 +79,17 @@
         /// A read-only editor still lets people select and copy text and open links.
         func markdownEditorIsEditable(_ isEditable: Bool) -> some View {
             environment(\.markdownEditorIsEditable, isEditable)
+        }
+
+        /// Turns on or off converting Markdown block markers while typing in descendant editors.
+        ///
+        /// When on, typing a marker at the start of a paragraph converts it: `#` … `######`
+        /// then space to a heading, `-`, `*` or `+` then space to a bulleted list, a number
+        /// then `.` or `)` then space to a numbered list, `[ ] ` or `[x] ` to a task, `> ` to a
+        /// quote, and three backticks with an optional info string then Return to a code block.
+        /// Undo right after a conversion restores the typed characters. Off by default.
+        func markdownEditorConvertsMarkdownShortcuts(_ converts: Bool) -> some View {
+            environment(\.markdownEditorConvertsMarkdownShortcuts, converts)
         }
 
         /// Sets the URL image provider used by descendant Markdown editors.
