@@ -985,6 +985,17 @@ private enum MarkdownTableCellSourceCodec {
         return nil
     }
 
+    /// The width of a cell's widest line, including the padding TextKit lays out on both sides of each image view.
+    private func markdownTableCellTextWidth(_ text: NSAttributedString) -> CGFloat {
+        var imagePadding: CGFloat = 0
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if let image = value as? MarkdownImageAttachment {
+                imagePadding += 2 * image.lineLayoutPadding
+            }
+        }
+        return ceil(text.size().width + imagePadding)
+    }
+
     /// The image attachments in cell texts, which the cells' next projections take again.
     @MainActor private func markdownTableReusableImages(in texts: [NSAttributedString]) -> MarkdownProjectionBuilder.ReusableAttachments {
         let text = NSMutableAttributedString()
@@ -1454,7 +1465,7 @@ private enum MarkdownTableCellSourceCodec {
                 guard let field = fields[position] else {
                     return MarkdownTableColumnLayout.minimumColumnWidth
                 }
-                return ceil(field.attributedText.size().width) + field.textContainerInset.left + field.textContainerInset.right + 2
+                return markdownTableCellTextWidth(field.attributedText) + field.textContainerInset.left + field.textContainerInset.right + 2
             }
             let widths = cellLayout.widths
             for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
@@ -2049,7 +2060,7 @@ private enum MarkdownTableCellSourceCodec {
                 guard let field = fields[position] else {
                     return MarkdownTableColumnLayout.minimumColumnWidth
                 }
-                return ceil(field.attributedString().size().width) + 16
+                return markdownTableCellTextWidth(field.attributedString()) + 16
             }
             let widths = cellLayout.widths
             guard gridView.numberOfColumns == widths.count else {

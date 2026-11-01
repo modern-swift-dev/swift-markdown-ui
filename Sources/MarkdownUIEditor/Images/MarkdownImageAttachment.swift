@@ -173,6 +173,15 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         /// Native image views draw loaded images aspect-fit into this fixed size.
         static let imageViewSize = CGSize(width: 240, height: 160)
 
+        /// The image view's size in a line `lineWidth` wide: ``imageViewSize``, narrowed to the line
+        /// with the same 3:2 shape so it never overflows.
+        static func imageViewSize(fittingLineWidth lineWidth: CGFloat) -> CGSize {
+            guard lineWidth.isFinite, lineWidth > 0, lineWidth < imageViewSize.width else {
+                return imageViewSize
+            }
+            return CGSize(width: lineWidth, height: lineWidth * imageViewSize.height / imageViewSize.width)
+        }
+
         /// Current Markdown metadata for the attachment.
         public private(set) var metadata: MarkdownImageMetadata
         /// Original inline alt content, retained independently of its accessible text.
@@ -243,6 +252,17 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             }
             self.metadata = metadata
             onChange?(metadata)
+        }
+
+        /// Sizes the image view for the line it is laid out in. TextKit 2 asks for this too, and a table
+        /// measuring its cells' text asks for it with an unlimited line.
+        override public func attachmentBounds(
+            for textContainer: NSTextContainer?,
+            proposedLineFragment lineFrag: CGRect,
+            glyphPosition position: CGPoint,
+            characterIndex charIndex: Int
+        ) -> CGRect {
+            CGRect(origin: .zero, size: Self.imageViewSize(fittingLineWidth: lineFrag.width))
         }
 
         #if canImport(UIKit)
