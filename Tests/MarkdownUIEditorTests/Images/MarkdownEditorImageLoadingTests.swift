@@ -4,7 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import XCTest
 
-#if canImport(AppKit)
+#if os(macOS)
     import AppKit
 #elseif canImport(UIKit)
     import UIKit
@@ -409,7 +409,7 @@ import XCTest
                 // Neither native decoder keeps this image's proportions: UIImage(data:) ignores DPI, and
                 // NSImage(data:) measures 200×300 rotated pixels as 100×300 points. DPI describes the
                 // stored 300×200 axes, so the image is 150×200 points before its 90° rotation.
-                #if canImport(AppKit)
+                #if os(macOS)
                     XCTAssertEqual(decoded.size.width, 200, accuracy: 1, sample.name)
                     XCTAssertEqual(decoded.size.height, 150, accuracy: 1, sample.name)
                 #else
@@ -419,7 +419,7 @@ import XCTest
                 XCTAssertEqual(decoded.size.width, native.size.width, accuracy: 1, sample.name)
                 XCTAssertEqual(decoded.size.height, native.size.height, accuracy: 1, sample.name)
             }
-            #if canImport(AppKit)
+            #if os(macOS)
                 if sample.name == "GIF" {
                     // AppKit keeps native decoding so image views still animate every frame.
                     let representation = try XCTUnwrap(decoded.representations.first as? NSBitmapImageRep)
@@ -451,7 +451,7 @@ import XCTest
         let animated = try encodedImage(.gif, width: 300, height: 200, frames: 100)
         let photo = try encodedImage(.jpeg, width: 2000, height: 1000)
         let (gif, gifCost) = try MarkdownEditorImageLoader.decode(animated, maximumPixelSize: 100)
-        #if canImport(AppKit)
+        #if os(macOS)
             // Animated images stay natively decoded: the encoded data plus the frame being drawn.
             XCTAssertNotNil(gif.representations.first as? NSBitmapImageRep)
             XCTAssertEqual(gifCost, animated.count + 300 * 200 * 4)
@@ -461,7 +461,7 @@ import XCTest
             XCTAssertEqual(gifCost, gifBitmap.bytesPerRow * gifBitmap.height)
         #endif
         let (image, cost) = try MarkdownEditorImageLoader.decode(photo, maximumPixelSize: 100)
-        #if canImport(AppKit)
+        #if os(macOS)
             let bitmap = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
         #else
             let bitmap = try XCTUnwrap(image.cgImage)
@@ -520,7 +520,7 @@ import XCTest
         XCTAssertLessThanOrEqual(CGFloat(pixelSize), longestSide * 3)
     }
 
-    #if canImport(AppKit)
+    #if os(macOS)
         func testNativeViewDetachCancelsAndReattachRestarts() async throws {
             let provider = SuspendedNativeProvider()
             let attachment = MarkdownImageAttachment(metadata: .init(source: "https://example.com/image.png", altText: "image"), imageProvider: provider)
@@ -601,7 +601,7 @@ import XCTest
 }
 
 @MainActor private func nativeImage() -> MarkdownEditorPlatformImage {
-    #if canImport(AppKit)
+    #if os(macOS)
         NSImage(size: NSSize(width: 4, height: 4))
     #else
         UIImage()
@@ -628,7 +628,7 @@ private func encodedImage(
 }
 
 private func nativeImage(_ data: Data) -> MarkdownEditorPlatformImage? {
-    #if canImport(AppKit)
+    #if os(macOS)
         NSImage(data: data)
     #else
         UIImage(data: data)

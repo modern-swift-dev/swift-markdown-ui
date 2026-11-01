@@ -2,7 +2,7 @@ import Foundation
 @testable import MarkdownUIEditor
 import XCTest
 
-#if canImport(AppKit)
+#if os(macOS)
     import AppKit
     import SwiftUI
 #elseif canImport(UIKit)
@@ -112,7 +112,7 @@ import XCTest
 
     // MARK: - Helpers
 
-    #if canImport(AppKit)
+    #if os(macOS)
         private typealias PlatformView = NSView
     #elseif canImport(UIKit)
         private typealias PlatformView = UIView
@@ -147,7 +147,7 @@ import XCTest
 
     private func visibleAltText(in view: PlatformView) -> String? {
         for subview in view.subviews where !subview.isHidden {
-            #if canImport(AppKit)
+            #if os(macOS)
                 if let label = subview as? NSTextField {
                     return label.stringValue
                 }
@@ -189,7 +189,7 @@ private final class URLRecorder: @unchecked Sendable {
 
     func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
         requests.append(url.absoluteString)
-        #if canImport(AppKit)
+        #if os(macOS)
             return NSImage(size: NSSize(width: 4, height: 4))
         #else
             return UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { _ in }

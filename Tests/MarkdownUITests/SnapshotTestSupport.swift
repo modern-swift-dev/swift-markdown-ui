@@ -7,7 +7,9 @@ import Testing
 enum SnapshotTestSupport {
     #if os(iOS)
         static var supportsPhoneSnapshots: Bool {
-            ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.hasPrefix("iPad") != true
+            // Mac Catalyst uses the iPad idiom and has no host app to render phone snapshots in.
+            !ProcessInfo.processInfo.isMacCatalystApp
+                && ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.hasPrefix("iPad") != true
         }
     #endif
 

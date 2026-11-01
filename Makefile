@@ -38,8 +38,16 @@ test-macos:
 test-ios:
 	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk iphonesimulator$(SDK_VERSION) -destination "$(IOS_SIMULATOR)" 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
 
+# A Mac Catalyst test bundle has no host app, so UIKit can't create the windows these
+# editor test classes put an editor in. They run on iOS instead.
+CATALYST_SKIPPED_TESTS := MarkdownAtomicBlockEditingTests MarkdownCodeBlockEditingTests \
+	MarkdownEditorAppearanceTests MarkdownEditorListBindingTests MarkdownTableAttachmentTests \
+	MarkdownTextViewDynamicTypeTests MarkdownTextViewReadOnlyTests MarkdownTextViewSnapshotTests \
+	MarkdownTextViewTests
+
 test-maccatalyst:
-	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'platform=macOS,variant=Mac Catalyst' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'platform=macOS,variant=Mac Catalyst' \
+		$(foreach test,$(CATALYST_SKIPPED_TESTS),-skip-testing:MarkdownUIEditorTests/$(test)) 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
 
 build-macos:
 	set -o pipefail && xcodebuild build -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q

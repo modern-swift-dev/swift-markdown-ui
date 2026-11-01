@@ -2,7 +2,7 @@ import Foundation
 @testable import MarkdownUIEditor
 import XCTest
 
-#if canImport(AppKit)
+#if os(macOS)
     import AppKit
 #elseif canImport(UIKit)
     import UIKit
@@ -16,7 +16,7 @@ import XCTest
         XCTAssertEqual(payload.preferredText, "**bold**")
     }
 
-    #if canImport(AppKit)
+    #if os(macOS)
         func testMarkdownAndPlainTextRoundTrip() throws {
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("MarkdownEditorTests.\(UUID().uuidString)"))
             defer { pasteboard.clearContents() }

@@ -2,7 +2,7 @@ import Foundation
 @testable import MarkdownUIEditor
 import XCTest
 
-#if canImport(AppKit)
+#if os(macOS)
     import AppKit
 #elseif canImport(UIKit)
     import UIKit
@@ -70,7 +70,7 @@ import XCTest
         XCTAssertEqual(session.document, MarkdownDocument(markdown: "![\\*literal\\*](new.png \"New\")"))
     }
 
-    #if canImport(AppKit)
+    #if os(macOS)
         func testAppKitViewProviderConstructsAccessibleImageView() throws {
             let attachment = MarkdownImageAttachment(
                 metadata: MarkdownImageMetadata(source: "image.png", altText: "Diagram alt")

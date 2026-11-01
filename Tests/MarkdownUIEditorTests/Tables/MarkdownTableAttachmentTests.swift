@@ -2,7 +2,7 @@ import Foundation
 @testable import MarkdownUIEditor
 import XCTest
 
-#if canImport(AppKit)
+#if os(macOS)
     import AppKit
 
     private typealias PlatformView = NSView
@@ -379,7 +379,7 @@ import XCTest
         XCTAssertEqual(projections, 3)
         #if canImport(UIKit)
             let largerFont = UIFont.systemFont(ofSize: 40)
-        #elseif canImport(AppKit)
+        #elseif os(macOS)
             let largerFont = NSFont.systemFont(ofSize: 40)
         #endif
         let larger = MarkdownEditorTheme(
@@ -613,7 +613,7 @@ import XCTest
         XCTAssertEqual(loadedImageCount(in: editor), 1, "The blocked image keeps showing its alt text")
     }
 
-    #if canImport(AppKit)
+    #if os(macOS)
         func testStableCellEditsSkipAttachmentFittingUntilRowHeightChanges() throws {
             let attachment = MarkdownTableAttachment(table: sizingTable())
             let storage = NSTextContentStorage()
@@ -1474,7 +1474,7 @@ import XCTest
         return result
     }
 
-    #if canImport(AppKit)
+    #if os(macOS)
         private func makeGrid(for attachment: MarkdownTableAttachment) throws -> NSView {
             let provider = try XCTUnwrap(attachment.viewProvider(
                 for: nil,
@@ -1658,7 +1658,7 @@ import XCTest
 
     func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
         requests.append(url)
-        #if canImport(AppKit)
+        #if os(macOS)
             return NSImage(size: NSSize(width: 4, height: 4), flipped: false) { rect in
                 NSColor.systemBlue.setFill()
                 rect.fill()

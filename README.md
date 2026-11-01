@@ -343,6 +343,7 @@ supported platforms. To build the editor, use `make build-ios SCHEME=MarkdownUIE
 
 CI runs on pull requests and manual dispatch, using Xcode 27.0 and explicit 27.0
 SDKs. It builds both libraries on their supported platforms, runs the test suite
-on macOS, iOS, and Mac Catalyst, builds the Editor example app for iOS and macOS,
+on macOS, iOS, and Mac Catalyst (skipping the editor tests that need a window,
+which a Catalyst test bundle can't create), builds the Editor example app for iOS and macOS,
 builds and tests the Demo app, and runs formatting and lint checks. CI does not
 build the documentation.
