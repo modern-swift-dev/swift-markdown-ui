@@ -1681,6 +1681,47 @@ import XCTest
         XCTAssertEqual(session.document, original)
     }
 
+    func testPlainTextPasteSplitsParagraphsAtLeadingAndTrailingBlankLines() {
+        let original = MarkdownDocument(markdown: "xy")
+        let cases: [(pasted: String, expected: [MarkdownBlock])] = [
+            ("foo\n\n", [.paragraph([.text("xfoo")]), .paragraph([.text("y")])]),
+            ("\n\nfoo", [.paragraph([.text("x")]), .paragraph([.text("fooy")])]),
+            ("\n\nfoo\n\n", [.paragraph([.text("x")]), .paragraph([.text("foo")]), .paragraph([.text("y")])]),
+            ("\n\n", [.paragraph([.text("x")]), .paragraph([.text("y")])])
+        ]
+        for (pasted, expected) in cases {
+            let name = pasted.debugDescription
+            let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+            let session = MarkdownEditingSession(document: original)
+            session.attach(to: bridge)
+            session.selectionDidChange()
+
+            XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: pasted)), name)
+
+            let reloaded = MarkdownDocument(markdown: session.document.markdown)
+            XCTAssertEqual(reloaded.blocks, expected, name)
+            XCTAssertEqual(reloaded.markdown, session.document.markdown, name)
+            XCTAssertEqual(MarkdownEditingSession(document: reloaded).projection.string, bridge.markdownTextStorage.string, name)
+
+            bridge.undoManager?.undo()
+
+            XCTAssertEqual(session.document, original, name)
+        }
+    }
+
+    func testPlainTextPasteKeepsLeadingAndTrailingBlankLinesInsideACodeBlock() {
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "```\nab\n```"))
+        session.attach(to: bridge)
+        session.selectionDidChange()
+
+        XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: "\n\nx\n\n")))
+
+        let expected: [MarkdownBlock] = [.codeBlock(info: nil, content: "a\n\nx\n\nb\n")]
+        XCTAssertEqual(session.document.blocks, expected)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown).blocks, expected)
+    }
+
     func testPlainTextPasteKeepsBlankLinesInsideACodeBlock() {
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
         let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "```\nab\n```"))

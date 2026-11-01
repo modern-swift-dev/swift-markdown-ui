@@ -2000,7 +2000,9 @@ import Foundation
         /// one paragraph or is pasted into a code or HTML block, which keep raw text.
         ///
         /// Soft breaks would keep a blank line only until the document is saved and
-        /// parsed again, where it separates two paragraphs.
+        /// parsed again, where it separates two paragraphs. A blank line at the start or
+        /// end of the text is a boundary too, so it adds an empty paragraph there that the
+        /// text before or after the paste fills.
         func plainTextParagraphs(_ text: String, at location: Int) -> MarkdownDocument? {
             switch projection.index.unit(atProjectionUTF16Offset: location)?.kind {
                 case .codeBlock,
@@ -2009,7 +2011,19 @@ import Foundation
                 default:
                     break
             }
-            let paragraphs = Self.plainTextBlocks(text)
+            var paragraphs = Self.plainTextBlocks(text)
+            let lines = text.components(separatedBy: "\n")
+            let isBlank = { (line: String) in line.trimmingCharacters(in: .whitespaces).isEmpty }
+            // The text before the first newline and after the last joins the text around
+            // the caret, so a blank line needs a newline on each side: `foo\n` has none.
+            let leadingLines = lines.firstIndex { !isBlank($0) } ?? lines.count - 1
+            let trailingLines = lines.count - 1 - (lines.lastIndex { !isBlank($0) } ?? 0)
+            if leadingLines >= 2 {
+                paragraphs.insert(.paragraph([]), at: 0)
+            }
+            if trailingLines >= 2 {
+                paragraphs.append(.paragraph([]))
+            }
             guard paragraphs.count > 1 else {
                 return nil
             }
