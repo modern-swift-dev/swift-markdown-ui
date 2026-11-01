@@ -20,7 +20,7 @@ struct HeadingView: View {
                 content: .init(configurationBlock: .heading(level: self.level, content: self.content))
             )
         )
-        .id(self.identifier ?? HeadingSlugger.slug(self.content.renderPlainText()))
+        .id(self.identifier ?? HeadingSlugger.slug(self.content.renderHeadingText()))
         .accessibilityAddTraits(.isHeader)
         .accessibilityHeading(AccessibilityHeadingLevel(markdownLevel: self.level))
     }

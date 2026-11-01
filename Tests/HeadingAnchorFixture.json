@@ -1,0 +1,16 @@
+[
+  {"name": "Superscript HTML", "markdown": "## Foo <sup>1</sup>", "expected": ["foo-1"]},
+  {"name": "HTML comment", "markdown": "## A <!-- c --> B", "expected": ["a--b"]},
+  {"name": "Leading image", "markdown": "## ![logo](x.png) Title", "expected": ["-title"]},
+  {"name": "Trailing image", "markdown": "## Title ![logo](x.png)", "expected": ["title-"]},
+  {"name": "Middle image", "markdown": "## Mid ![logo](x.png) dle", "expected": ["mid--dle"]},
+  {"name": "Code, bold HTML and link", "markdown": "## `code` <b>bold</b> [link](u)", "expected": ["code-bold-link"]},
+  {"name": "HTML attributes", "markdown": "## Hello <span title=\"x\">world</span>", "expected": ["hello-world"]},
+  {"name": "Line break HTML", "markdown": "## Pre<br>Post", "expected": ["prepost"]},
+  {"name": "Raw image HTML", "markdown": "## <img src=\"x.png\" alt=\"raw\"> Raw img", "expected": ["-raw-img"]},
+  {
+    "name": "Empty headings in one document",
+    "markdown": "## ![a](x.png)\n\n## ![b](x.png)\n\n## !!!\n\n## <br>\n\n#\n\n## Real\n\n## -1",
+    "expected": ["", "-1", "-2", "-3", "-4", "real", "-1-1"]
+  }
+]

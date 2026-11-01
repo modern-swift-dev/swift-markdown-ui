@@ -13,7 +13,7 @@ struct HeadingIdentifiers {
             guard case let .heading(level, content, _) = block else {
                 return [block]
             }
-            let identifier = slugger.identifier(for: content.renderPlainText())
+            let identifier = slugger.identifier(for: content.renderHeadingText())
             identifiers.append(identifier)
             return [.heading(level: level, content: content, identifier: identifier)]
         }

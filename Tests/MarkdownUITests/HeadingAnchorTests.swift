@@ -10,6 +10,13 @@ import XCTest
         }
     }
 
+    func testHeadingIdentifiersMatchGitHubForHeadingsWithHTMLAndImages() throws {
+        for entry in try HeadingAnchorFixture.load() {
+            let headings = HeadingIdentifiers(MarkdownContent(entry.markdown).blocks)
+            XCTAssertEqual(headings.identifiers, entry.expected, entry.name)
+        }
+    }
+
     func testDuplicateHeadingsGetNumberedIdentifiersInDocumentOrder() {
         let content = MarkdownContent(
             """
@@ -48,6 +55,23 @@ enum HeadingIdentifierCorpus {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("HeadingIdentifierCorpus.json")
+        return try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url))
+    }
+}
+
+/// Reads the heading documents shared with the editor tests, with the anchors GitHub gives their headings.
+enum HeadingAnchorFixture {
+    struct Entry: Decodable {
+        let name: String
+        let markdown: String
+        let expected: [String]
+    }
+
+    static func load() throws -> [Entry] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HeadingAnchorFixture.json")
         return try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url))
     }
 }

@@ -10,6 +10,19 @@ import XCTest
         }
     }
 
+    func testHeadingIdentifiersMatchGitHubForHeadingsWithHTMLAndImages() throws {
+        for entry in try HeadingAnchorFixture.load() {
+            var slugger = HeadingSlugger()
+            let identifiers = MarkdownDocument(markdown: entry.markdown).blocks.compactMap { block -> String? in
+                guard case let .heading(_, content) = block else {
+                    return nil
+                }
+                return slugger.identifier(for: HeadingSlugger.plainText(content))
+            }
+            XCTAssertEqual(identifiers, entry.expected, entry.name)
+        }
+    }
+
     func testFragmentLinksFindDuplicateAndNestedHeadingsInDocumentOrder() {
         let session = MarkdownEditingSession(document: MarkdownDocument(markdown: """
         # Hello, World!
@@ -66,6 +79,24 @@ enum HeadingIdentifierCorpus {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("HeadingIdentifierCorpus.json")
+        return try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url))
+    }
+}
+
+/// Reads the heading documents shared with the renderer tests, with the anchors GitHub gives their headings.
+enum HeadingAnchorFixture {
+    struct Entry: Decodable {
+        let name: String
+        let markdown: String
+        let expected: [String]
+    }
+
+    static func load() throws -> [Entry] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HeadingAnchorFixture.json")
         return try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url))
     }
 }

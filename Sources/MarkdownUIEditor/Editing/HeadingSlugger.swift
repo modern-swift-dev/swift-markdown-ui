@@ -35,20 +35,21 @@ struct HeadingSlugger {
         return String(result)
     }
 
-    /// The heading text an identifier is generated from, matching `MarkdownUI`'s plain-text rendering.
+    /// The heading text an identifier is generated from, matching `MarkdownUI`'s heading text:
+    /// raw HTML and images add nothing, as on GitHub.
     static func plainText(_ inlines: [MarkdownInline]) -> String {
         inlines.map { inline in
             switch inline {
                 case let .text(text),
-                     let .code(text),
-                     let .html(text): text
+                     let .code(text): text
                 case .softBreak: " "
                 case .lineBreak: "\n"
+                case .html,
+                     .image: ""
                 case let .emphasis(children),
                      let .strong(children),
                      let .strikethrough(children),
-                     let .link(_, _, children),
-                     let .image(_, _, children): plainText(children)
+                     let .link(_, _, children): plainText(children)
             }
         }.joined()
     }
