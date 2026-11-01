@@ -100,12 +100,29 @@
                     layer?.addSublayer(checkbox)
                     taskCheckboxLayers.append(checkbox)
                 }
-                taskCheckboxLayers[count].update(textRect: textRect, checked: checked.boolValue, color: NSColor.labelColor.cgColor, theme: editorTheme)
+                taskCheckboxLayers[count].update(textRect: textRect, checked: checked.boolValue, color: taskCheckboxColor, theme: editorTheme)
                 count += 1
             }
             while taskCheckboxLayers.count > count {
                 taskCheckboxLayers.removeLast().removeFromSuperlayer()
             }
+        }
+
+        override public func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            let color = taskCheckboxColor
+            for checkbox in taskCheckboxLayers {
+                checkbox.strokeColor = color
+            }
+        }
+
+        /// The label color in this view's appearance, which layers can't resolve themselves.
+        private var taskCheckboxColor: CGColor {
+            var color = NSColor.labelColor.cgColor
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                color = NSColor.labelColor.cgColor
+            }
+            return color
         }
 
         /// Applies a structural Markdown editing command to the current selection.

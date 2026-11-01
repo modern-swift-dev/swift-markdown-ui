@@ -18,6 +18,25 @@ import XCTest
         XCTAssertNotEqual(gitHub, docC)
     }
 
+    func testGitHubAndDocCHeadingAndLinkColorsAdaptToDarkMode() throws {
+        let colors: [(name: String, color: PlatformColor?)] = [
+            ("GitHub heading", MarkdownEditorTheme.gitHub.headingAttributes[.one]?[.foregroundColor] as? PlatformColor),
+            ("GitHub link", MarkdownEditorTheme.gitHub.linkAttributes[.foregroundColor] as? PlatformColor),
+            ("DocC heading", MarkdownEditorTheme.docC.headingAttributes[.one]?[.foregroundColor] as? PlatformColor),
+            ("DocC link", MarkdownEditorTheme.docC.linkAttributes[.foregroundColor] as? PlatformColor)
+        ]
+        for (name, color) in colors {
+            let color = try XCTUnwrap(color, name)
+            let light = try XCTUnwrap(sRGBComponents(of: color, dark: false), name)
+            let dark = try XCTUnwrap(sRGBComponents(of: color, dark: true), name)
+            let lightBackground = try XCTUnwrap(sRGBComponents(of: defaultBackgroundColor, dark: false))
+            let darkBackground = try XCTUnwrap(sRGBComponents(of: defaultBackgroundColor, dark: true))
+            XCTAssertGreaterThanOrEqual(contrastRatio(light, lightBackground), 4.5, "\(name) in light mode")
+            XCTAssertGreaterThanOrEqual(contrastRatio(dark, darkBackground), 4.5, "\(name) in dark mode")
+            XCTAssertNotEqual(light, dark, "\(name) resolves differently in light and dark mode")
+        }
+    }
+
     func testProjectionAppliesHeadingCodeAndLinkRoles() {
         let theme = MarkdownEditorTheme.docC
         let projection = MarkdownProjectionBuilder().build(
@@ -46,6 +65,41 @@ import XCTest
         )
     }
 }
+
+/// The WCAG 2 contrast ratio between two sRGB colors.
+private func contrastRatio(_ first: [CGFloat], _ second: [CGFloat]) -> CGFloat {
+    func luminance(_ components: [CGFloat]) -> CGFloat {
+        let linear = components.prefix(3).map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    }
+    let (lighter, darker) = (max(luminance(first), luminance(second)), min(luminance(first), luminance(second)))
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+#if canImport(UIKit)
+    /// The background a `UITextView`-based editor draws behind its text.
+    @MainActor private let defaultBackgroundColor = UIColor.systemBackground
+
+    private func sRGBComponents(of color: UIColor, dark: Bool) -> [CGFloat]? {
+        let resolved = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light))
+        let sRGB = CGColorSpace(name: CGColorSpace.sRGB)
+        return sRGB.flatMap { resolved.cgColor.converted(to: $0, intent: .defaultIntent, options: nil)?.components }
+    }
+#elseif canImport(AppKit)
+    /// The background an `NSTextView`-based editor draws behind its text.
+    @MainActor private let defaultBackgroundColor = NSColor.textBackgroundColor
+
+    private func sRGBComponents(of color: NSColor, dark: Bool) -> [CGFloat]? {
+        var components: [CGFloat]?
+        NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            guard let sRGB = color.usingColorSpace(.sRGB) else {
+                return
+            }
+            components = [sRGB.redComponent, sRGB.greenComponent, sRGB.blueComponent]
+        }
+        return components
+    }
+#endif
 
 #if canImport(UIKit)
     private typealias PlatformColor = UIColor

@@ -92,6 +92,9 @@ private extension MarkdownEditorTheme {
     }
 }
 
+/// sRGB components of a fixed theme color, each between 0 and 1.
+private typealias RGB = (red: CGFloat, green: CGFloat, blue: CGFloat)
+
 #if canImport(UIKit)
     private typealias PlatformColor = UIColor
 
@@ -108,16 +111,19 @@ private extension MarkdownEditorTheme {
             .link
         }
 
-        static var gitHubLinkColor: UIColor {
-            UIColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
-        }
+        /// Created once: dynamic colors compare by identity, and equivalent themes must compare equal.
+        static let gitHubLinkColor = color(light: (0.03, 0.35, 0.73), dark: (0.27, 0.58, 0.97))
 
-        static var docCHeadingColor: UIColor {
-            UIColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
-        }
+        static let docCHeadingColor = color(light: (0.22, 0.25, 0.31), dark: (0.87, 0.89, 0.93))
 
-        static var docCLinkColor: UIColor {
-            UIColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
+        static let docCLinkColor = color(light: (0.34, 0.20, 0.78), dark: (0.68, 0.58, 1.0))
+
+        /// A color that resolves to `dark` in dark mode.
+        static func color(light: RGB, dark: RGB) -> UIColor {
+            UIColor { traits in
+                let rgb = traits.userInterfaceStyle == .dark ? dark : light
+                return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+            }
         }
 
         static func preferredBodyFont() -> UIFont {
@@ -148,16 +154,19 @@ private extension MarkdownEditorTheme {
             .linkColor
         }
 
-        static var gitHubLinkColor: NSColor {
-            NSColor(red: 0.03, green: 0.35, blue: 0.73, alpha: 1)
-        }
+        /// Created once: dynamic colors compare by identity, and equivalent themes must compare equal.
+        static let gitHubLinkColor = color(light: (0.03, 0.35, 0.73), dark: (0.27, 0.58, 0.97))
 
-        static var docCHeadingColor: NSColor {
-            NSColor(red: 0.22, green: 0.25, blue: 0.31, alpha: 1)
-        }
+        static let docCHeadingColor = color(light: (0.22, 0.25, 0.31), dark: (0.87, 0.89, 0.93))
 
-        static var docCLinkColor: NSColor {
-            NSColor(red: 0.34, green: 0.20, blue: 0.78, alpha: 1)
+        static let docCLinkColor = color(light: (0.34, 0.20, 0.78), dark: (0.68, 0.58, 1.0))
+
+        /// A color that resolves to `dark` in dark appearances.
+        static func color(light: RGB, dark: RGB) -> NSColor {
+            NSColor(name: nil) { appearance in
+                let rgb = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+                return NSColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+            }
         }
 
         static func preferredBodyFont() -> NSFont {

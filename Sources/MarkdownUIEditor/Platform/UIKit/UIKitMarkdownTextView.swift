@@ -398,6 +398,10 @@
             )
             editingSession.attach(to: self)
             hasAttachedEditingSession = true
+            // Layers keep a resolved color, so checkboxes recolor as soon as the appearance changes.
+            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: MarkdownTextView, _) in
+                view.placeTaskCheckboxes()
+            }
         }
 
         func configureNativeEditing() {

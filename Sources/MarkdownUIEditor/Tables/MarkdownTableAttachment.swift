@@ -1209,7 +1209,7 @@ private enum MarkdownTableCellSourceCodec {
             let field = MarkdownTableCellTextView(position: position)
             configureText(of: field)
             field.delegate = self
-            field.layer.borderColor = UIColor.opaqueSeparator.cgColor
+            field.updateBorderColor()
             field.layer.borderWidth = 1 / UIScreen.main.scale
             field.backgroundColor = position.section == .header ? .secondarySystemBackground : .systemBackground
             field.isScrollEnabled = false
@@ -1392,6 +1392,14 @@ private enum MarkdownTableCellSourceCodec {
         init(position: MarkdownTableCellPosition) {
             self.position = position
             super.init(frame: .zero, textContainer: nil)
+            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (field: MarkdownTableCellTextView, _) in
+                field.updateBorderColor()
+            }
+        }
+
+        /// Resolves the border with this view's traits, since layers keep a fixed color.
+        func updateBorderColor() {
+            layer.borderColor = UIColor.opaqueSeparator.resolvedColor(with: traitCollection).cgColor
         }
 
         required init?(coder: NSCoder) {
@@ -1761,7 +1769,7 @@ private enum MarkdownTableCellSourceCodec {
             field.textContainer?.lineFragmentPadding = 0
             field.textContainer?.widthTracksTextView = true
             field.wantsLayer = true
-            field.layer?.borderColor = NSColor.gridColor.cgColor
+            field.updateBorderColor()
             field.layer?.borderWidth = 0.5
             field.setAccessibilityLabel(markdownTableAccessibilityLabel(for: position))
             field.widthConstraint.isActive = true
@@ -1900,6 +1908,18 @@ private enum MarkdownTableCellSourceCodec {
 
         required init?(coder: NSCoder) {
             nil
+        }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            updateBorderColor()
+        }
+
+        /// Resolves the border in this view's appearance, since layers keep a fixed color.
+        func updateBorderColor() {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.borderColor = NSColor.gridColor.cgColor
+            }
         }
 
         override func menu(for event: NSEvent) -> NSMenu? {
