@@ -146,11 +146,7 @@ import Foundation
             guard NSMaxRange(range) <= unit.projectionRange.upperBound else {
                 return !replaceProjectedRange(range, with: attributedInsertion(replacement))
             }
-            if unit.kind == .table,
-               !replacement.isEmpty,
-               range.length == 0,
-               range.location == unit.projectionRange.upperBound,
-               handleInsertionAfterTable(replacement, at: unit.path) {
+            if handleAtomicBlockEdit(in: range, with: replacement, startingIn: unit) {
                 return false
             }
             if replacement == "\n", unit.kind != .codeBlock, handleReturn(in: unit, replacing: range) {
@@ -1510,6 +1506,16 @@ import Foundation
             _ replacement: MarkdownDocument,
             selection: MarkdownLogicalSelection
         ) {
+            applyStructuralReplacement(replacement) { [self] in
+                projectionRange(for: selection) ?? NSRange(location: 0, length: 0)
+            }
+        }
+
+        /// Applies a structural edit, resolving the selection against the refreshed projection.
+        func applyStructuralReplacement(
+            _ replacement: MarkdownDocument,
+            selectedRange: () -> NSRange
+        ) {
             guard let bridge else {
                 return
             }
@@ -1521,7 +1527,7 @@ import Foundation
             )
             document = replacement
             pendingNativeEdits = []
-            refreshProjection(selectedRanges: [projectionRange(for: selection) ?? NSRange(location: 0, length: 0)])
+            refreshProjection(selectedRanges: [selectedRange()])
             publishDocumentChange()
             let after = Snapshot(
                 document: document,
@@ -1532,28 +1538,59 @@ import Foundation
             registerUndo(from: after, to: before)
         }
 
-        func handleInsertionAfterTable(_ insertion: String, at path: EditorNodePath) -> Bool {
-            guard path.components.count == 1,
-                  case let .block(blockIndex) = path.components[0],
-                  blockIndex == document.blocks.indices.last else {
+        /// Applies the atomic-block rule to an edit that starts in `unit` and ends within it.
+        ///
+        /// Tables, horizontal rules and HTML blocks are atomic: an edit removes the whole
+        /// block or leaves it unchanged, and their text is never decoded as inline content.
+        /// Only an edit strictly inside an HTML block's text changes it, as HTML text.
+        /// Returns whether the edit was handled, so the platform must not apply it.
+        func handleAtomicBlockEdit(in range: NSRange, with replacement: String, startingIn unit: ProjectionUnit) -> Bool {
+            let contentEnd = unit.projectionRange.upperBound - 1
+            // Text typed after an atomic block, or at the end of a document ending with one, starts a paragraph.
+            if unit.kind.isAtomic, range.length == 0, !replacement.isEmpty,
+               range.location == projection.index.projectionUTF16Length
+               || (unit.kind != .htmlBlock && range.location == contentEnd) {
+                return insertParagraph(replacement, after: unit)
+            }
+            // Deleting the line break next to an atomic block selects the block, so a second press removes it.
+            if replacement.isEmpty, range.length == 1, range.location == contentEnd,
+               let next = projection.index.unit(after: unit.path),
+               unit.kind.isAtomic || next.kind.isAtomic, let bridge {
+                let deletesForward = bridge.markdownSelectedRanges == [NSRange(location: range.location, length: 0)]
+                let (toward, away) = deletesForward ? (next, unit) : (unit, next)
+                let block = toward.kind.isAtomic ? toward : away
+                bridge.markdownSelectedRanges = [
+                    NSRange(location: block.projectionRange.location, length: block.projectionRange.length - 1)
+                ]
+                return true
+            }
+            guard unit.kind.isAtomic else {
                 return false
             }
-            let content: [MarkdownInline]
-            let caretOffset: Int
-            if insertion == "\n" {
-                content = []
-                caretOffset = 0
-            } else {
-                content = [.text(insertion)]
-                caretOffset = insertion.utf16.count
+            if covers(range, unit) {
+                replaceProjectedRange(range, with: attributedInsertion(replacement))
+                return true
             }
-            var replacement = document
-            replacement.blocks.append(.paragraph(content))
+            return unit.kind != .htmlBlock
+        }
+
+        /// Whether a range includes all of a leaf's content, so an edit replaces the leaf as a whole.
+        func covers(_ range: NSRange, _ unit: ProjectionUnit) -> Bool {
+            range.location <= unit.projectionRange.location
+                && NSMaxRange(range) >= unit.projectionRange.upperBound - 1
+        }
+
+        /// Inserts a paragraph holding typed text, or an empty one for Return, after a leaf.
+        func insertParagraph(_ insertion: String, after unit: ProjectionUnit) -> Bool {
+            guard let block = leafBlock(at: unit.path), let logical = logicalPath(for: unit.path) else {
+                return false
+            }
+            let content: [MarkdownInline] = insertion == "\n" ? [] : [.text(insertion)]
             applyStructuralReplacement(
-                replacement,
+                rewritingDocument([unit.path: [block, .paragraph(content)]]),
                 selection: MarkdownLogicalSelection(
-                    path: .block(blockIndex + 1),
-                    utf16Offset: caretOffset
+                    path: siblingPath(logical, offset: 1),
+                    utf16Offset: plainTextLength(content)
                 )
             )
             return true
@@ -2308,7 +2345,12 @@ import Foundation
 
         /// Replaces a projected selection without guessing a single leaf from the resulting caret.
         @discardableResult func replaceProjectedRange(_ range: NSRange, with insertion: NSAttributedString) -> Bool {
-            let units = replacementUnits(in: range)
+            // Atomic blocks the range covers are replaced; the others stay unchanged.
+            let touchedUnits = replacementUnits(in: range)
+            let units = touchedUnits.filter { !$0.kind.isAtomic || covers(range, $0) }
+            if units.isEmpty, !touchedUnits.isEmpty {
+                return true
+            }
             guard let bridge, let first = units.first,
                   let last = units.last, let firstBlock = leafBlock(at: first.path) else {
                 return false
@@ -2335,6 +2377,16 @@ import Foundation
                     return false
                 }
                 applyStructuralReplacement(rewritingDocument(replacements), selection: MarkdownLogicalSelection(path: siblingPath(logical, offset: 1)))
+                return true
+            }
+            if joined.length == 0, first.kind.isAtomic, last.kind.isAtomic {
+                // Deleting only atomic blocks removes them without leaving an empty paragraph.
+                let caret = projection.index.unit(after: last.path) == nil
+                    ? max(0, first.projectionRange.location - 1)
+                    : first.projectionRange.location
+                applyStructuralReplacement(rewritingDocument(Dictionary(uniqueKeysWithValues: units.map { ($0.path, []) }))) {
+                    NSRange(location: caret, length: 0)
+                }
                 return true
             }
             let content = MarkdownAttributedInlineDecoder.decode(joined)
@@ -2412,6 +2464,20 @@ import Foundation
             publishDocumentChange()
             registerUndo(from: Snapshot(document: document, selectedRanges: bridge.markdownSelectedRanges, typingAttributes: bridge.markdownTypingAttributes), to: before)
             return true
+        }
+    }
+
+    private extension ProjectionUnit.Kind {
+        /// Tables, horizontal rules and HTML blocks: an edit removes the whole block or leaves it unchanged.
+        var isAtomic: Bool {
+            switch self {
+                case .table,
+                     .thematicBreak,
+                     .htmlBlock: true
+                case .paragraph,
+                     .heading,
+                     .codeBlock: false
+            }
         }
     }
 #endif
