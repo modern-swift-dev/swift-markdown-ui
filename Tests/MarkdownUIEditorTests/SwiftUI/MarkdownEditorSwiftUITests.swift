@@ -352,6 +352,37 @@
             XCTAssertFalse(textView.convertsMarkdownShortcuts)
         }
 
+        func testHostedToolbarControlsHaveDescriptiveAccessibilityLabels() async throws {
+            var document = MarkdownDocument(markdown: "hello")
+            let hostingView = NSHostingView(rootView:
+                MarkdownEditor(document: Binding(get: { document }, set: { document = $0 }))
+                    .markdownEditorShowsFormattingToolbar(true)
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 300),
+                styleMask: [.titled], backing: .buffered, defer: false
+            )
+            // SwiftUI creates its accessibility nodes lazily until assistive access is enabled.
+            _ = NSApplication.shared.perform(
+                NSSelectorFromString("accessibilitySetValue:forAttribute:"),
+                with: NSNumber(value: true),
+                with: "AXEnhancedUserInterface"
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            hostingView.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(150))
+
+            for label in ["Bold", "Italic", "Strikethrough", "Inline code"] {
+                XCTAssertNotNil(findAccessibilityElement(labeled: label, in: hostingView), label)
+            }
+            // AppKit names menu buttons by their title rather than their label.
+            for title in ["Paragraph style", "Lists", "Table", "Links and images"] {
+                XCTAssertNotNil(findAccessibilityElement(labeled: title, in: hostingView, attribute: "accessibilityTitle"), title)
+            }
+        }
+
         func testToolbarRestoresFocusAndPreservesCaretTypingStyle() {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             let window = NSWindow(
@@ -380,18 +411,20 @@
             return view.subviews.lazy.compactMap { self.findTextView(in: $0) }.first
         }
 
-        private func findAccessibilityElement(labeled label: String, in object: Any) -> NSObject? {
+        private func findAccessibilityElement(labeled label: String, in object: Any, attribute: String = "accessibilityLabel") -> NSObject? {
             guard let element = object as? NSObject else {
                 return nil
             }
-            let labelSelector = NSSelectorFromString("accessibilityLabel")
-            if element.responds(to: labelSelector),
-               element.perform(labelSelector)?.takeUnretainedValue() as? String == label {
-                return element
+            let labelSelector = NSSelectorFromString(attribute)
+            if element.responds(to: labelSelector) {
+                let value = element.perform(labelSelector)?.takeUnretainedValue()
+                if (value as? String ?? (value as? NSAttributedString)?.string) == label {
+                    return element
+                }
             }
             if let view = element as? NSView {
                 for child in view.subviews {
-                    if let match = findAccessibilityElement(labeled: label, in: child) {
+                    if let match = findAccessibilityElement(labeled: label, in: child, attribute: attribute) {
                         return match
                     }
                 }
@@ -402,7 +435,7 @@
                 return nil
             }
             for child in children {
-                if let match = findAccessibilityElement(labeled: label, in: child) {
+                if let match = findAccessibilityElement(labeled: label, in: child, attribute: attribute) {
                     return match
                 }
             }

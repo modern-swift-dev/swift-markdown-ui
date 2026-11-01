@@ -22,5 +22,13 @@ struct HeadingView: View {
         )
         .id(self.identifier ?? HeadingSlugger.slug(self.content.renderPlainText()))
         .accessibilityAddTraits(.isHeader)
+        .accessibilityHeading(AccessibilityHeadingLevel(markdownLevel: self.level))
+    }
+}
+
+extension AccessibilityHeadingLevel {
+    /// The heading level that assistive technologies use to navigate a Markdown heading of `level` 1–6.
+    init(markdownLevel level: Int) {
+        self = AccessibilityHeadingLevel(rawValue: UInt(clamping: level)) ?? .unspecified
     }
 }

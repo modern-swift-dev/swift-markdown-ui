@@ -94,6 +94,8 @@
         /// Forwards AppKit delegate callbacks to the editing session.
         private lazy var coordinator = Coordinator(owner: self)
         private lazy var taskCheckboxLayers: [MarkdownTaskCheckboxLayer] = []
+        /// Exposes each drawn checkbox to assistive technologies.
+        private lazy var taskCheckboxElements: [MarkdownTaskCheckboxAccessibilityElement] = []
 
         override public func layout() {
             super.layout()
@@ -125,12 +127,15 @@
                     let checkbox = MarkdownTaskCheckboxLayer()
                     layer?.addSublayer(checkbox)
                     taskCheckboxLayers.append(checkbox)
+                    taskCheckboxElements.append(MarkdownTaskCheckboxAccessibilityElement(textView: self))
                 }
                 taskCheckboxLayers[count].update(textRect: textRect, checked: checked.boolValue, color: taskCheckboxColor, theme: editorTheme)
+                taskCheckboxElements[count].update(offset: offset, checked: checked.boolValue, frame: taskCheckboxLayers[count].frame)
                 count += 1
             }
             while taskCheckboxLayers.count > count {
                 taskCheckboxLayers.removeLast().removeFromSuperlayer()
+                taskCheckboxElements.removeLast()
             }
         }
 
@@ -149,6 +154,10 @@
                 color = NSColor.labelColor.cgColor
             }
             return color
+        }
+
+        override public func accessibilityChildren() -> [Any]? {
+            (super.accessibilityChildren() ?? []) + taskCheckboxElements
         }
 
         /// Applies a structural Markdown editing command to the current selection.
@@ -398,6 +407,34 @@
             coordinator.observeUndoManager()
             hasAttachedEditingSession = true
             editingSession.attach(to: self)
+        }
+    }
+
+    /// Exposes one drawn task checkbox as a checkbox that toggles its task.
+    @MainActor final class MarkdownTaskCheckboxAccessibilityElement: NSAccessibilityElement {
+        private weak var textView: MarkdownTextView?
+        /// The projected offset of the task item's first leaf.
+        private var offset = 0
+
+        init(textView: MarkdownTextView) {
+            self.textView = textView
+            super.init()
+            setAccessibilityRole(.checkBox)
+            setAccessibilityParent(textView)
+        }
+
+        func update(offset: Int, checked: Bool, frame: CGRect) {
+            self.offset = offset
+            setAccessibilityValue(NSNumber(value: checked))
+            setAccessibilityFrameInParentSpace(frame)
+        }
+
+        override func accessibilityLabel() -> String? {
+            textView?.editingSession.taskCheckboxLabel(atProjectionUTF16Offset: offset)
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            textView?.editingSession.toggleTask(atProjectionUTF16Offset: offset) ?? false
         }
     }
 

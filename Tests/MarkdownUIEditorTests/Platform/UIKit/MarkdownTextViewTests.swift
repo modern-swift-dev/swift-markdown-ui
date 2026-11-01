@@ -57,6 +57,37 @@
             }
         }
 
+        func testTaskCheckboxesAreAccessibleButtonsThatToggle() {
+            let editor = makeTextView()
+            editor.document = MarkdownDocument(markdown: "- [ ] Buy milk\n- [x] Walk dog")
+            editor.layoutIfNeeded()
+
+            func checkboxes() -> [UIView] {
+                editor.subviews.filter { $0.isAccessibilityElement && $0.accessibilityTraits.contains(.button) }
+                    .sorted { $0.frame.minY < $1.frame.minY }
+            }
+            let initial = checkboxes()
+            guard initial.count == 2 else {
+                return XCTFail("Expected two checkboxes, found \(initial.count)")
+            }
+            XCTAssertEqual(initial.map(\.accessibilityLabel), ["Buy milk", "Walk dog"])
+            XCTAssertEqual(initial.map(\.accessibilityValue), ["Unchecked", "Checked"])
+            XCTAssertTrue(initial.allSatisfy { !$0.frame.isEmpty && !$0.isUserInteractionEnabled })
+
+            XCTAssertTrue(initial[0].accessibilityActivate())
+            XCTAssertEqual(editor.document.markdown, "  - [x] Buy milk\n  - [x] Walk dog\n")
+            editor.layoutIfNeeded()
+            XCTAssertEqual(checkboxes().map(\.accessibilityValue), ["Checked", "Checked"])
+        }
+
+        func testInputBarButtonsHaveDescriptiveAccessibilityLabels() {
+            let editor = makeTextView()
+
+            let items = editor.inputAssistantItem.leadingBarButtonGroups.flatMap(\.barButtonItems)
+
+            XCTAssertEqual(items.map(\.accessibilityLabel), ["Bold", "Italic"])
+        }
+
         func testHeadingFragmentLinkScrollsToTheHeading() async throws {
             let editor = makeTextView()
             let paragraphs = (0 ..< 80).map { "Paragraph \($0)" }

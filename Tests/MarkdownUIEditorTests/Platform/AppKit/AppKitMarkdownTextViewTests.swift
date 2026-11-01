@@ -166,6 +166,34 @@
             XCTAssertEqual(textView.document.markdown, "  - [ ] task\n")
         }
 
+        func testTaskCheckboxesAreAccessibleCheckboxesThatToggle() {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+            let window = NSWindow(contentRect: editor.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = editor
+            defer { window.contentView = nil }
+            editor.document = MarkdownDocument(markdown: "- [ ] Buy milk\n- [x] Walk dog")
+            editor.layoutSubtreeIfNeeded()
+
+            func checkboxes() -> [NSAccessibilityElement] {
+                (editor.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+                    .filter { $0.accessibilityRole() == .checkBox }
+            }
+            let initial = checkboxes()
+            guard initial.count == 2 else {
+                return XCTFail("Expected two checkboxes, found \(initial.count)")
+            }
+            XCTAssertEqual(initial.map { $0.accessibilityLabel() }, ["Buy milk", "Walk dog"])
+            XCTAssertEqual(initial.map { $0.accessibilityValue() as? NSNumber }, [0, 1])
+            XCTAssertTrue(initial.allSatisfy { $0.accessibilityParent() as? MarkdownTextView === editor })
+            XCTAssertTrue(initial.allSatisfy { !$0.accessibilityFrameInParentSpace().isEmpty })
+
+            XCTAssertTrue(initial[0].accessibilityPerformPress())
+            XCTAssertEqual(editor.document.markdown, "  - [x] Buy milk\n  - [x] Walk dog\n")
+            editor.layoutSubtreeIfNeeded()
+            XCTAssertEqual(checkboxes().map { $0.accessibilityValue() as? NSNumber }, [1, 1])
+        }
+
         func testClickingAHeadingFragmentLinkScrollsToTheHeading() async throws {
             let frame = NSRect(x: 0, y: 0, width: 400, height: 220)
             let scrollView = NSScrollView(frame: frame)

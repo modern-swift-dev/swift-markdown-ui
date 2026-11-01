@@ -97,6 +97,8 @@
         /// Recognizes taps only inside a rendered task-list marker.
         private var taskMarkerTapGesture: UITapGestureRecognizer?
         private lazy var taskCheckboxLayers: [MarkdownTaskCheckboxLayer] = []
+        /// Exposes each drawn checkbox to VoiceOver.
+        private lazy var taskCheckboxViews: [MarkdownTaskCheckboxAccessibilityView] = []
         /// The inputs of the last checkbox placement. Scrolling within one viewport range reuses it.
         private var taskCheckboxPlacement: TaskCheckboxPlacement?
         /// Set by explicit layout invalidations, such as a table attachment resizing without a storage edit.
@@ -163,12 +165,17 @@
                     let checkbox = MarkdownTaskCheckboxLayer()
                     layer.addSublayer(checkbox)
                     taskCheckboxLayers.append(checkbox)
+                    let view = MarkdownTaskCheckboxAccessibilityView(textView: self)
+                    addSubview(view)
+                    taskCheckboxViews.append(view)
                 }
                 taskCheckboxLayers[count].update(textRect: caretRect(for: position), checked: checked.boolValue, color: color, theme: editingSession.theme)
+                taskCheckboxViews[count].update(offset: offset, checked: checked.boolValue, frame: taskCheckboxLayers[count].frame)
                 count += 1
             }
             while taskCheckboxLayers.count > count {
                 taskCheckboxLayers.removeLast().removeFromSuperlayer()
+                taskCheckboxViews.removeLast().removeFromSuperview()
             }
         }
 
@@ -526,7 +533,9 @@
             adjustsFontForContentSizeCategory = true
 
             let bold = UIBarButtonItem(title: "B", style: .plain, target: self, action: #selector(toggleStrong))
+            bold.accessibilityLabel = "Bold"
             let italic = UIBarButtonItem(title: "I", style: .plain, target: self, action: #selector(toggleEmphasis))
+            italic.accessibilityLabel = "Italic"
             inputAssistantItem.leadingBarButtonGroups = [
                 UIBarButtonItemGroup(barButtonItems: [bold, italic], representativeItem: nil)
             ]
@@ -554,6 +563,43 @@
             let caret = caretRect(for: start)
             let markerBounds = MarkdownTaskCheckboxLayer.hitBounds(textRect: caret, theme: editingSession.theme)
             return markerBounds.contains(point) ? range.location : nil
+        }
+    }
+
+    /// An invisible view over one drawn task checkbox that VoiceOver reads as a button toggling its task.
+    ///
+    /// It ignores touches, so taps still reach the text view's task-marker gesture.
+    @MainActor final class MarkdownTaskCheckboxAccessibilityView: UIView {
+        private weak var textView: MarkdownTextView?
+        /// The projected offset of the task item's first leaf.
+        private var offset = 0
+
+        init(textView: MarkdownTextView) {
+            self.textView = textView
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = true
+            accessibilityTraits = .button
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        func update(offset: Int, checked: Bool, frame: CGRect) {
+            self.offset = offset
+            self.frame = frame
+            accessibilityValue = checked ? "Checked" : "Unchecked"
+        }
+
+        override var accessibilityLabel: String? {
+            get { textView?.editingSession.taskCheckboxLabel(atProjectionUTF16Offset: offset) }
+            set {}
+        }
+
+        override func accessibilityActivate() -> Bool {
+            textView?.editingSession.toggleTask(atProjectionUTF16Offset: offset) ?? false
         }
     }
 

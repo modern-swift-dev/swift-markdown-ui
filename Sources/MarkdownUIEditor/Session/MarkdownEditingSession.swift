@@ -683,6 +683,18 @@ import Foundation
             return unit.projectionRange.nsRange
         }
 
+        /// The visible text of the task item whose leaf starts at `offset`, which labels its checkbox.
+        func taskCheckboxLabel(atProjectionUTF16Offset offset: Int) -> String {
+            guard let bridge,
+                  let range = projection.index.unit(atProjectionUTF16Offset: offset)?.projectionRange.nsRange,
+                  NSMaxRange(range) <= bridge.markdownTextStorage.length else {
+                return "Task"
+            }
+            let text = (bridge.markdownTextStorage.string as NSString).substring(with: range)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? "Task" : text
+        }
+
         /// Returns the projected range of the heading that a same-document link, such as
         /// `#hello-world`, points to, or `nil` for other links and unmatched fragments.
         func headingProjectionRange(forLinkDestination destination: String) -> NSRange? {
