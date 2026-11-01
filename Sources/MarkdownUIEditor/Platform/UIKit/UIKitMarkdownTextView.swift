@@ -47,8 +47,9 @@
         /// Whether people can change the document.
         ///
         /// When `false`, typing, pasting, dropping, table cells, task checkboxes,
-        /// and editing commands leave the document unchanged. People can still
-        /// select and copy text and open links.
+        /// editing commands, and Undo and Redo leave the document unchanged. People can
+        /// still select and copy text and open links. The undo history is kept, so Undo
+        /// works again once the editor is editable.
         override public var isEditable: Bool {
             didSet {
                 guard isEditable != oldValue, hasAttachedEditingSession else {
@@ -56,6 +57,12 @@
                 }
                 editingSession.editabilityDidChange()
             }
+        }
+
+        /// Hidden while the editor is read-only: ⌘Z, the Edit menu, shake to undo and the
+        /// shortcuts bar all undo through the first responder's undo manager.
+        override public var undoManager: UndoManager? {
+            isEditable ? super.undoManager : nil
         }
 
         /// The document displayed by the editor.

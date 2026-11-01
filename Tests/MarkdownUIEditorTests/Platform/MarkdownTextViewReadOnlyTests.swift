@@ -167,6 +167,64 @@ import XCTest
             XCTAssertTrue(textView.isEditable, "Editors are editable by default")
         }
 
+        func testReadOnlyEditorDisablesUndoAndRedoButKeepsTheirHistory() throws {
+            let (editor, _) = makeEditor("hello")
+            let window = try XCTUnwrap(editor.window)
+            editor.selectedRange = NSRange(location: 5, length: 0)
+            editor.insertText("X", replacementRange: editor.selectedRange)
+            XCTAssertEqual(editor.document.markdown, "helloX\n")
+
+            editor.isEditable = false
+            XCTAssertFalse(validateEditMenuItem(Self.undo, in: window))
+            performEditMenuItem(Self.undo, in: window)
+            XCTAssertEqual(editor.document.markdown, "helloX\n")
+
+            editor.isEditable = true
+            XCTAssertTrue(validateEditMenuItem(Self.undo, in: window))
+            performEditMenuItem(Self.undo, in: window)
+            XCTAssertEqual(editor.document.markdown, "hello\n")
+
+            editor.isEditable = false
+            XCTAssertFalse(validateEditMenuItem(Self.redo, in: window))
+            performEditMenuItem(Self.redo, in: window)
+            XCTAssertEqual(editor.document.markdown, "hello\n")
+
+            editor.isEditable = true
+            XCTAssertTrue(validateEditMenuItem(Self.redo, in: window))
+            performEditMenuItem(Self.redo, in: window)
+            XCTAssertEqual(editor.document.markdown, "helloX\n")
+        }
+
+        private static let undo = #selector(MarkdownTextView.undo(_:))
+        private static let redo = #selector(MarkdownTextView.redo(_:))
+
+        /// The responder the Edit menu sends an action to: the first one in the chain that implements it.
+        private func editMenuTarget(for action: Selector, in window: NSWindow) -> NSResponder? {
+            var responder = window.firstResponder
+            while let current = responder, !current.responds(to: action) {
+                responder = current.nextResponder
+            }
+            return responder
+        }
+
+        private func validateEditMenuItem(_ action: Selector, in window: NSWindow) -> Bool {
+            let item = menuItem(action)
+            guard let target = editMenuTarget(for: action, in: window) else {
+                return false
+            }
+            return (target as? NSMenuItemValidation)?.validateMenuItem(item)
+                ?? (target as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item)
+                ?? true
+        }
+
+        private func performEditMenuItem(_ action: Selector, in window: NSWindow) {
+            // A disabled menu item never sends its action.
+            guard validateEditMenuItem(action, in: window) else {
+                return
+            }
+            _ = editMenuTarget(for: action, in: window)?.perform(action, with: menuItem(action))
+        }
+
         private func makeEditor(_ markdown: String) -> (MarkdownTextView, Delegate) {
             let editor = MarkdownTextView(usingTextLayoutManager: true)
             editor.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
@@ -395,6 +453,25 @@ import XCTest
             host.rootView = AnyView(MarkdownEditor(document: .constant(MarkdownDocument(markdown: "text"))))
             host.view.layoutIfNeeded()
             XCTAssertTrue(textView.isEditable, "Editors are editable by default")
+        }
+
+        func testReadOnlyEditorHidesItsUndoHistoryFromTheSystemButKeepsIt() throws {
+            let (editor, _) = makeEditor("hello")
+            _ = editor.becomeFirstResponder()
+            editor.selectedRange = NSRange(location: 5, length: 0)
+            editor.insertText("X")
+            XCTAssertEqual(editor.document.markdown, "helloX\n")
+
+            // ⌘Z, the Edit menu, shake to undo and the shortcuts bar all go through the first
+            // responder's undo manager.
+            editor.isEditable = false
+            XCTAssertNil(editor.undoManager)
+
+            editor.isEditable = true
+            let undoManager = try XCTUnwrap(editor.undoManager)
+            XCTAssertTrue(undoManager.canUndo)
+            undoManager.undo()
+            XCTAssertEqual(editor.document.markdown, "hello\n")
         }
 
         private func makeEditor(_ markdown: String) -> (MarkdownTextView, Delegate) {

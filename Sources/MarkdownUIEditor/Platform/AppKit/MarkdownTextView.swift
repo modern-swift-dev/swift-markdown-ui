@@ -55,8 +55,9 @@
         /// Whether people can change the document.
         ///
         /// When `false`, typing, pasting, dropping, table cells, task checkboxes,
-        /// and editing commands leave the document unchanged. People can still
-        /// select and copy text and open links.
+        /// editing commands, and Undo and Redo leave the document unchanged. People can
+        /// still select and copy text and open links. The undo history is kept, so Undo
+        /// works again once the editor is editable.
         override public var isEditable: Bool {
             didSet {
                 guard isEditable != oldValue, hasAttachedEditingSession else {
@@ -268,9 +269,43 @@
                     canPerform(.convertList(.unordered))
                 case #selector(toggleOrderedList(_:)):
                     canPerform(.convertList(.ordered(start: 1)))
+                case #selector(undo(_:)):
+                    validateUndoItem(item, title: \.undoMenuItemTitle, isAvailable: \.canUndo)
+                case #selector(redo(_:)):
+                    validateUndoItem(item, title: \.redoMenuItemTitle, isAvailable: \.canRedo)
                 default:
                     super.validateUserInterfaceItem(item)
             }
+        }
+
+        /// Handles the Edit menu's Undo before the window does, so a read-only editor ignores it.
+        @objc func undo(_ sender: Any?) {
+            guard isEditable else {
+                return
+            }
+            undoManager?.undo()
+        }
+
+        /// Handles the Edit menu's Redo before the window does, so a read-only editor ignores it.
+        @objc func redo(_ sender: Any?) {
+            guard isEditable else {
+                return
+            }
+            undoManager?.redo()
+        }
+
+        /// Names the Undo or Redo menu item after the change it reverts, as the window does.
+        /// The item is disabled while the editor is read-only; its history is kept.
+        private func validateUndoItem(
+            _ item: any NSValidatedUserInterfaceItem,
+            title: KeyPath<UndoManager, String>,
+            isAvailable: KeyPath<UndoManager, Bool>
+        ) -> Bool {
+            guard let undoManager else {
+                return false
+            }
+            (item as? NSMenuItem)?.title = undoManager[keyPath: title]
+            return isEditable && undoManager[keyPath: isAvailable]
         }
 
         override public func menu(for event: NSEvent) -> NSMenu? {
