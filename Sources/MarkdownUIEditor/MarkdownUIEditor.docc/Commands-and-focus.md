@@ -15,7 +15,7 @@ if textView.canPerform(command) {
 }
 ```
 
-Commands cover inline styling, block and list conversion, links, images, indentation, task state, thematic breaks, and table edits. A structural command is one native undo operation. Inline formatting and list conversion also support selections spanning multiple blocks. An inline command at a collapsed insertion point changes typing attributes, so subsequent text receives the style without inserting Markdown markers.
+Commands cover inline styling, block and list conversion, links, images, indentation, task state, thematic breaks, and table edits. A structural command is one native undo operation. Inline formatting and list conversion also support selections spanning multiple blocks. Choosing an active heading level, quote, or list style toggles it off: the heading becomes a paragraph, the quoted block leaves its quote, and the selected list items become paragraphs. An inline command at a collapsed insertion point changes typing attributes, so subsequent text receives the style without inserting Markdown markers.
 
 Select text and open its contextual menu to access **Style → Bold**, **Italic**, or **Strikethrough**. This works in ordinary document text and table cells, using a right-click on macOS or the text-editing menu on iOS. Table cells additionally offer the **Table** submenu for row, column, and alignment commands. The standard system editing actions remain available.
 

@@ -47,8 +47,8 @@ final class MarkdownEditingTests: XCTestCase {
         | one | two |
         """)
         let cases: [(MarkdownEditorCommand, MarkdownLogicalPath)] = [
-            (.convertList(.unordered), .listItemBlock(list: .blockquote(parent: .block(1), child: 0), item: 0, block: 0)),
-            (.convertList(.unordered), .listItemBlock(
+            (.toggleTask, .listItemBlock(list: .blockquote(parent: .block(1), child: 0), item: 0, block: 0)),
+            (.toggleTask, .listItemBlock(
                 list: .listItemBlock(list: .blockquote(parent: .block(1), child: 0), item: 0, block: 1), item: 0, block: 0
             )),
             (.setTableColumnAlignment(.center), .tableCell(table: .block(2), row: 1, column: 0))
@@ -229,6 +229,52 @@ final class MarkdownEditingTests: XCTestCase {
 
         let code = MarkdownEditingEngine.apply(.convertBlock(.code(info: "swift")), to: paragraph.document, selection: selection)
         XCTAssertEqual(code.document.blocks, [.codeBlock(info: "swift", content: "value")])
+    }
+
+    func testActiveBlockAndListStylesToggleOff() {
+        let quotedItem = MarkdownLogicalPath.listItemBlock(list: .blockquote(parent: .block(0), child: 0), item: 0, block: 0)
+        let cases: [(MarkdownEditorCommand, String, MarkdownLogicalPath, String, MarkdownLogicalPath)] = [
+            (.convertBlock(.blockquote), "> a", .blockquote(parent: .block(0), child: 0), "a", .block(0)),
+            (.convertBlock(.blockquote), "> a\n>\n> b\n>\n> c", .blockquote(parent: .block(0), child: 1), "> a\n\nb\n\n> c", .block(1)),
+            (.convertBlock(.blockquote), "> - a", quotedItem, "- a", .listItemBlock(list: .block(0), item: 0, block: 0)),
+            (.convertBlock(.heading(.two)), "## a", .block(0), "a", .block(0)),
+            (.convertList(.unordered), "- a\n- b\n- c", .listItemBlock(list: .block(0), item: 1, block: 0), "- a\n\nb\n\n- c", .block(1)),
+            (.convertList(.ordered(start: 1)), "3. a\n4. b\n5. c", .listItemBlock(list: .block(0), item: 1, block: 0), "3. a\n\nb\n\n5. c", .block(1)),
+            (.convertList(.task), "- [ ] a\n- [x] b", .listItemBlock(list: .block(0), item: 0, block: 0), "a\n\n- [x] b", .block(0)),
+            (
+                .convertList(.unordered), "- a\n  - b\n  - c",
+                .listItemBlock(list: .listItemBlock(list: .block(0), item: 0, block: 1), item: 0, block: 0),
+                "- a\n\n  b\n\n  - c", .listItemBlock(list: .block(0), item: 0, block: 1)
+            )
+        ]
+        for (command, source, path, expected, restoredPath) in cases {
+            let document = MarkdownDocument(markdown: source)
+            let selection = MarkdownLogicalSelection(path: path, utf16Offset: 1)
+            XCTAssertTrue(MarkdownEditingEngine.styleIsActive(command, in: document, selection: selection), source)
+            let result = MarkdownEditingEngine.apply(command, to: document, selection: selection)
+            XCTAssertEqual(result.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertEqual(MarkdownDocument(markdown: result.document.markdown), result.document, source)
+            XCTAssertEqual(result.selection, MarkdownLogicalSelection(path: restoredPath, utf16Offset: 1), source)
+            // A nested item lifted into its parent item is still in the parent's list.
+            let liftedIntoParentList = if case .convertList = command, case .listItemBlock = restoredPath {
+                true
+            } else {
+                false
+            }
+            XCTAssertEqual(
+                MarkdownEditingEngine.styleIsActive(command, in: result.document, selection: result.selection),
+                liftedIntoParentList,
+                source
+            )
+        }
+
+        let heading = MarkdownDocument(markdown: "## a")
+        let selection = MarkdownLogicalSelection(path: .block(0))
+        XCTAssertFalse(MarkdownEditingEngine.styleIsActive(.convertBlock(.heading(.three)), in: heading, selection: selection))
+        XCTAssertEqual(
+            MarkdownEditingEngine.apply(.convertBlock(.heading(.three)), to: heading, selection: selection).document,
+            MarkdownDocument(markdown: "### a")
+        )
     }
 
     func testListConversionsAndTaskToggle() {

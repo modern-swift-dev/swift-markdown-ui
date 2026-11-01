@@ -329,6 +329,33 @@ extension MarkdownEditingEngine {
         }
     }
 
+    /// Returns whether a block or list style command would remove its style at
+    /// the selection rather than apply it. This is also the command's checkmark state.
+    static func styleIsActive(_ command: MarkdownEditorCommand, in document: MarkdownDocument, selection: MarkdownLogicalSelection) -> Bool {
+        switch command {
+            case let .convertBlock(.heading(level)):
+                guard case let .heading(current, _)? = block(at: selection.path, in: document.blocks) else {
+                    return false
+                }
+                return current == level
+            case .convertBlock(.blockquote):
+                return enclosingQuote(selection.path) != nil
+            case let .convertList(style):
+                guard let location = listItemLocation(selection.path),
+                      case let .list(list)? = block(at: location.list, in: document.blocks) else {
+                    return false
+                }
+                switch (style, list.kind) {
+                    case (.task, _): return list.items.contains { $0.taskState != nil }
+                    case (.unordered, .unordered): return list.items.allSatisfy { $0.taskState == nil }
+                    case (.ordered, .ordered): return true
+                    default: return false
+                }
+            default:
+                return false
+        }
+    }
+
     /// Canonicalizes native formatting runs before they become Markdown delimiters.
     static func normalized(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
         let result = mergeAdjacent(inlines).flatMap { inline -> [MarkdownInline] in
@@ -555,6 +582,12 @@ private extension MarkdownEditingEngine {
     }
 
     static func convertBlock(_ style: MarkdownBlockStyle, _ document: MarkdownDocument, _ selection: MarkdownLogicalSelection) -> MarkdownEditingResult {
+        if styleIsActive(.convertBlock(style), in: document, selection: selection) {
+            if case .blockquote = style {
+                return unquote(document, selection)
+            }
+            return convertBlock(.paragraph, document, selection)
+        }
         var copy = document
         var changed = false
         let reached = updateBlock(at: selection.path, in: &copy.blocks) { block in
@@ -601,6 +634,9 @@ private extension MarkdownEditingEngine {
     }
 
     static func convertList(_ style: MarkdownListStyle, _ document: MarkdownDocument, _ selection: MarkdownLogicalSelection) -> MarkdownEditingResult {
+        if styleIsActive(.convertList(style), in: document, selection: selection) {
+            return liftListItem(document, selection)
+        }
         var copy = document
         var changed = false
         if let listPath = containingListPath(selection.path) {
@@ -764,6 +800,137 @@ private extension MarkdownEditingEngine {
             to: .listItemBlock(list: outerListPath, item: parentItem + 1, block: inner.block)
         )
         return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    /// Moves the quoted block containing the selection out of its block quote,
+    /// splitting the quote around it.
+    static func unquote(_ document: MarkdownDocument, _ selection: MarkdownLogicalSelection) -> MarkdownEditingResult {
+        guard let (quotePath, child) = enclosingQuote(selection.path),
+              case let .blockquote(children)? = block(at: quotePath, in: document.blocks),
+              children.indices.contains(child) else {
+            return unchanged(document, selection)
+        }
+        let before = Array(children[..<child])
+        let after = Array(children[(child + 1)...])
+        var replacement: [MarkdownBlock] = before.isEmpty ? [] : [.blockquote(before)]
+        let liftedPath = offsetting(quotePath, by: replacement.count)
+        replacement.append(children[child])
+        if !after.isEmpty {
+            replacement.append(.blockquote(after))
+        }
+        var copy = document
+        guard replaceBlock(at: quotePath, with: replacement, in: &copy.blocks) else {
+            return unchanged(document, selection)
+        }
+        var restored = selection
+        restored.path = relocating(selection.path, from: .blockquote(parent: quotePath, child: child), to: liftedPath)
+        return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    /// Turns the list item containing the selection back into its blocks,
+    /// splitting the list around it.
+    static func liftListItem(_ document: MarkdownDocument, _ selection: MarkdownLogicalSelection) -> MarkdownEditingResult {
+        guard let location = listItemLocation(selection.path),
+              case let .list(list)? = block(at: location.list, in: document.blocks),
+              list.items.indices.contains(location.item) else {
+            return unchanged(document, selection)
+        }
+        var replacement: [MarkdownBlock] = []
+        if location.item > 0 {
+            var preceding = list
+            preceding.items = Array(list.items[..<location.item])
+            replacement.append(.list(preceding))
+        }
+        let liftedPath = offsetting(location.list, by: replacement.count + location.block)
+        replacement += list.items[location.item].blocks
+        if location.item + 1 < list.items.count {
+            var following = list
+            following.items = Array(list.items[(location.item + 1)...])
+            if case let .ordered(start) = list.kind {
+                following.kind = .ordered(start: start + location.item + 1)
+            }
+            replacement.append(.list(following))
+        }
+        var copy = document
+        guard replaceBlock(at: location.list, with: replacement, in: &copy.blocks) else {
+            return unchanged(document, selection)
+        }
+        var restored = selection
+        restored.path = relocating(
+            selection.path,
+            from: .listItemBlock(list: location.list, item: location.item, block: location.block),
+            to: liftedPath
+        )
+        return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    /// Replaces one block with several in its container.
+    ///
+    /// A list item that then holds a non-list block after its first block makes
+    /// its list loose, because a tight list renders those blocks without the
+    /// blank line that keeps them apart when the Markdown is parsed again.
+    static func replaceBlock(at path: MarkdownLogicalPath, with replacement: [MarkdownBlock], in blocks: inout [MarkdownBlock]) -> Bool {
+        switch path {
+            case let .block(index):
+                guard blocks.indices.contains(index) else {
+                    return false
+                }
+                blocks.replaceSubrange(index ... index, with: replacement)
+                return true
+            case let .blockquote(parent, child):
+                var replaced = false
+                updateBlock(at: parent, in: &blocks) { block in
+                    guard case var .blockquote(children) = block, children.indices.contains(child) else {
+                        return
+                    }
+                    children.replaceSubrange(child ... child, with: replacement)
+                    block = .blockquote(children)
+                    replaced = true
+                }
+                return replaced
+            case let .listItemBlock(listPath, item, blockIndex):
+                var replaced = false
+                updateBlock(at: listPath, in: &blocks) { block in
+                    guard case var .list(list) = block, list.items.indices.contains(item),
+                          list.items[item].blocks.indices.contains(blockIndex) else {
+                        return
+                    }
+                    list.items[item].blocks.replaceSubrange(blockIndex ... blockIndex, with: replacement)
+                    if list.items[item].blocks.dropFirst().contains(where: {
+                        if case .list = $0 {
+                            false
+                        } else {
+                            true
+                        }
+                    }) {
+                        list.isTight = false
+                    }
+                    block = .list(list)
+                    replaced = true
+                }
+                return replaced
+            case .tableCell:
+                return false
+        }
+    }
+
+    static func offsetting(_ path: MarkdownLogicalPath, by offset: Int) -> MarkdownLogicalPath {
+        switch path {
+            case let .block(index): .block(index + offset)
+            case let .blockquote(parent, child): .blockquote(parent: parent, child: child + offset)
+            case let .listItemBlock(list, item, block): .listItemBlock(list: list, item: item, block: block + offset)
+            case .tableCell: path
+        }
+    }
+
+    /// The block quote nearest to a path, and the index of the quoted block that contains it.
+    static func enclosingQuote(_ path: MarkdownLogicalPath) -> (quote: MarkdownLogicalPath, child: Int)? {
+        switch path {
+            case let .blockquote(parent, child): (parent, child)
+            case let .listItemBlock(list, _, _): enclosingQuote(list)
+            case let .tableCell(table, _, _): enclosingQuote(table)
+            case .block: nil
+        }
     }
 
     /// A newly nested list numbers from one rather than inheriting its parent's start.

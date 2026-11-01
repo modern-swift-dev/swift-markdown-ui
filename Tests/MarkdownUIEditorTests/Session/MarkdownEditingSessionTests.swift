@@ -850,6 +850,55 @@ import XCTest
         XCTAssertTrue(try XCTUnwrap(bridge.undoManager?.canRedo))
     }
 
+    func testActiveBlockStyleCommandsToggleOffForCaretAndMultiBlockSelections() {
+        let cases: [(MarkdownEditorCommand, String, String)] = [
+            (.convertBlock(.blockquote), "> a", "a"),
+            (.convertBlock(.blockquote), "> a\n>\n> b\n>\n> c", "a\n\nb\n\nc"),
+            (.convertBlock(.heading(.two)), "## a", "a"),
+            (.convertBlock(.heading(.two)), "## a\n\n## b", "a\n\nb"),
+            (.convertList(.unordered), "- a", "a"),
+            (.convertList(.unordered), "- a\n- b\n- c", "a\n\nb\n\nc"),
+            (.convertList(.ordered(start: 1)), "1. a\n2. b", "a\n\nb"),
+            (.convertList(.task), "- [ ] a\n- [x] b", "a\n\nb")
+        ]
+        for (command, source, expected) in cases {
+            let original = MarkdownDocument(markdown: source)
+            let bridge = FakeTextViewBridge()
+            let session = MarkdownEditingSession(document: original)
+            session.attach(to: bridge)
+            bridge.markdownSelectedRanges = [NSRange(location: 0, length: bridge.markdownTextStorage.length - 1)]
+            XCTAssertTrue(session.isActive(command), source)
+
+            session.perform(command)
+            XCTAssertEqual(session.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), session.document, source)
+            XCTAssertFalse(session.isActive(command), source)
+
+            bridge.undoManager?.undo()
+            XCTAssertEqual(session.document, original, source)
+            XCTAssertEqual(bridge.undoManager?.canUndo, false, source)
+        }
+    }
+
+    func testBlockStyleCommandsOnMixedSelectionsApplyWithoutNesting() {
+        let cases: [(MarkdownEditorCommand, String, String)] = [
+            (.convertBlock(.blockquote), "> a\n\nb", "> a\n\n> b"),
+            (.convertBlock(.heading(.two)), "## a\n\nb", "## a\n\n## b"),
+            (.convertList(.unordered), "- a\n\n- [ ] b", "- a\n\n- b")
+        ]
+        for (command, source, expected) in cases {
+            let bridge = FakeTextViewBridge()
+            let session = MarkdownEditingSession(document: MarkdownDocument(markdown: source))
+            session.attach(to: bridge)
+            bridge.markdownSelectedRanges = [NSRange(location: 0, length: bridge.markdownTextStorage.length - 1)]
+            XCTAssertFalse(session.isActive(command), source)
+
+            session.perform(command)
+            XCTAssertEqual(session.document.markdown, MarkdownDocument(markdown: expected).markdown, source)
+            XCTAssertTrue(session.isActive(command), source)
+        }
+    }
+
     func testTableAttachmentChangeUpdatesDocumentAndSupportsUndo() throws {
         let original = MarkdownDocument(markdown: "| Name |\n| --- |\n| Old |")
         let bridge = FakeTextViewBridge()

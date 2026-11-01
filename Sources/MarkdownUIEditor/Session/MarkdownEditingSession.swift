@@ -1916,24 +1916,15 @@ import Foundation
                 case .setLink,
                      .removeLink:
                     return (activeTableController?.activeTypingAttributes ?? bridge.markdownTypingAttributes)[.markdownEditorLinkDestination] != nil
+                case .convertBlock(.heading),
+                     .convertBlock(.blockquote),
+                     .convertList:
+                    let selections = logicalSelections(in: range)
+                    return !selections.isEmpty && selections.allSatisfy {
+                        MarkdownEditingEngine.styleIsActive(command, in: document, selection: $0)
+                    }
                 case let .convertBlock(style):
                     return blockStyleIsActive(style, range: range)
-                case let .convertList(style):
-                    guard let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
-                          let itemIndex = unit.path.components.lastIndex(where: {
-                              if case .listItem = $0 {
-                                  return true
-                              }; return false
-                          }),
-                          case let .list(list)? = blockAtPath(EditorNodePath(Array(unit.path.components[..<itemIndex]))) else {
-                        return false
-                    }
-                    switch (style, list.kind) {
-                        case (.task, _): return list.items.contains { $0.taskState != nil }
-                        case (.unordered, .unordered): return list.items.allSatisfy { $0.taskState == nil }
-                        case (.ordered, .ordered): return true
-                        default: return false
-                    }
                 case let .setTableColumnAlignment(alignment):
                     guard let active = activeTableSelection, let controller = activeTableController,
                           controller.table.alignments.indices.contains(active.cell.position.column) else {
@@ -1953,16 +1944,23 @@ import Foundation
             }
             switch (style, block) {
                 case (.paragraph, .paragraph): return true
-                case let (.heading(level), .heading(current, _)): return level == current
                 case (.code, .codeBlock): return true
-                case (.blockquote, _):
-                    return unit.path.components.contains { component in
-                        if case .blockquoteBlock = component {
-                            return true
-                        }
-                        return false
-                    }
                 default: return false
+            }
+        }
+
+        /// The logical selection in each block a range touches, or at the caret.
+        func logicalSelections(in range: NSRange) -> [MarkdownLogicalSelection] {
+            guard range.length > 0 else {
+                return logicalSelection(for: range).map { [$0] } ?? []
+            }
+            return selectedUnits(in: range).compactMap { unit in
+                let start = max(range.location, unit.projectionRange.location)
+                let end = min(NSMaxRange(range), unit.projectionRange.upperBound - 1)
+                guard end >= start, let path = logicalPath(for: unit.path) else {
+                    return nil
+                }
+                return MarkdownLogicalSelection(path: path, utf16Offset: start - unit.projectionRange.location, utf16Length: end - start)
             }
         }
 
@@ -2269,7 +2267,7 @@ import Foundation
                 let allStyled = if case let .toggleInline(style) = command {
                     inlineStyleIsActive(style, range: selection)
                 } else {
-                    false
+                    logicalSelections(in: selection).allSatisfy { MarkdownEditingEngine.styleIsActive(command, in: document, selection: $0) }
                 }
                 for unit in units.reversed() {
                     let start = max(selection.location, unit.projectionRange.location)
@@ -2281,6 +2279,10 @@ import Foundation
                         continue
                     }
                     let logical = MarkdownLogicalSelection(path: path, utf16Offset: start - unit.projectionRange.location, utf16Length: end - start)
+                    // A mixed selection applies the style only where it is missing, instead of removing it elsewhere.
+                    if !allStyled, MarkdownEditingEngine.styleIsActive(command, in: replacement, selection: logical) {
+                        continue
+                    }
                     replacement = MarkdownEditingEngine.apply(command, to: replacement, selection: logical).document
                 }
             }
