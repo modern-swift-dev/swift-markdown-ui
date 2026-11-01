@@ -44,6 +44,19 @@
             }
         }
 
+        /// The URLs the editor may load images from. Defaults to
+        /// ``MarkdownEditorImageLoadingPolicy/allowAll``.
+        ///
+        /// Setting the policy redraws the document, so images it now blocks show their alternative
+        /// text and images it now allows load.
+        public var imageLoadingPolicy: MarkdownEditorImageLoadingPolicy {
+            get { editingSession.imageLoadingPolicy }
+            set {
+                attachEditingSessionIfNeeded()
+                editingSession.replaceImageLoadingPolicy(newValue)
+            }
+        }
+
         /// Whether people can change the document.
         ///
         /// When `false`, typing, pasting, dropping, table cells, task checkboxes,

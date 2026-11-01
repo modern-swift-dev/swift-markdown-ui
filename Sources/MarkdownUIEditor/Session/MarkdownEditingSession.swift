@@ -403,6 +403,13 @@ import Foundation
             installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
         }
 
+        /// Replaces the image loading policy and redraws the document with it. Policies can't be
+        /// compared, so this always redraws.
+        func replaceImageLoadingPolicy(_ policy: MarkdownEditorImageLoadingPolicy) {
+            imageLoadingPolicy = policy
+            installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
+        }
+
         /// Updates native typing attributes for the semantic run at the caret.
         func selectionDidChange() {
             defer {

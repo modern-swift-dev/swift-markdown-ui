@@ -84,6 +84,25 @@ import XCTest
         try await wait { provider.requests.count == 2 }
     }
 
+    func testSettingTheTextViewPolicyRedrawsTheDocument() async throws {
+        let provider = RecordingPolicyImageProvider()
+        let textView = MarkdownTextView(usingTextLayoutManager: true)
+        textView.imageProvider = provider
+        textView.imageLoadingPolicy = .allowing(schemes: ["https"], hosts: ["images.example.com"])
+        textView.document = MarkdownDocument(markdown: "![tracker](https://tracker.example.net/pixel.gif)")
+        let blocked = try imageViews(in: textView.editingSession.projection.attributedString)
+        XCTAssertEqual(visibleAltText(in: try XCTUnwrap(blocked["tracker"])), "tracker")
+
+        textView.imageLoadingPolicy = .allowAll
+        _ = try imageViews(in: textView.editingSession.projection.attributedString)
+        try await wait { provider.requests == ["https://tracker.example.net/pixel.gif"] }
+
+        textView.imageLoadingPolicy = .allowing(schemes: ["https"], hosts: ["images.example.com"])
+        let blockedAgain = try imageViews(in: textView.editingSession.projection.attributedString)
+        XCTAssertEqual(visibleAltText(in: try XCTUnwrap(blockedAgain["tracker"])), "tracker")
+        XCTAssertEqual(provider.requests.count, 1)
+    }
+
     #if os(macOS)
         func testSwiftUIModifierSetsTheEditorPolicy() throws {
             let host = NSHostingView(rootView: MarkdownEditor(document: .constant(MarkdownDocument(markdown: "text")))

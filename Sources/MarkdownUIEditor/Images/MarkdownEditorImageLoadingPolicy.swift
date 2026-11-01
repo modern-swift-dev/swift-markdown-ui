@@ -7,6 +7,7 @@ import Foundation
 /// A blocked image is never requested and shows its alternative text instead.
 ///
 /// To configure the policy for a view hierarchy, use the `markdownEditorImageLoadingPolicy(_:)` modifier.
+/// For a `MarkdownTextView`, set its `imageLoadingPolicy` property.
 /// The following example only loads secure images from one host, which keeps untrusted Markdown
 /// from fetching arbitrary remote URLs:
 ///
@@ -15,8 +16,9 @@ import Foundation
 ///   .markdownEditorImageLoadingPolicy(.allowing(schemes: ["https"], hosts: ["images.example.com"]))
 /// ```
 ///
-/// Set the policy before the editor appears. Changing it applies to images the editor displays
-/// afterwards and doesn't reload images that are already requested or shown.
+/// In SwiftUI, set the policy before the editor appears. Changing it applies to images the editor
+/// displays afterwards and doesn't reload images that are already requested or shown. Setting a text
+/// view's `imageLoadingPolicy` redraws the document instead.
 public struct MarkdownEditorImageLoadingPolicy: Sendable {
     private let decision: @Sendable (URL) -> Bool
 
