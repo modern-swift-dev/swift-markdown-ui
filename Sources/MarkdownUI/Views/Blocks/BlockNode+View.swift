@@ -17,8 +17,8 @@ extension BlockNode: View {
                 ParagraphView(content: content)
             case let .paragraph(content):
                 ParagraphView(content: content)
-            case let .heading(level, content):
-                HeadingView(level: level, content: content)
+            case let .heading(level, content, identifier):
+                HeadingView(level: level, content: content, identifier: identifier)
             case let .table(columnAlignments, rows):
                 TableView(columnAlignments: columnAlignments, rows: rows)
             case .thematicBreak:

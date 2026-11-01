@@ -30,7 +30,7 @@ extension BlockNode {
             case let .taskList(_, items):
                 items.contains { $0.children.contains(where: \.containsColorSchemeImages) }
             case let .paragraph(content),
-                 let .heading(_, content):
+                 let .heading(_, content, _):
                 content.contains(where: \.containsColorSchemeImages)
             case let .table(_, rows):
                 rows.contains { $0.cells.contains { $0.content.contains(where: \.containsColorSchemeImages) } }
@@ -90,9 +90,9 @@ private extension BlockNode {
             case let .paragraph(content):
                 content.filteringImagesIfChanged(matching: colorScheme)
                     .map { .paragraph(content: $0) }
-            case let .heading(level, content):
+            case let .heading(level, content, identifier):
                 content.filteringImagesIfChanged(matching: colorScheme)
-                    .map { .heading(level: level, content: $0) }
+                    .map { .heading(level: level, content: $0, identifier: identifier) }
             case let .table(columnAlignments, rows):
                 rows.updatingChangedElements { row in
                     row.cells.updatingChangedElements { cell in

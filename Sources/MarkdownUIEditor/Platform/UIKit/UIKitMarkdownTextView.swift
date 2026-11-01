@@ -482,6 +482,20 @@
         }
     }
 
+    extension MarkdownTextView {
+        /// Scrolls to the heading a same-document link such as `#hello-world` points to.
+        /// Returns `false`, without scrolling, for other links and unmatched fragments.
+        @discardableResult func scrollToHeading(linkDestination: String) -> Bool {
+            guard let range = editingSession.headingProjectionRange(forLinkDestination: linkDestination),
+                  let start = position(from: beginningOfDocument, offset: range.location) else {
+                return false
+            }
+            // `scrollRangeToVisible(_:)` does not scroll this TextKit 2 view, so scroll to the heading's line.
+            scrollRectToVisible(caretRect(for: start), animated: false)
+            return true
+        }
+    }
+
     private extension MarkdownTextView {
         func attachEditingSessionIfNeeded() {
             assert(textLayoutManager != nil)
@@ -602,6 +616,16 @@
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
             owner?.nativeEditMenu(forTextIn: range, suggestedActions: suggestedActions)
+        }
+
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            guard let owner, case let .link(url) = textItem.content,
+                  owner.editingSession.headingProjectionRange(forLinkDestination: url.relativeString) != nil else {
+                return defaultAction
+            }
+            return UIAction { [weak owner] _ in
+                owner?.scrollToHeading(linkDestination: url.relativeString)
+            }
         }
 
         func gestureRecognizer(

@@ -683,6 +683,26 @@ import Foundation
             return unit.projectionRange.nsRange
         }
 
+        /// Returns the projected range of the heading that a same-document link, such as
+        /// `#hello-world`, points to, or `nil` for other links and unmatched fragments.
+        func headingProjectionRange(forLinkDestination destination: String) -> NSRange? {
+            guard destination.hasPrefix("#") else {
+                return nil
+            }
+            let fragment = String(destination.dropFirst())
+            let identifier = fragment.removingPercentEncoding ?? fragment
+            var slugger = HeadingSlugger()
+            for unit in projection.index.units {
+                guard case .heading = unit.kind, case let .heading(_, content)? = leafBlock(at: unit.path) else {
+                    continue
+                }
+                if slugger.identifier(for: HeadingSlugger.plainText(content)) == identifier {
+                    return unit.projectionRange.nsRange
+                }
+            }
+            return nil
+        }
+
         /// Builds Markdown and plain-text clipboard representations for the selection.
         func clipboardPayload() -> MarkdownClipboardPayload? {
             guard let bridge, let range = bridge.markdownSelectedRanges.first,

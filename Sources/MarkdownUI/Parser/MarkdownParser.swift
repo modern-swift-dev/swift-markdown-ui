@@ -541,7 +541,7 @@ private extension UnsafeNode {
                 }
                 content.lazy.compactMap(UnsafeNode.make).forEach { cmark_node_append_child(node, $0) }
                 return node
-            case let .heading(level, content):
+            case let .heading(level, content, _):
                 guard let node = cmark_node_new(CMARK_NODE_HEADING) else {
                     return nil
                 }

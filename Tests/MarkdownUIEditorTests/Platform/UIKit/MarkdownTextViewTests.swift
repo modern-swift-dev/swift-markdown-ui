@@ -57,6 +57,25 @@
             }
         }
 
+        func testHeadingFragmentLinkScrollsToTheHeading() async throws {
+            let editor = makeTextView()
+            let paragraphs = (0 ..< 80).map { "Paragraph \($0)" }
+            editor.document = MarkdownDocument(markdown: (["[Jump](#hello-world)"] + paragraphs + ["## Hello, World!"]).joined(separator: "\n\n"))
+            // The window applies its safe-area insets asynchronously; scroll once they are settled.
+            try await Task.sleep(for: .milliseconds(300))
+            let top = editor.contentOffset.y
+
+            XCTAssertFalse(editor.scrollToHeading(linkDestination: "#missing"))
+            XCTAssertEqual(editor.contentOffset.y, top)
+            XCTAssertTrue(editor.scrollToHeading(linkDestination: "#hello-world"))
+            try await Task.sleep(for: .milliseconds(100))
+
+            let heading = try XCTUnwrap(editor.editingSession.headingProjectionRange(forLinkDestination: "#hello-world"))
+            let start = try XCTUnwrap(editor.position(from: editor.beginningOfDocument, offset: heading.location))
+            XCTAssertGreaterThan(editor.contentOffset.y, top)
+            XCTAssertTrue(editor.bounds.inset(by: editor.adjustedContentInset).intersects(editor.caretRect(for: start)))
+        }
+
         func testDocumentCanBeSetBeforeMovingToWindow() {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
 

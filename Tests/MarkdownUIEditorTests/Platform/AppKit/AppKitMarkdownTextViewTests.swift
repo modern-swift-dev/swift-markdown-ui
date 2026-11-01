@@ -166,6 +166,40 @@
             XCTAssertEqual(textView.document.markdown, "  - [ ] task\n")
         }
 
+        func testClickingAHeadingFragmentLinkScrollsToTheHeading() async throws {
+            let frame = NSRect(x: 0, y: 0, width: 400, height: 220)
+            let scrollView = NSScrollView(frame: frame)
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = frame
+            editor.isVerticallyResizable = true
+            editor.maxSize = NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude)
+            editor.textContainer?.widthTracksTextView = true
+            scrollView.documentView = editor
+            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = scrollView
+            window.orderFront(nil)
+            defer { window.orderOut(nil) }
+            let paragraphs = (0 ..< 80).map { "Paragraph \($0)" }
+            editor.document = MarkdownDocument(markdown: (["[Jump](#hello-world)"] + paragraphs + ["## Hello, World!"]).joined(separator: "\n\n"))
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(30))
+            XCTAssertEqual(scrollView.contentView.bounds.minY, 0)
+
+            XCTAssertEqual(editor.delegate?.textView?(editor, clickedOnLink: "#missing", at: 0), false)
+            XCTAssertEqual(scrollView.contentView.bounds.minY, 0)
+            XCTAssertEqual(editor.delegate?.textView?(editor, clickedOnLink: "https://example.com", at: 0), false)
+            XCTAssertEqual(editor.delegate?.textView?(editor, clickedOnLink: "#hello-world", at: 0), true)
+
+            let heading = try XCTUnwrap(editor.editingSession.headingProjectionRange(forLinkDestination: "#hello-world"))
+            var actualRange = NSRange()
+            let headingRect = editor.convert(
+                window.convertFromScreen(editor.firstRect(forCharacterRange: heading, actualRange: &actualRange)),
+                from: nil
+            )
+            XCTAssertGreaterThan(scrollView.contentView.bounds.minY, 0)
+            XCTAssertTrue(editor.visibleRect.intersects(headingRect))
+        }
+
         func testTaskCheckboxLayersFollowScrolledViewportAfterTyping() async throws {
             let frame = NSRect(x: 0, y: 0, width: 400, height: 220)
             let scrollView = NSScrollView(frame: frame)

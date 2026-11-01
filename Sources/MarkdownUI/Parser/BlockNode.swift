@@ -8,7 +8,8 @@ enum BlockNode: Hashable, Sendable {
     case codeBlock(fenceInfo: String?, content: String)
     case htmlBlock(content: String)
     case paragraph(content: [InlineNode])
-    case heading(level: Int, content: [InlineNode])
+    /// `identifier` is the heading's anchor in its document, assigned before rendering.
+    case heading(level: Int, content: [InlineNode], identifier: String? = nil)
     case table(columnAlignments: [RawTableColumnAlignment], rows: [RawTableRow])
     case thematicBreak
 }

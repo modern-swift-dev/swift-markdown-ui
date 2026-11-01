@@ -5,10 +5,12 @@ struct HeadingView: View {
 
     private let level: Int
     private let content: [InlineNode]
+    private let identifier: String?
 
-    init(level: Int, content: [InlineNode]) {
+    init(level: Int, content: [InlineNode], identifier: String?) {
         self.level = level
         self.content = content
+        self.identifier = identifier
     }
 
     var body: some View {
@@ -18,7 +20,7 @@ struct HeadingView: View {
                 content: .init(configurationBlock: .heading(level: self.level, content: self.content))
             )
         )
-        .id(content.renderPlainText().kebabCased())
+        .id(self.identifier ?? HeadingSlugger.slug(self.content.renderPlainText()))
         .accessibilityAddTraits(.isHeader)
     }
 }

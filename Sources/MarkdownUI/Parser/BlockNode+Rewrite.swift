@@ -82,8 +82,8 @@ extension BlockNode {
                 ]
             case let .paragraph(content):
                 [.paragraph(content: try content.rewrite(r))]
-            case let .heading(level, content):
-                [.heading(level: level, content: try content.rewrite(r))]
+            case let .heading(level, content, identifier):
+                [.heading(level: level, content: try content.rewrite(r), identifier: identifier)]
             case let .table(columnAlignments, rows):
                 [
                     .table(

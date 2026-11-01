@@ -206,6 +206,11 @@ import SwiftUI
 ///   }
 /// )
 /// ```
+///
+/// Each heading's view identifier is its GitHub anchor, such as `hello-world` for `## Hello, World!`,
+/// with `-1`, `-2`, … appended to repeated headings. Inside a scroll view, a link to a heading in the same
+/// content, such as `[Greeting](#hello-world)`, scrolls to that heading. Other links, and heading links
+/// outside a scroll view, go to the `openURL` action.
 public struct MarkdownView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.theme.text) private var text
@@ -214,6 +219,9 @@ public struct MarkdownView: View {
     @State private var colorSchemeImageCache = ColorSchemeImageCache()
     /// The content of the last string that finished parsing in the background.
     @State private var backgroundContent = MarkdownContent()
+    @State private var headingIdentifierCache = HeadingIdentifierCache()
+    @State private var isInScrollView = false
+    @Environment(\.openURL) private var openURL
 
     private enum Content {
         case parsed(MarkdownContent)
@@ -239,18 +247,36 @@ public struct MarkdownView: View {
     }
 
     public var body: some View {
-        let blocks = self.blocks
-        return TextStyleAttributesReader { attributes in
-            BlockSequence(blocks, renderingMode: self.blockRenderingMode)
-                // Marker alignment is internal to each list and never leaves the view.
-                .resetMarkerWidth()
-                .foregroundColor(attributes.foregroundColor)
-                .background(attributes.backgroundColor)
-                .modifier(ScaledFontSizeModifier(attributes.fontProperties?.size))
+        let headings = self.headingIdentifierCache.headings(in: self.blocks)
+        let isInScrollView = self.isInScrollView
+        let openURL = self.openURL
+        return ScrollViewReader { proxy in
+            TextStyleAttributesReader { attributes in
+                BlockSequence(headings.blocks, renderingMode: self.blockRenderingMode)
+                    // Marker alignment is internal to each list and never leaves the view.
+                    .resetMarkerWidth()
+                    .foregroundColor(attributes.foregroundColor)
+                    .background(attributes.backgroundColor)
+                    .modifier(ScaledFontSizeModifier(attributes.fontProperties?.size))
+            }
+            .textStyle(self.text)
+            .environment(\.baseURL, self.baseURL)
+            .environment(\.imageBaseURL, self.imageBaseURL)
+            .environment(\.openURL, OpenURLAction { url in
+                // Same-document links scroll to their heading when a scroll view can show it.
+                if isInScrollView, let fragment = url.headingFragment, headings.identifiers.contains(fragment) {
+                    proxy.scrollTo(fragment, anchor: .top)
+                } else {
+                    openURL(url)
+                }
+                return .handled
+            })
+            .onGeometryChange(for: Bool.self) { geometry in
+                geometry.bounds(of: .scrollView) != nil
+            } action: { isInScrollView in
+                self.isInScrollView = isInScrollView
+            }
         }
-        .textStyle(self.text)
-        .environment(\.baseURL, self.baseURL)
-        .environment(\.imageBaseURL, self.imageBaseURL)
         .task(id: self.backgroundSource) {
             guard let source = self.backgroundSource else {
                 return
@@ -393,5 +419,15 @@ private struct ScaledFontSizeModifier: ViewModifier {
         content.markdownTextStyle {
             FontSize(self.size)
         }
+    }
+}
+
+private extension URL {
+    /// The heading identifier that a same-document link, such as `#hello-world`, points to.
+    var headingFragment: String? {
+        guard self.relativeString.hasPrefix("#") else {
+            return nil
+        }
+        return self.fragment(percentEncoded: false)
     }
 }

@@ -343,6 +343,18 @@
         }
     }
 
+    extension MarkdownTextView {
+        /// Scrolls to the heading a same-document link such as `#hello-world` points to.
+        /// Returns `false`, without scrolling, for other links and unmatched fragments.
+        func scrollToHeading(linkDestination: String) -> Bool {
+            guard let range = editingSession.headingProjectionRange(forLinkDestination: linkDestination) else {
+                return false
+            }
+            scrollRangeToVisible(range)
+            return true
+        }
+    }
+
     private extension MarkdownTextView {
         /// Editor shortcuts apply only while this view itself has focus and accepts edits,
         /// so they never fire while a table cell or another view has focus.
@@ -472,6 +484,14 @@
                 in: affectedRanges[0].rangeValue,
                 with: replacementStrings[0]
             ) ?? true
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            // Returning false keeps AppKit's default handling for every other link.
+            guard let destination = (link as? String) ?? (link as? URL)?.relativeString else {
+                return false
+            }
+            return owner?.scrollToHeading(linkDestination: destination) ?? false
         }
 
         func textDidEndEditing(_ notification: Notification) {

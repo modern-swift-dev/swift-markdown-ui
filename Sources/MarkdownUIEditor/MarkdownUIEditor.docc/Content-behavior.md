@@ -8,6 +8,8 @@ Ordinary typing reconciles only the affected projection unit. The editor reuses 
 
 The editor uses the native undo manager. Typing, commands, table changes, paste, and structural deletion participate in native undo and redo.
 
+Activating a link to a heading in the same document, such as `[Greeting](#hello-world)`, scrolls to that heading. Heading anchors follow GitHub's rules, with `-1`, `-2`, … appended to repeated headings. Other links keep the platform's default behavior.
+
 Clipboard content carries Markdown and plain text. The editor prefers Markdown when structured Markdown content is available. Pasting bitmap data does not create managed image assets.
 
 ## Normalization
