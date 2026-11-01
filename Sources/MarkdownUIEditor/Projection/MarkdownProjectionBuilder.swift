@@ -515,6 +515,12 @@ private struct BlockPresentation {
                     let reference = attachment.pathReference ?? EditorPathReference(path)
                     reference.path = path
                     attachment.pathReference = reference
+                    attachment.controller.configureCells(.init(
+                        theme: theme,
+                        baseURL: baseURL,
+                        imageProvider: imageProvider,
+                        imageLoadingPolicy: imageLoadingPolicy
+                    ))
                     attachment.onChange = { [onTableChange = callbacks.onTableChange] table in
                         onTableChange?(reference.path, table)
                     }

@@ -163,6 +163,10 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     private var isPresenting = false
     /// The grid most recently loaded for this table and the layout showing it.
     private var loadedGrid: (view: AnyObject, textLayoutManager: ObjectIdentifier)?
+    #if canImport(UIKit) || canImport(AppKit)
+        /// The editor theme and image loading that cell text is projected with.
+        fileprivate(set) var cellConfiguration = MarkdownTableCellConfiguration()
+    #endif
 
     func setTypingAttributes(_ attributes: [NSAttributedString.Key: Any]) {
         onTypingAttributesChange?(attributes)
@@ -210,6 +214,17 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         table = updated
         isPresenting = true
         onPresentationChange?(change)
+        isPresenting = false
+        needsFocusAfterPresentation = true
+    }
+
+    /// Renders every cell of a loaded grid again, keeping the table and selection.
+    private func presentCells() {
+        guard onPresentationChange != nil else {
+            return
+        }
+        isPresenting = true
+        onPresentationChange?(.reload)
         isPresenting = false
         needsFocusAfterPresentation = true
     }
@@ -603,24 +618,95 @@ private enum MarkdownTableCellSourceCodec {
 }
 
 #if canImport(UIKit) || canImport(AppKit)
+    /// The editor theme and image loading that cell text is projected with.
+    ///
+    /// Equal configurations hold the same theme and image provider objects, so a
+    /// theme or provider is never mistaken for another one created at its address.
+    /// Image loading policies can't be compared, so equality ignores them.
+    struct MarkdownTableCellConfiguration: Hashable {
+        /// The editor theme, already scaled to the editor's text size, or nil for the
+        /// basic theme of a table outside an editor.
+        var theme: MarkdownEditorTheme?
+        var baseURL: URL?
+        var imageProvider: (any MarkdownEditorImageProvider)?
+        var imageLoadingPolicy = MarkdownEditorImageLoadingPolicy.allowAll
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.theme === rhs.theme && lhs.baseURL == rhs.baseURL && lhs.imageProvider === rhs.imageProvider
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(theme.map(ObjectIdentifier.init))
+            hasher.combine(baseURL)
+            hasher.combine(imageProvider.map(ObjectIdentifier.init))
+        }
+    }
+
+    @MainActor extension MarkdownTableController {
+        /// Projects cell text with an editor's theme and image loading, re-rendering
+        /// the cells of a loaded grid when the configuration changed.
+        func configureCells(_ configuration: MarkdownTableCellConfiguration) {
+            let changed = cellConfiguration != configuration
+            // A new image loading policy applies to cells projected afterwards, as in the editor's text.
+            cellConfiguration = configuration
+            if changed {
+                presentCells()
+            }
+        }
+    }
+
     @MainActor private extension MarkdownTableController {
-        func richText(at position: MarkdownTableCellPosition, theme: MarkdownEditorTheme) -> NSAttributedString {
+        /// Projects a cell with the editor's theme, or with `defaultTheme` for a table outside an editor.
+        func richText(at position: MarkdownTableCellPosition, defaultTheme: MarkdownEditorTheme) -> NSAttributedString {
             let content = cell(at: position)?.content ?? []
             let isHeader = position.section == .header
             let alignment = alignment(at: position)
-            return MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment, theme: theme) {
-                Self.projectRichText(content, isHeader: isHeader, alignment: alignment, theme: theme)
+            let configuration = cellConfiguration
+            let theme = configuration.theme ?? defaultTheme
+            let project = {
+                Self.projectRichText(content, isHeader: isHeader, alignment: alignment, theme: theme, configuration: configuration)
             }
+            // Image attachments keep the image loading policy, which a cache key can't compare.
+            guard !content.contains(where: \.containsImage) else {
+                return project()
+            }
+            return MarkdownTableCellTextCache.text(
+                for: content,
+                isHeader: isHeader,
+                alignment: alignment,
+                theme: theme,
+                configuration: configuration,
+                project: project
+            )
+        }
+
+        /// Attributes for text typed into a cell before it is projected again.
+        func cellTypingAttributes(defaultTheme: MarkdownEditorTheme) -> [NSAttributedString.Key: Any] {
+            if let theme = cellConfiguration.theme {
+                return theme.bodyAttributes
+            }
+            #if canImport(UIKit)
+                return [.font: defaultTheme.bodyAttributes[.font] ?? UIFont.preferredFont(forTextStyle: .body)]
+            #elseif canImport(AppKit)
+                return [.font: defaultTheme.bodyAttributes[.font] ?? NSFont.preferredFont(forTextStyle: .body)]
+            #endif
         }
 
         private static func projectRichText(
             _ content: [MarkdownInline],
             isHeader: Bool,
             alignment: NSTextAlignment,
-            theme: MarkdownEditorTheme
+            theme: MarkdownEditorTheme,
+            configuration: MarkdownTableCellConfiguration
         ) -> NSAttributedString {
             let content = content.map(MarkdownTableCellSourceCodec.editableInline)
-            let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]), theme: theme)
+            let projection = MarkdownProjectionBuilder().build(
+                document: MarkdownDocument(blocks: [.paragraph(content)]),
+                theme: theme,
+                baseURL: configuration.baseURL,
+                imageProvider: configuration.imageProvider,
+                imageLoadingPolicy: configuration.imageLoadingPolicy
+            )
             let result = NSMutableAttributedString(attributedString: projection.attributedString)
             if result.string.hasSuffix("\n") {
                 result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
@@ -665,7 +751,28 @@ private enum MarkdownTableCellSourceCodec {
         }
     }
 
-    /// Keeps projected cell text by content and style. Every cell is projected when a
+    private extension MarkdownInline {
+        /// Whether this inline is or contains an image.
+        var containsImage: Bool {
+            switch self {
+                case .image:
+                    true
+                case let .emphasis(children),
+                     let .strong(children),
+                     let .strikethrough(children),
+                     let .link(_, _, children):
+                    children.contains(where: \.containsImage)
+                case .text,
+                     .softBreak,
+                     .lineBreak,
+                     .code,
+                     .html:
+                    false
+            }
+        }
+    }
+
+    /// Keeps projected cell text by content, style, and configuration. Every cell is projected when a
     /// grid loads, including the grid for a table a command changed, whose cells are
     /// mostly unchanged.
     @MainActor enum MarkdownTableCellTextCache {
@@ -673,7 +780,9 @@ private enum MarkdownTableCellSourceCodec {
             var content: [MarkdownInline]
             var isHeader: Bool
             var alignment: NSTextAlignment
-            /// The theme's body font. Its other fonts scale with it for Dynamic Type.
+            var configuration: MarkdownTableCellConfiguration
+            /// The projecting theme's body font. Without an editor theme, the basic theme's
+            /// other fonts scale with it for Dynamic Type.
             var bodyFont: NSObject?
         }
 
@@ -686,9 +795,16 @@ private enum MarkdownTableCellSourceCodec {
             isHeader: Bool,
             alignment: NSTextAlignment,
             theme: MarkdownEditorTheme,
+            configuration: MarkdownTableCellConfiguration,
             project: () -> NSAttributedString
         ) -> NSAttributedString {
-            let key = Key(content: content, isHeader: isHeader, alignment: alignment, bodyFont: theme.bodyAttributes[.font] as? NSObject)
+            let key = Key(
+                content: content,
+                isHeader: isHeader,
+                alignment: alignment,
+                configuration: configuration,
+                bodyFont: theme.bodyAttributes[.font] as? NSObject
+            )
             if let text = texts[key] {
                 return text
             }
@@ -1005,7 +1121,8 @@ private enum MarkdownTableCellSourceCodec {
         private var rowStacks: [MarkdownTableRowStackView] = []
         private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
         private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
-        /// Projects cell text at this grid's text size.
+        /// Projects cell text at this grid's text size when the table has no editor theme.
+        /// An editor's theme comes already scaled to the editor's text size.
         private lazy var cellTheme = MarkdownEditorTheme.basic.scaled(to: traitCollection.preferredContentSizeCategory)
 
         init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
@@ -1283,9 +1400,9 @@ private enum MarkdownTableCellSourceCodec {
             guard let controller else {
                 return
             }
-            field.attributedText = controller.richText(at: field.position, theme: cellTheme)
+            field.attributedText = controller.richText(at: field.position, defaultTheme: cellTheme)
             field.textAlignment = controller.alignment(at: field.position)
-            field.typingAttributes = [.font: cellTheme.bodyAttributes[.font] ?? UIFont.preferredFont(forTextStyle: .body)]
+            field.typingAttributes = controller.cellTypingAttributes(defaultTheme: cellTheme)
         }
 
         /// Lays out changed cells, or every cell when nil. Removing cells can lower
@@ -1866,9 +1983,9 @@ private enum MarkdownTableCellSourceCodec {
             guard let controller else {
                 return
             }
-            field.textStorage?.setAttributedString(controller.richText(at: field.position, theme: .basic))
+            field.textStorage?.setAttributedString(controller.richText(at: field.position, defaultTheme: .basic))
             field.alignment = controller.alignment(at: field.position)
-            field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
+            field.typingAttributes = controller.cellTypingAttributes(defaultTheme: .basic)
         }
 
         /// Lays out changed cells, or every cell when nil. Removing cells can lower
@@ -1981,16 +2098,17 @@ private enum MarkdownTableCellSourceCodec {
         var onContextSelection: ((NSRange) -> Void)?
         var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
         private(set) lazy var widthConstraint = widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
-        private let cellTextStorage: NSTextStorage
+        private let cellContentStorage: NSTextContentStorage
 
+        /// Uses TextKit 2, which shows attachment views such as images loading in the cell.
         init(position: MarkdownTableCellPosition) {
             self.position = position
-            let textStorage = NSTextStorage()
-            let layoutManager = NSLayoutManager()
+            let contentStorage = NSTextContentStorage()
+            let layoutManager = NSTextLayoutManager()
             let textContainer = NSTextContainer()
-            textStorage.addLayoutManager(layoutManager)
-            layoutManager.addTextContainer(textContainer)
-            self.cellTextStorage = textStorage
+            contentStorage.addTextLayoutManager(layoutManager)
+            layoutManager.textContainer = textContainer
+            self.cellContentStorage = contentStorage
             super.init(frame: .zero, textContainer: textContainer)
         }
 

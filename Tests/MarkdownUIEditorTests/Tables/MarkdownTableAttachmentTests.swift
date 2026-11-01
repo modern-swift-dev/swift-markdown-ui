@@ -6,10 +6,14 @@ import XCTest
     import AppKit
 
     private typealias PlatformView = NSView
+    private typealias PlatformFont = NSFont
+    private typealias PlatformColor = NSColor
 #elseif canImport(UIKit)
     import UIKit
 
     private typealias PlatformView = UIView
+    private typealias PlatformFont = UIFont
+    private typealias PlatformColor = UIColor
 #endif
 
 @MainActor final class MarkdownTableAttachmentTests: XCTestCase {
@@ -333,13 +337,21 @@ import XCTest
         let content: [MarkdownInline] = [.text(UUID().uuidString)]
         var projections = 0
         let basic = MarkdownEditorTheme.basic
+        let provider = RecordingImageProvider()
         func text(
             _ content: [MarkdownInline],
             isHeader: Bool = false,
             alignment: NSTextAlignment = .left,
-            theme: MarkdownEditorTheme? = nil
+            theme: MarkdownEditorTheme? = nil,
+            configuration: MarkdownTableCellConfiguration = .init()
         ) -> NSAttributedString {
-            MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment, theme: theme ?? basic) {
+            MarkdownTableCellTextCache.text(
+                for: content,
+                isHeader: isHeader,
+                alignment: alignment,
+                theme: configuration.theme ?? theme ?? basic,
+                configuration: configuration
+            ) {
                 projections += 1
                 return NSAttributedString(string: "\(projections)")
             }
@@ -362,6 +374,13 @@ import XCTest
         )
         XCTAssertFalse(text(content, theme: larger) === first, "Text in another body font, such as a larger text size, is projected again")
         XCTAssertEqual(projections, 4)
+        let themed = text(content, configuration: .init(theme: basic))
+        XCTAssertFalse(themed === first, "Text projected under another theme is never reused")
+        XCTAssertTrue(text(content, configuration: .init(theme: basic)) === themed)
+        XCTAssertFalse(text(content, configuration: .init(theme: .basic)) === themed, "Themes are told apart by identity")
+        XCTAssertFalse(text(content, configuration: .init(theme: basic, baseURL: URL(string: "https://example.com/"))) === themed)
+        XCTAssertFalse(text(content, configuration: .init(theme: basic, imageProvider: provider)) === themed)
+        XCTAssertEqual(projections, 8)
 
         for index in 0 ..< MarkdownTableCellTextCache.capacity {
             _ = text([.text("\(content) \(index)")])
@@ -470,6 +489,78 @@ import XCTest
             autoreleasepool { _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         }
         XCTAssertNil(cell, "A table's cell views are released with its attachment")
+    }
+
+    func testCellsUseTheEditorThemeAndFollowItsChanges() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.editorTheme = cellTheme(fontName: "Courier", size: 19, color: .systemRed)
+        editor.document = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+        let window = show(editor)
+        defer { hide(window) }
+        func bodyCellAttributes() throws -> (font: PlatformFont, color: PlatformColor) {
+            layout(editor)
+            let text = try XCTUnwrap(cellText("Table row 1, column 2", in: editor))
+            XCTAssertEqual(text.string, "b")
+            return try (
+                XCTUnwrap(text.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont),
+                XCTUnwrap(text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? PlatformColor)
+            )
+        }
+        let themed = try bodyCellAttributes()
+        XCTAssertEqual(themed.font.familyName, "Courier")
+        XCTAssertEqual(themed.font.pointSize, 19)
+        XCTAssertEqual(themed.color, .systemRed)
+        let grid = try XCTUnwrap(tableGrids(in: editor).first)
+
+        editor.editorTheme = cellTheme(fontName: "Georgia", size: 23, color: .systemGreen)
+        let switched = try bodyCellAttributes()
+        XCTAssertEqual(switched.font.familyName, "Georgia")
+        XCTAssertEqual(switched.font.pointSize, 23)
+        XCTAssertEqual(switched.color, .systemGreen)
+        XCTAssertTrue(tableGrids(in: editor).first === grid, "A theme change re-renders the cells of the kept grid")
+    }
+
+    func testImagesInCellsLoadThroughTheEditorProviderAndBaseURL() {
+        let provider = RecordingImageProvider()
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.imageProvider = provider
+        editor.baseURL = URL(string: "https://example.com/docs/")
+        editor.document = MarkdownDocument(markdown: "| Image |\n| - |\n| ![chart](images/chart.png) |")
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while loadedImageCount(in: editor) == 0, Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+            layout(editor)
+        }
+        XCTAssertFalse(provider.requests.isEmpty)
+        XCTAssertEqual(Set(provider.requests), [URL(string: "https://example.com/docs/images/chart.png")])
+        XCTAssertEqual(loadedImageCount(in: editor), 1, "The cell shows the loaded image")
+    }
+
+    func testBlockedImagesInCellsAreNeverRequested() {
+        let provider = RecordingImageProvider()
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.imageProvider = provider
+        editor.editingSession.imageLoadingPolicy = .allowing(schemes: ["https"], hosts: ["images.example.com"])
+        editor.document = MarkdownDocument(markdown: """
+        | Allowed | Blocked |
+        | - | - |
+        | ![allowed](https://images.example.com/a.png) | ![tracker](https://tracker.example.net/pixel.gif) |
+        """)
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while loadedImageCount(in: editor) == 0, Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+            layout(editor)
+        }
+        // Give a blocked request the same chance to start as the allowed one.
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(Set(provider.requests), [URL(string: "https://images.example.com/a.png")])
+        XCTAssertEqual(loadedImageCount(in: editor), 1, "The blocked image keeps showing its alt text")
     }
 
     #if canImport(AppKit)
@@ -1246,6 +1337,19 @@ import XCTest
         }
     #endif
 
+    private func cellTheme(fontName: String, size: CGFloat, color: PlatformColor) -> MarkdownEditorTheme {
+        let font = PlatformFont(name: fontName, size: size) ?? .systemFont(ofSize: size)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        return MarkdownEditorTheme(
+            bodyAttributes: attributes,
+            headingAttributes: [:],
+            codeAttributes: attributes,
+            sourceAttributes: attributes,
+            linkAttributes: [:],
+            objectPlaceholderAttributes: attributes
+        )
+    }
+
     private func sizingTable() -> MarkdownTable {
         MarkdownTable(
             alignments: [.left, .left],
@@ -1309,6 +1413,37 @@ import XCTest
             }
         }
 
+        private func show(_ editor: MarkdownTextView) -> NSWindow {
+            editor.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+            let window = NSWindow(contentRect: editor.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = editor
+            window.makeKeyAndOrderFront(nil)
+            return window
+        }
+
+        private func hide(_ window: NSWindow) {
+            window.orderOut(nil)
+        }
+
+        private func layout(_ editor: MarkdownTextView) {
+            if let manager = editor.textLayoutManager {
+                manager.ensureLayout(for: manager.documentRange)
+            }
+            editor.layoutSubtreeIfNeeded()
+        }
+
+        private func tableGrids(in editor: MarkdownTextView) -> [NSView] {
+            subviews(of: AppKitMarkdownTableGridView.self, in: editor)
+        }
+
+        private func cellText(_ label: String, in editor: MarkdownTextView) -> NSAttributedString? {
+            subviews(of: NSTextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel() == label }?.attributedString()
+        }
+
+        private func loadedImageCount(in editor: MarkdownTextView) -> Int {
+            tableGrids(in: editor).flatMap { subviews(of: NSImageView.self, in: $0) }.count { $0.image != nil }
+        }
+
         private func subviews<View: NSView>(of type: View.Type, in rootView: NSView) -> [View] {
             let current = (rootView as? View).map { [$0] } ?? []
             return current + rootView.subviews.flatMap { self.subviews(of: type, in: $0) }
@@ -1356,6 +1491,38 @@ import XCTest
             }
         }
 
+        private func show(_ editor: MarkdownTextView) -> UIWindow {
+            editor.frame = CGRect(x: 0, y: 0, width: 358, height: 600)
+            let window = UIWindow(frame: editor.frame)
+            window.rootViewController = UIViewController()
+            window.rootViewController?.view.addSubview(editor)
+            window.makeKeyAndVisible()
+            return window
+        }
+
+        private func hide(_ window: UIWindow) {
+            window.isHidden = true
+        }
+
+        private func layout(_ editor: MarkdownTextView) {
+            if let manager = editor.textLayoutManager {
+                manager.ensureLayout(for: manager.documentRange)
+            }
+            editor.layoutIfNeeded()
+        }
+
+        private func tableGrids(in editor: MarkdownTextView) -> [UIView] {
+            subviews(of: UIKitMarkdownTableGridView.self, in: editor)
+        }
+
+        private func cellText(_ label: String, in editor: MarkdownTextView) -> NSAttributedString? {
+            subviews(of: UITextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel == label }?.attributedText
+        }
+
+        private func loadedImageCount(in editor: MarkdownTextView) -> Int {
+            tableGrids(in: editor).flatMap { subviews(of: UIImageView.self, in: $0) }.count { $0.image != nil }
+        }
+
         private func subviews<View: UIView>(of type: View.Type, in rootView: UIView) -> [View] {
             let current = (rootView as? View).map { [$0] } ?? []
             return current + rootView.subviews.flatMap { self.subviews(of: type, in: $0) }
@@ -1363,4 +1530,24 @@ import XCTest
 
     #endif
 
+}
+
+@MainActor private final class RecordingImageProvider: MarkdownEditorImageProvider {
+    private(set) var requests: [URL] = []
+
+    func image(for url: URL) async throws -> MarkdownEditorPlatformImage {
+        requests.append(url)
+        #if canImport(AppKit)
+            return NSImage(size: NSSize(width: 4, height: 4), flipped: false) { rect in
+                NSColor.systemBlue.setFill()
+                rect.fill()
+                return true
+            }
+        #else
+            return UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+                UIColor.systemBlue.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+            }
+        #endif
+    }
 }
