@@ -54,10 +54,33 @@ private enum TaskListSyntaxExtension {
     }
 }
 
+/// A point where parsing a document can stop early.
+enum ParseCheckpoint: Equatable {
+    /// cmark finished parsing; no block has been converted yet.
+    case parsed
+    /// About to convert the top-level node at this index into a block.
+    case beforeBlock(Int)
+    /// Every block is converted; the color-scheme image scan is next.
+    case beforeImageScan
+}
+
 extension [BlockNode] {
     init(markdown: String) {
-        let blocks = UnsafeNode.parseMarkdown(markdown) { document in
-            document.children.compactMap(BlockNode.init(unsafeNode:))
+        self.init(markdown: markdown) { _ in }
+    }
+
+    /// Parses a document like ``init(markdown:)``, rethrowing whatever `checkpoint` throws to stop early.
+    init(markdown: String, checkpoint: (ParseCheckpoint) throws -> Void) rethrows {
+        let blocks = try UnsafeNode.parseMarkdown(markdown) { document in
+            try checkpoint(.parsed)
+            var blocks: [BlockNode] = []
+            for (index, child) in document.children.enumerated() {
+                try checkpoint(.beforeBlock(index))
+                if let block = BlockNode(unsafeNode: child) {
+                    blocks.append(block)
+                }
+            }
+            return blocks
         }
         self.init(blocks ?? .init())
     }

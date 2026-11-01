@@ -161,6 +161,19 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
         self.init(markdown)
     }
 
+    /// Creates a Markdown content value like ``init(_:)``, but stops at its next checkpoint and throws if `checkpoint` throws.
+    init(_ markdown: String, checkpoint: (ParseCheckpoint) throws -> Void) rethrows {
+        let blocks = try [BlockNode](markdown: markdown, checkpoint: checkpoint)
+        try checkpoint(.beforeImageScan)
+        self.init(blocks: blocks)
+    }
+
+    /// Parses off the main actor like ``init(parsing:)``, but throws `CancellationError`
+    /// at the next checkpoint when the calling task is cancelled.
+    nonisolated init(cancellableParsing markdown: String) async throws {
+        try self.init(markdown) { _ in try Task.checkCancellation() }
+    }
+
     /// Creates a Markdown content value composed of any number of blocks.
     /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
     public init(@MarkdownContentBuilder content: () -> MarkdownContent) {

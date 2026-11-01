@@ -282,9 +282,8 @@ public struct MarkdownView: View {
             guard let source = self.backgroundSource else {
                 return
             }
-            let content = await MarkdownContent(parsing: source)
-            // A newer source cancelled this parse; its result must not replace the newer content.
-            guard !Task.isCancelled else {
+            // A newer source cancels this parse, which then stops early; its result must not replace the newer content.
+            guard let content = try? await MarkdownContent(cancellableParsing: source), !Task.isCancelled else {
                 return
             }
             self.backgroundContent = content
