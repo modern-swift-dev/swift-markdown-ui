@@ -74,6 +74,24 @@ var body: some View {
 }
 ```
 
+A `Markdown` view parses its string while it renders, which can block the user interface for a
+large document. To parse in a background task instead, pass ``ParsingMode/background`` to the
+``MarkdownView/init(_:parsing:baseURL:imageBaseURL:)`` initializer. The view keeps showing the
+previous content until the new string is parsed.
+
+```swift
+var body: some View {
+  MarkdownView(self.model.largeMarkdownString, parsing: .background)
+}
+```
+
+To parse in your model layer without blocking the main actor, use
+``MarkdownContent/init(parsing:)``.
+
+```swift
+let content = await MarkdownContent(parsing: largeMarkdownString)
+```
+
 ## Styling Markdown
 
 Markdown views use a basic default theme to display the contents. For more information, read about

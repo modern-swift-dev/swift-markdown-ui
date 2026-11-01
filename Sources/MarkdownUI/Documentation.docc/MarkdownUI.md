@@ -38,6 +38,7 @@ MarkdownUI supports the following deployment targets:
 ### Displaying Markdown
 
 - ``MarkdownView``
+- ``ParsingMode``
 
 ### Customizing Appearance
 

@@ -71,6 +71,24 @@ import SwiftUI
 /// }
 /// ```
 ///
+/// A `Markdown` view parses its string while it renders, which can block the user interface for a
+/// large document. To parse in a background task instead, pass ``ParsingMode/background`` to the
+/// ``MarkdownView/init(_:parsing:baseURL:imageBaseURL:)`` initializer. The view keeps showing the
+/// previous content until the new string is parsed.
+///
+/// ```swift
+/// var body: some View {
+///   MarkdownView(self.model.largeMarkdownString, parsing: .background)
+/// }
+/// ```
+///
+/// To parse in your model layer without blocking the main actor, use
+/// ``MarkdownContent/init(parsing:)``.
+///
+/// ```swift
+/// let content = await MarkdownContent(parsing: largeMarkdownString)
+/// ```
+///
 /// ### Styling Markdown
 ///
 /// Markdown views use a basic default theme to display the contents. For more information, read about the ``Theme/basic`` theme.
@@ -194,10 +212,13 @@ public struct MarkdownView: View {
     @Environment(\.markdownBlockRenderingMode) private var blockRenderingMode
     @State private var contentCache = MarkdownContentCache()
     @State private var colorSchemeImageCache = ColorSchemeImageCache()
+    /// The content of the last string that finished parsing in the background.
+    @State private var backgroundContent = MarkdownContent()
 
     private enum Content {
         case parsed(MarkdownContent)
         case markdown(String)
+        case backgroundMarkdown(String)
     }
 
     private let content: Content
@@ -230,6 +251,24 @@ public struct MarkdownView: View {
         .textStyle(self.text)
         .environment(\.baseURL, self.baseURL)
         .environment(\.imageBaseURL, self.imageBaseURL)
+        .task(id: self.backgroundSource) {
+            guard let source = self.backgroundSource else {
+                return
+            }
+            let content = await MarkdownContent(parsing: source)
+            // A newer source cancelled this parse; its result must not replace the newer content.
+            guard !Task.isCancelled else {
+                return
+            }
+            self.backgroundContent = content
+        }
+    }
+
+    private var backgroundSource: String? {
+        guard case let .backgroundMarkdown(source) = self.content else {
+            return nil
+        }
+        return source
     }
 
     private var blocks: [BlockNode] {
@@ -241,6 +280,9 @@ public struct MarkdownView: View {
                 return self.colorSchemeImageCache.blocks(
                     for: self.contentCache.content(for: source), matching: self.colorScheme
                 )
+            case .backgroundMarkdown:
+                self.contentCache.clear()
+                return self.colorSchemeImageCache.blocks(for: self.backgroundContent, matching: self.colorScheme)
         }
     }
 }
@@ -258,6 +300,38 @@ public extension MarkdownView {
     ///                   determine image URLs using the `baseURL` parameter. The default is `nil`.
     init(_ markdown: String, baseURL: URL? = nil, imageBaseURL: URL? = nil) {
         self.content = .markdown(markdown)
+        self.baseURL = baseURL
+        self.imageBaseURL = imageBaseURL ?? baseURL
+    }
+
+    /// Creates a Markdown view from a Markdown-formatted string, parsing it in the specified mode.
+    ///
+    /// Use ``ParsingMode/background`` to display large documents without blocking the user interface.
+    /// The view keeps showing the previous content, or nothing before the first parse finishes, until
+    /// the new string is parsed.
+    ///
+    /// ```swift
+    /// var body: some View {
+    ///   MarkdownView(self.model.largeMarkdownString, parsing: .background)
+    /// }
+    /// ```
+    ///
+    /// With ``ParsingMode/synchronous``, this initializer behaves like
+    /// ``MarkdownView/init(_:baseURL:imageBaseURL:)-(String,_,_)``.
+    /// - Parameters:
+    ///   - markdown: The string that contains the Markdown formatting.
+    ///   - parsing: When the view parses `markdown`.
+    ///   - baseURL: The base URL to use when resolving Markdown URLs. If this value is `nil`, the initializer will consider all
+    ///              URLs absolute. The default is `nil`.
+    ///   - imageBaseURL: The base URL to use when resolving Markdown image URLs. If this value is `nil`, the initializer will
+    ///                   determine image URLs using the `baseURL` parameter. The default is `nil`.
+    init(_ markdown: String, parsing: ParsingMode, baseURL: URL? = nil, imageBaseURL: URL? = nil) {
+        switch parsing {
+            case .synchronous:
+                self.content = .markdown(markdown)
+            case .background:
+                self.content = .backgroundMarkdown(markdown)
+        }
         self.baseURL = baseURL
         self.imageBaseURL = imageBaseURL ?? baseURL
     }

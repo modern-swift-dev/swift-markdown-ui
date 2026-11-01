@@ -145,6 +145,22 @@ public struct MarkdownContent: Equatable, MarkdownContentProtocol {
         self.init(blocks: .init(markdown: markdown))
     }
 
+    /// Creates a Markdown content value by parsing a Markdown-formatted string off the main actor.
+    ///
+    /// Parsing a large document can take long enough to make the user interface unresponsive.
+    /// This initializer parses on the global concurrent executor instead of the caller's actor,
+    /// and produces the same value as ``init(_:)``.
+    ///
+    /// ```swift
+    /// let content = await MarkdownContent(parsing: largeMarkdownString)
+    /// ```
+    ///
+    /// Parsing runs to completion even if the calling task is cancelled.
+    /// - Parameter markdown: A Markdown-formatted string.
+    public nonisolated init(parsing markdown: String) async {
+        self.init(markdown)
+    }
+
     /// Creates a Markdown content value composed of any number of blocks.
     /// - Parameter content: A Markdown content builder that returns the blocks that form the Markdown content.
     public init(@MarkdownContentBuilder content: () -> MarkdownContent) {
