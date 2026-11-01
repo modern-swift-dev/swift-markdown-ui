@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(macOS)
     import MarkdownUI
     import SnapshotTesting
     import SwiftUI
@@ -7,8 +7,21 @@
     extension SnapshotTests {
         @MainActor
         @Suite(.enabled(if: SnapshotTestSupport.supportsPhoneSnapshots, "Skipping on iPad")) struct ThemeGitHubTests {
-            private let imageOptions = ImageSnapshotOptions().requiringPerceptualPrecision(0.97)
-            private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
+            #if os(iOS)
+                private func strategy<V: View>() -> Snapshotting<V, UIImage> {
+                    .image(
+                        options: ImageSnapshotOptions().requiringPerceptualPrecision(0.97),
+                        layout: .device(config: .iPhone8)
+                    )
+                }
+            #else
+                private func strategy<V: View>() -> Snapshotting<V, NSImage> {
+                    .windowImage(
+                        width: SnapshotTestSupport.phoneSize.width,
+                        height: SnapshotTestSupport.phoneSize.height
+                    )
+                }
+            #endif
 
             @Test func inlines() {
                 let view = ThemePreview(theme: .gitHub) {
@@ -27,7 +40,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -50,7 +63,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -66,7 +79,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -83,7 +96,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -98,7 +111,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -120,7 +133,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -134,7 +147,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -160,7 +173,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -177,7 +190,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
 
@@ -192,7 +205,7 @@
                     """#
                 }
                 assertSnapshot(
-                    of: view, as: .image(options: imageOptions, layout: layout)
+                    of: view, as: strategy(), named: SnapshotTestSupport.referenceName
                 )
             }
         }

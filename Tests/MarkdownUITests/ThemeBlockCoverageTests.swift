@@ -1,14 +1,11 @@
 import MarkdownUI
 import SwiftUI
 import XCTest
-#if os(iOS)
+#if os(iOS) || os(macOS)
     import SnapshotTesting
 #endif
 
 /// Renders a document containing every block and inline type with each built-in theme in light and dark.
-///
-/// The snapshots are iOS-only like the other theme snapshots: on macOS the bitmap snapshot strategy does
-/// not draw the horizontal scroll views that hold code blocks.
 @MainActor final class ThemeBlockCoverageTests: XCTestCase {
     private static let width: CGFloat = 480
     private static let height: CGFloat = 1350
@@ -40,7 +37,7 @@ import XCTest
         XCTAssertEqual(Set(bitmaps).count, bitmaps.count, "Every theme and color scheme looks different")
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
         func testBasicThemeRendersEveryBlockType() throws {
             try self.assertAllBlocks(theme: .basic, named: "basic")
         }
@@ -54,7 +51,9 @@ import XCTest
         }
 
         private func assertAllBlocks(theme: Theme, named name: String) throws {
-            try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on iPad")
+            #if os(iOS)
+                try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Skipping on iPad")
+            #endif
             for colorScheme in ColorScheme.allCases {
                 let scheme = colorScheme == .dark ? "dark" : "light"
                 let view = MarkdownView(Self.document)
@@ -64,18 +63,31 @@ import XCTest
                     .frame(width: Self.width, height: Self.height, alignment: .topLeading)
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .colorScheme(colorScheme)
-                assertSnapshot(
-                    of: view,
-                    as: .image(
-                        options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
-                        layout: .fixed(width: Self.width, height: Self.height),
-                        settlingDelay: 0.2,
-                        isOpaque: true
-                    ),
-                    named: "\(name)-\(scheme)",
-                    options: .init(record: SnapshotTestSupport.configuration.record),
-                    testName: "allBlocks"
-                )
+                #if os(iOS)
+                    assertSnapshot(
+                        of: view,
+                        as: .image(
+                            options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
+                            layout: .fixed(width: Self.width, height: Self.height),
+                            settlingDelay: 0.2,
+                            isOpaque: true
+                        ),
+                        named: "\(name)-\(scheme)",
+                        options: .init(record: SnapshotTestSupport.configuration.record),
+                        testName: "allBlocks"
+                    )
+                #else
+                    assertSnapshot(
+                        of: view,
+                        as: .windowImage(
+                            width: Self.width,
+                            height: Self.height
+                        ),
+                        named: "\(name)-\(scheme)-macOS",
+                        options: .init(record: SnapshotTestSupport.configuration.record),
+                        testName: "allBlocks"
+                    )
+                #endif
             }
         }
     #endif

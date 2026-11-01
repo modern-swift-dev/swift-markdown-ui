@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(macOS)
     import MarkdownUI
     import SnapshotTesting
     import SwiftUI
@@ -7,7 +7,18 @@
     extension SnapshotTests {
         @MainActor
         @Suite(.enabled(if: SnapshotTestSupport.supportsPhoneSnapshots, "Skipping on iPad")) struct ThemeDocCTests {
-            private let layout = SwiftUISnapshotLayout.device(config: .iPhone8)
+            #if os(iOS)
+                private func strategy<V: View>() -> Snapshotting<V, UIImage> {
+                    .image(layout: .device(config: .iPhone8))
+                }
+            #else
+                private func strategy<V: View>() -> Snapshotting<V, NSImage> {
+                    .windowImage(
+                        width: SnapshotTestSupport.phoneSize.width,
+                        height: SnapshotTestSupport.phoneSize.height
+                    )
+                }
+            #endif
 
             @Test func inlines() {
                 let view = ThemePreview(theme: .docC) {
@@ -25,7 +36,7 @@
                     Use `git status` to list all new or modified files that haven't yet been committed.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func headings() {
@@ -46,7 +57,7 @@
                     Paragraph.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func paragraph() {
@@ -61,7 +72,7 @@
                     It was a bright cold day in April, and the clocks were striking thirteen.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func blockquote() {
@@ -74,7 +85,7 @@
                     It was a bright cold day in April, and the clocks were striking thirteen.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func codeBlock() {
@@ -94,7 +105,7 @@
                     It was a bright cold day in April, and the clocks were striking thirteen.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func image() {
@@ -113,7 +124,7 @@
                     """#
                 }
                 .markdownImageProvider(AssetImageProvider(bundle: .module))
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func list() {
@@ -140,7 +151,7 @@
                     - [ ] An unfinished task
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func table() {
@@ -155,7 +166,7 @@
                     | `fast`       | Moves faster than a hare.             |
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
 
             @Test func thematicBreak() {
@@ -168,7 +179,7 @@
                     It was a bright cold day in April, and the clocks were striking thirteen.
                     """#
                 }
-                assertSnapshot(of: view, as: .image(layout: layout))
+                assertSnapshot(of: view, as: strategy(), named: SnapshotTestSupport.referenceName)
             }
         }
     }

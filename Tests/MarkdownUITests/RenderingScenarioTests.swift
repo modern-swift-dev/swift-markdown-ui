@@ -43,10 +43,9 @@
                 #else
                     assertSnapshot(
                         of: view,
-                        as: .image(
-                            options: ImageSnapshotOptions().requiringPerceptualPrecision(0.98),
-                            layout: .fixed(width: scenario.width, height: scenario.height),
-                            isOpaque: true
+                        as: .windowImage(
+                            width: scenario.width,
+                            height: scenario.height
                         ),
                         named: "\(scenario.name)-\(platform)",
                         options: .init(record: SnapshotTestSupport.configuration.record),
