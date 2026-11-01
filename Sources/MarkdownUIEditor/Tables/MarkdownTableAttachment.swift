@@ -1721,7 +1721,6 @@ private enum MarkdownTableCellSourceCodec {
         private var maximumWidth: CGFloat?
         private var gridView = NSGridView()
         private var fields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
-        private var columnWidthConstraints: [[NSLayoutConstraint]] = []
         private var isEditingCell = false
         private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
         private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
@@ -1830,7 +1829,6 @@ private enum MarkdownTableCellSourceCodec {
             }
             gridView.removeFromSuperview()
             fields.removeAll()
-            columnWidthConstraints.removeAll()
             cellHeights.removeAll()
             rowHeights.removeAll()
             let count = max(controller.columnCount, 1)
@@ -1839,10 +1837,8 @@ private enum MarkdownTableCellSourceCodec {
             for row in controller.table.rows.indices {
                 rows.append(makeRow(section: .body(row: row), columnCount: count))
             }
-            columnWidthConstraints = Array(repeating: [], count: count)
             for case let field as AppKitMarkdownTableCellTextView in rows.joined() {
                 fields[field.position] = field
-                columnWidthConstraints[field.position.column].append(field.widthConstraint)
             }
             gridView = NSGridView(views: rows)
             gridView.rowSpacing = 0
@@ -1853,11 +1849,11 @@ private enum MarkdownTableCellSourceCodec {
             updateColumnWidths()
             gridView.translatesAutoresizingMaskIntoConstraints = false
             addSubview(gridView)
+            // The column widths and cell heights size the grid, and this view takes its
+            // fitting size, so the grid is not also sized from this view's frame.
             NSLayoutConstraint.activate([
                 gridView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                gridView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                gridView.topAnchor.constraint(equalTo: topAnchor),
-                gridView.bottomAnchor.constraint(equalTo: bottomAnchor)
+                gridView.topAnchor.constraint(equalTo: topAnchor)
             ])
             invalidateIntrinsicContentSize()
         }
@@ -1911,7 +1907,6 @@ private enum MarkdownTableCellSourceCodec {
             var previousPositions: [MarkdownTableCellPosition: MarkdownTableCellPosition] = [:]
             var updatedHeights: [MarkdownTableCellPosition: CGFloat] = [:]
             var newCells: [MarkdownTableCellPosition] = []
-            columnWidthConstraints = Array(repeating: [], count: previousColumns.count)
             for row in 0 ..< gridView.numberOfRows {
                 let section: MarkdownTableCellPosition.Section = row == 0 ? .header : .body(row: row - 1)
                 for column in 0 ..< gridView.numberOfColumns {
@@ -1931,7 +1926,6 @@ private enum MarkdownTableCellSourceCodec {
                     field.position = position
                     field.setAccessibilityLabel(markdownTableAccessibilityLabel(for: position))
                     updatedFields[position] = field
-                    columnWidthConstraints[column].append(field.widthConstraint)
                 }
             }
             fields = updatedFields
@@ -1977,7 +1971,6 @@ private enum MarkdownTableCellSourceCodec {
             field.updateBorderColor()
             field.layer?.borderWidth = 0.5
             field.setAccessibilityLabel(markdownTableAccessibilityLabel(for: position))
-            field.widthConstraint.isActive = true
             return field
         }
 
@@ -2010,10 +2003,8 @@ private enum MarkdownTableCellSourceCodec {
                 return false
             }
             for column in widths.indices where !previousWidths.indices.contains(column) || previousWidths[column] != widths[column] {
+                // Cells fill their column, so the column width sets their width.
                 gridView.column(at: column).width = widths[column]
-                for constraint in columnWidthConstraints[column] where constraint.constant != widths[column] {
-                    constraint.constant = widths[column]
-                }
             }
             var affectedRows = Set<MarkdownTableCellPosition.Section>()
             if remeasuringAllRows, let controller {
@@ -2023,10 +2014,6 @@ private enum MarkdownTableCellSourceCodec {
             for position in affected {
                 guard let field = fields[position] else {
                     continue
-                }
-                // Cells inserted into an existing column take its width here.
-                if field.widthConstraint.constant != widths[position.column] {
-                    field.widthConstraint.constant = widths[position.column]
                 }
                 field.layoutWidth = widths[position.column]
                 let height = field.intrinsicContentSize.height
@@ -2100,7 +2087,6 @@ private enum MarkdownTableCellSourceCodec {
         var position: MarkdownTableCellPosition
         var onContextSelection: ((NSRange) -> Void)?
         var layoutWidth: CGFloat = MarkdownTableColumnLayout.minimumColumnWidth
-        private(set) lazy var widthConstraint = widthAnchor.constraint(equalToConstant: MarkdownTableColumnLayout.minimumColumnWidth)
         private let cellContentStorage: NSTextContentStorage
 
         /// Uses TextKit 2, which shows attachment views such as images loading in the cell.

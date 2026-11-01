@@ -606,7 +606,7 @@ actor InlineImageLoader {
 
     /// Configured once and never mutated afterwards. `DateFormatter` is documented as thread safe
     /// for formatting and parsing on the supported OS versions, so concurrent downloads may share it.
-    private nonisolated(unsafe) static let httpDateFormatter: DateFormatter = {
+    private static let httpDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)

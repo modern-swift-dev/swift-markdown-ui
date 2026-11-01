@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum FontPropertiesAttribute: AttributedStringKey {
     typealias Value = FontProperties

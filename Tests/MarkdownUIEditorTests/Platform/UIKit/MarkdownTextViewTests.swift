@@ -19,7 +19,7 @@
         func testUndoNotificationsFollowAttachedEditorManager() throws {
             let editor = makeTextView()
             editor.document = MarkdownDocument(markdown: "text")
-            editor.becomeFirstResponder()
+            XCTAssertTrue(editor.becomeFirstResponder())
             let manager = try XCTUnwrap(editor.undoManager)
             var updates = 0
             editor.editingSession.onCommandStateChange = { updates += 1 }
@@ -37,7 +37,7 @@
             for (title, expected) in [("Bold", "**hello** world\n"), ("Italic", "*hello* world\n"), ("Strikethrough", "~~hello~~ world\n")] {
                 let editor = makeTextView()
                 editor.document = MarkdownDocument(markdown: "hello world")
-                editor.becomeFirstResponder()
+                XCTAssertTrue(editor.becomeFirstResponder())
                 editor.selectedRange = NSRange(location: 0, length: 5)
                 let suggested = UIAction(title: "Copy") { _ in }
                 let menu = try XCTUnwrap(editor.delegate?.textView?(editor, editMenuForTextIn: editor.selectedRange, suggestedActions: [suggested]))

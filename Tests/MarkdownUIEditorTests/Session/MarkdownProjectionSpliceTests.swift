@@ -205,7 +205,7 @@ import XCTest
             }
             return list.items.first?.taskState != nil
         }
-        try step("toggle task") {
+        step("toggle task") {
             XCTAssertTrue(session.toggleTask(atProjectionUTF16Offset: task.projectionRange.location))
         }
         let heading = try firstUnit(in: session) {

@@ -252,7 +252,13 @@
                 styleMask: [.titled], backing: .buffered, defer: false
             )
             // SwiftUI creates its accessibility nodes lazily until assistive access is enabled.
-            NSApplication.shared.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+            // The NSAccessibility protocol has no setter for this attribute, so the
+            // informal protocol method is sent by selector, as assistive apps send it.
+            _ = NSApplication.shared.perform(
+                NSSelectorFromString("accessibilitySetValue:forAttribute:"),
+                with: NSNumber(value: true),
+                with: "AXEnhancedUserInterface"
+            )
             window.contentView = hostingView
             window.makeKeyAndOrderFront(nil)
             defer { window.orderOut(nil) }

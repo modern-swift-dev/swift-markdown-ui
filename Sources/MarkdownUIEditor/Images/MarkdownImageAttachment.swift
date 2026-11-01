@@ -276,9 +276,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             altLabel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(imageView)
             addSubview(altLabel)
+            // TextKit sets this view's frame, starting from its initial size.
             NSLayoutConstraint.activate([
-                widthAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.width),
-                heightAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.height),
                 imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
                 imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 imageView.topAnchor.constraint(equalTo: topAnchor),
@@ -354,9 +353,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             altLabel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(imageView)
             addSubview(altLabel)
+            // TextKit sets this view's frame, starting from its initial size.
             NSLayoutConstraint.activate([
-                widthAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.width),
-                heightAnchor.constraint(equalToConstant: MarkdownImageAttachment.imageViewSize.height),
                 imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
                 imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 imageView.topAnchor.constraint(equalTo: topAnchor),

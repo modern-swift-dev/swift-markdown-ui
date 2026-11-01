@@ -525,8 +525,10 @@
                 taskMarkerTapGesture = recognizer
             }
         }
+    }
 
-        internal func taskMarkerOffset(at point: CGPoint) -> Int? {
+    extension MarkdownTextView {
+        func taskMarkerOffset(at point: CGPoint) -> Int? {
             guard let position = closestPosition(to: point) else {
                 return nil
             }
