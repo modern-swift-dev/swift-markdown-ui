@@ -1,3 +1,4 @@
+import ImageIO
 @testable import MarkdownUI
 import SwiftUI
 import XCTest
@@ -33,6 +34,38 @@ import XCTest
         let count = await provider.labels.count
         XCTAssertEqual(count, 4)
         XCTAssertTrue(images.isEmpty)
+    }
+
+    func testDefaultProviderLoadsFileAndDataURLsAndFailsForMissingFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = try encodedPNG()
+        try png.write(to: directory.appendingPathComponent("logo.png"))
+        let file = InlineNode.image(source: "logo.png", children: [.text("file")])
+        let absoluteFile = InlineNode.image(
+            source: directory.appendingPathComponent("logo.png").absoluteString, children: [.text("absolute")]
+        )
+        let data = InlineNode.image(source: "data:image/png;base64,\(png.base64EncodedString())", children: [.text("data")])
+        let missing = InlineNode.image(source: "missing.png", children: [.text("missing")])
+
+        let images = await InlineText.loadInlineImages(
+            in: [file, absoluteFile, data, missing], baseURL: directory, imageProvider: DefaultInlineImageProvider()
+        )
+        XCTAssertEqual(Set(images.keys.map(\.alt)), ["file", "absolute", "data"], "A missing file falls back to its alt text")
+    }
+
+    private func encodedPNG() throws -> Data {
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 8, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let image = try XCTUnwrap(context.makeImage())
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return data as Data
     }
 
     private func waitForFourRequests(_ provider: SuspendedInlineProvider) async throws {

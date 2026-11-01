@@ -57,7 +57,8 @@ actor InlineImageLoader {
         case notModified(expiration: Date?, validators: Validators?)
     }
 
-    typealias Fetch = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+    /// Returns an `HTTPURLResponse` for HTTP URLs and a plain `URLResponse` for `file:` and `data:` URLs.
+    typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     typealias Decode = @Sendable (Data, Key) async throws -> Decoded
 
     /// Responses larger than this are rejected before they are buffered in full.
@@ -522,6 +523,10 @@ actor InlineImageLoader {
         }
         let (data, response) = try await fetch(request)
         try Task.checkCancellation()
+        guard let response = response as? HTTPURLResponse else {
+            // `file:` and `data:` responses have no status and aren't cached or revalidated.
+            return .downloaded(data, expiration: nil, validators: nil)
+        }
         if response.statusCode == 304, validators != nil {
             return .notModified(
                 expiration: cacheExpiration(for: response, now: now()),
@@ -551,13 +556,10 @@ actor InlineImageLoader {
         return URLSession(configuration: configuration)
     }()
 
-    private static func fetch(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private static func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
         // Streaming the body lets oversized responses fail before they are fully buffered.
         let (bytes, response) = try await session.bytes(for: request)
         try Task.checkCancellation()
-        guard let response = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
         return (try await body(of: bytes, expectedContentLength: response.expectedContentLength), response)
     }
 

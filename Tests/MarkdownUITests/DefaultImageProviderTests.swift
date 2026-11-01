@@ -112,6 +112,33 @@
             XCTAssertEqual(requests.count, 1)
         }
 
+        func testFileAndDataURLsRenderAndMissingFileShowsFailurePlaceholder() async throws {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let png = try BlockImageProbe.encodedImage()
+            try png.write(to: directory.appendingPathComponent("logo.png"))
+            let loader = InlineImageLoader()
+            let urls = [
+                URL(string: "logo.png", relativeTo: directory),
+                URL(string: "data:image/png;base64,\(png.base64EncodedString())")
+            ]
+            for url in urls {
+                let host = NSHostingView(rootView: DefaultImageView(url: try XCTUnwrap(url), loader: loader))
+                let window = makeWindow(host)
+                defer { window.contentView = nil }
+                try await wait { host.fittingSize == CGSize(width: 80, height: 40) }
+            }
+
+            let missing = NSHostingView(rootView: DefaultImageView(
+                url: URL(string: "missing.png", relativeTo: directory), loader: loader
+            ))
+            let window = makeWindow(missing)
+            defer { window.contentView = nil }
+            try await wait { missing.fittingSize.width > 0 }
+            XCTAssertEqual(missing.fittingSize, NSHostingView(rootView: DefaultImageView(url: nil, loader: loader)).fittingSize)
+        }
+
         private func makeWindow(_ view: NSView) -> NSWindow {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),

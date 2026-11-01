@@ -525,6 +525,39 @@ import XCTest
         XCTAssertFalse(started.contains(waiting.0))
     }
 
+    func testFileAndDataURLsAreDecodedWithTheResolutionLimit() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("image.png")
+        try encodedPNG(width: 80, height: 40).write(to: fileURL)
+        let dataURL = try XCTUnwrap(URL(string: "data:image/png;base64,\(encodedPNG(width: 80, height: 40).base64EncodedString())"))
+        let loader = InlineImageLoader()
+        for url in [fileURL, dataURL] {
+            let image = try await loader.image(for: .init(url: url, resolution: .maximumPixelDimension(20))).image
+            XCTAssertEqual(image.width, 20, url.scheme ?? "")
+            XCTAssertEqual(image.height, 10, url.scheme ?? "")
+        }
+    }
+
+    func testMissingFileAndOversizedFileFail() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loader = InlineImageLoader()
+        do {
+            _ = try await loader.image(for: .init(url: directory.appendingPathComponent("missing.png"), resolution: .original))
+            XCTFail("Expected a missing file to fail")
+        } catch {}
+
+        let oversized = directory.appendingPathComponent("oversized.png")
+        try Data(count: InlineImageLoader.maximumResponseByteCount + 1).write(to: oversized)
+        do {
+            _ = try await loader.image(for: .init(url: oversized, resolution: .original))
+            XCTFail("Expected an oversized file to be rejected")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+    }
+
     func testImagesUseADedicatedBoundedSession() {
         let session = InlineImageLoader.session
         XCTAssertFalse(session === URLSession.shared)
@@ -658,6 +691,12 @@ private func encodedPNG(width: Int = 4, height: Int = 4) throws -> Data {
     CGImageDestinationAddImage(destination, try makeImage(width: width, height: height), nil)
     XCTAssertTrue(CGImageDestinationFinalize(destination))
     return data as Data
+}
+
+private func temporaryDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
 }
 
 private func makeImage(width: Int = 4, height: Int = 4) throws -> CGImage {
