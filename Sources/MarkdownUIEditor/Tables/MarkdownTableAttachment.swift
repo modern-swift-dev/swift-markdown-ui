@@ -420,8 +420,11 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     }
 
     /// Deletes a column from the header, body rows, and alignment list.
+    ///
+    /// A table keeps its last column, as the delete column command does: a table
+    /// without columns would be read back as a paragraph.
     public func deleteColumn(at index: Int) {
-        guard index >= 0, index < columnCount else {
+        guard index >= 0, index < columnCount, columnCount > 1 else {
             return
         }
         if table.header.cells.indices.contains(index) {

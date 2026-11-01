@@ -189,6 +189,20 @@ import XCTest
         XCTAssertEqual(changes.last, controller.table)
     }
 
+    func testDeletingTheOnlyColumnLeavesTheTableUnchanged() {
+        var changes = 0
+        let controller = MarkdownTableController(table: makeTable()) { _ in changes += 1 }
+        controller.deleteColumn(at: 1)
+        let single = controller.table
+        XCTAssertEqual(single.alignments.count, 1)
+        XCTAssertEqual(changes, 1)
+
+        controller.deleteColumn(at: 0)
+        XCTAssertEqual(controller.table, single, "A table keeps its last column, as table commands do")
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(MarkdownDocument(markdown: MarkdownDocument(blocks: [.table(controller.table)]).markdown).blocks, [.table(single)])
+    }
+
     func testCellNewlinesRoundTripAsCanonicalHTMLBreaks() {
         let controller = MarkdownTableController(table: makeTable())
         let position = MarkdownTableCellPosition(section: .body(row: 0), column: 0)
@@ -518,6 +532,42 @@ import XCTest
         XCTAssertEqual(switched.font.pointSize, 23)
         XCTAssertEqual(switched.color, .systemGreen)
         XCTAssertTrue(tableGrids(in: editor).first === grid, "A theme change re-renders the cells of the kept grid")
+    }
+
+    func testOneUndoAndRedoRevertAndReapplyTypingInACell() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        let original = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+        editor.document = original
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let undoManager = try XCTUnwrap(editor.undoManager)
+        while undoManager.groupingLevel > 0 {
+            undoManager.endUndoGrouping()
+        }
+        undoManager.removeAllActions()
+        let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+        focus(cell, selecting: NSRange(location: 1, length: 0))
+        // Undo groups changes by run loop event, so each character is typed in its own event.
+        for character in " word" {
+            RunLoop.current.run(until: Date())
+            typeText(String(character), into: cell)
+        }
+        RunLoop.current.run(until: Date())
+        let typed = editor.document
+        XCTAssertEqual(typed, MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a word | b |"))
+
+        undoManager.undo()
+        layout(editor)
+        XCTAssertEqual(editor.document, original)
+        XCTAssertEqual(cellText("Table row 1, column 1", in: editor)?.string, "a")
+        XCTAssertFalse(undoManager.canUndo, "Typing in a cell records one undo step")
+
+        undoManager.redo()
+        layout(editor)
+        XCTAssertEqual(editor.document, typed)
+        XCTAssertEqual(cellText("Table row 1, column 1", in: editor)?.string, "a word")
+        XCTAssertFalse(undoManager.canRedo)
     }
 
     func testImagesInCellsLoadThroughTheEditorProviderAndBaseURL() {
@@ -1436,8 +1486,21 @@ import XCTest
             subviews(of: AppKitMarkdownTableGridView.self, in: editor)
         }
 
+        private func cellView(_ label: String, in editor: MarkdownTextView) -> NSTextView? {
+            subviews(of: NSTextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel() == label }
+        }
+
         private func cellText(_ label: String, in editor: MarkdownTextView) -> NSAttributedString? {
-            subviews(of: NSTextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel() == label }?.attributedString()
+            cellView(label, in: editor)?.attributedString()
+        }
+
+        private func focus(_ cell: NSTextView, selecting range: NSRange) {
+            cell.window?.makeFirstResponder(cell)
+            cell.setSelectedRange(range)
+        }
+
+        private func typeText(_ text: String, into cell: NSTextView) {
+            cell.insertText(text, replacementRange: cell.selectedRange())
         }
 
         private func loadedImageCount(in editor: MarkdownTextView) -> Int {
@@ -1515,8 +1578,21 @@ import XCTest
             subviews(of: UIKitMarkdownTableGridView.self, in: editor)
         }
 
+        private func cellView(_ label: String, in editor: MarkdownTextView) -> UITextView? {
+            subviews(of: UITextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel == label }
+        }
+
         private func cellText(_ label: String, in editor: MarkdownTextView) -> NSAttributedString? {
-            subviews(of: UITextView.self, in: editor).first { $0 !== editor && $0.accessibilityLabel == label }?.attributedText
+            cellView(label, in: editor)?.attributedText
+        }
+
+        private func focus(_ cell: UITextView, selecting range: NSRange) {
+            cell.becomeFirstResponder()
+            cell.selectedRange = range
+        }
+
+        private func typeText(_ text: String, into cell: UITextView) {
+            cell.insertText(text)
         }
 
         private func loadedImageCount(in editor: MarkdownTextView) -> Int {

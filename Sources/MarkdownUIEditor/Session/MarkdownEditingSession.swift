@@ -31,6 +31,21 @@ import Foundation
         var cell: MarkdownTableCellSelection
     }
 
+    /// The undo step of the latest edit to one table cell, which further edits to
+    /// that cell join, so one undo reverts a run of typing as in ordinary text.
+    @MainActor private final class TableCellUndoStep {
+        let path: EditorNodePath
+        let position: MarkdownTableCellPosition
+        /// The state after the latest edit, which redo restores.
+        var current: MarkdownEditingSession.Snapshot
+
+        init(path: EditorNodePath, position: MarkdownTableCellPosition, current: MarkdownEditingSession.Snapshot) {
+            self.path = path
+            self.position = position
+            self.current = current
+        }
+    }
+
     /// Coordinates the typed Markdown model with one platform-native TextKit view.
     ///
     /// The session owns semantic reconciliation, projection mappings, and undo
@@ -86,6 +101,8 @@ import Foundation
         /// The last table cell projected to read its inline styles, reused while its content is unchanged.
         private var projectedTableCell: ProjectedTableCell?
         private var restoredSnapshotSinceUndoNotification = false
+        /// The open undo step of typing in a table cell, ended by any other undo step.
+        private var tableCellUndoStep: TableCellUndoStep?
 
         var onCommandStateChange: (() -> Void)?
         /// Whether typing a Markdown block marker at the start of a paragraph converts it.
@@ -969,6 +986,9 @@ import Foundation
                 return
             }
             activeTableSelection = selection.map { ActiveTableSelection(path: path, cell: $0) }
+            if let step = tableCellUndoStep, step.path != path || step.position != selection?.position {
+                tableCellUndoStep = nil
+            }
             onCommandStateChange?()
             guard selection != nil, let bridge,
                   let unit = projection.index.unit(at: path) else {
@@ -1046,7 +1066,12 @@ import Foundation
             guard isEditable, let replacement = replacingBlock(at: path, with: .table(table)) else {
                 return
             }
-            applyTableReplacement(replacement, at: path)
+            var editedCell: MarkdownTableCellPosition?
+            if case let .table(previous)? = blockAtPath(path),
+               case let .cell(position) = MarkdownTablePresentationChange.difference(from: previous, to: table) {
+                editedCell = position
+            }
+            applyTableReplacement(replacement, at: path, editedCell: editedCell)
         }
 
         func replaceImage(at path: EditorNodePath, with metadata: MarkdownImageMetadata) {
@@ -1110,7 +1135,9 @@ import Foundation
             registerUndo(from: after, to: before)
         }
 
-        func applyTableReplacement(_ replacement: MarkdownDocument, at path: EditorNodePath) {
+        /// Applies a table change reported by its controller. Consecutive edits of
+        /// one cell share an undo step.
+        func applyTableReplacement(_ replacement: MarkdownDocument, at path: EditorNodePath, editedCell: MarkdownTableCellPosition?) {
             guard replacement != document else {
                 return
             }
@@ -1133,7 +1160,17 @@ import Foundation
                 typingAttributes: bridge?.markdownTypingAttributes ?? [:],
                 tableSelection: activeTableSelection
             )
-            registerUndo(from: after, to: before)
+            if let editedCell, let step = tableCellUndoStep, step.path == path, step.position == editedCell {
+                step.current = after
+                return
+            }
+            guard let editedCell else {
+                registerUndo(from: after, to: before)
+                return
+            }
+            let step = TableCellUndoStep(path: path, position: editedCell, current: after)
+            registerUndo(to: before) { step.current }
+            tableCellUndoStep = step
         }
 
         func reconcileRichStorageChange() {
@@ -2287,12 +2324,19 @@ import Foundation
         }
 
         func registerUndo(from current: Snapshot, to previous: Snapshot, using undoManager: UndoManager? = nil) {
+            registerUndo(to: previous, using: undoManager) { current }
+        }
+
+        /// Registers an undo step that restores `previous`, with a redo step back to
+        /// the state `current` returns when the undo runs. Ends an open table cell step.
+        func registerUndo(to previous: Snapshot, using undoManager: UndoManager? = nil, from current: @escaping @MainActor () -> Snapshot) {
+            tableCellUndoStep = nil
             guard let manager = undoManager ?? bridge?.undoManager else {
                 return
             }
             manager.registerUndo(withTarget: self) { [weak manager] session in
                 MainActor.assumeIsolated {
-                    session.restore(previous, inverse: current, undoManager: manager)
+                    session.restore(previous, inverse: current(), undoManager: manager)
                 }
             }
         }
