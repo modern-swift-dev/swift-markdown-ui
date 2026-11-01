@@ -4,8 +4,12 @@ import XCTest
 
 #if canImport(AppKit)
     import AppKit
+
+    private typealias PlatformView = NSView
 #elseif canImport(UIKit)
     import UIKit
+
+    private typealias PlatformView = UIView
 #endif
 
 @MainActor final class MarkdownTableAttachmentTests: XCTestCase {
@@ -432,6 +436,40 @@ import XCTest
             controller.updateCell(at: .init(section: .header, column: 1), source: "Short")
         }
         try assertUpdate(reusing: 0) { controller.moveRow(from: 0, to: 1) }
+    }
+
+    func testGridIsReusedInItsLayoutAndReleasedWithItsAttachment() throws {
+        let textLayoutManager = NSTextLayoutManager()
+        let textContainer = NSTextContainer(size: CGSize(width: 260, height: 1000))
+        textLayoutManager.textContainer = textContainer
+        weak var controller: MarkdownTableController?
+        weak var grid: AnyObject?
+        weak var cell: AnyObject?
+        try autoreleasepool {
+            let attachment = MarkdownTableAttachment(table: makeTable())
+            func loadGrid() throws -> AnyObject {
+                let provider = try XCTUnwrap(attachment.viewProvider(
+                    for: nil,
+                    location: NSTextContentStorage().documentRange.location,
+                    textContainer: textContainer
+                ))
+                return try XCTUnwrap(provider.view)
+            }
+            let loaded = try loadGrid()
+            XCTAssertTrue(try loadGrid() === loaded, "The same attachment keeps its grid in the same layout")
+            controller = attachment.controller
+            grid = loaded
+            cell = gridCells(in: try XCTUnwrap(loaded as? PlatformView)).first?.first
+        }
+        // A table deleted from the document, or dropped with a replaced document, releases its attachment.
+        XCTAssertNil(controller, "A table's controller is released with its attachment")
+        XCTAssertNil(grid, "A table's grid is released with its attachment")
+        // AppKit's deferred main-queue work holds new text views until the queue drains.
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while cell != nil, Date() < deadline {
+            autoreleasepool { _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        }
+        XCTAssertNil(cell, "A table's cell views are released with its attachment")
     }
 
     #if canImport(AppKit)

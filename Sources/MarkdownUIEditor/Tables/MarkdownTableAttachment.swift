@@ -995,7 +995,8 @@ private enum MarkdownTableCellSourceCodec {
         private(set) var attachmentResizeCount = 0
         /// Character range whose layout the most recent resize invalidated.
         private(set) var invalidatedAttachmentRange: NSRange?
-        private let controller: MarkdownTableController
+        /// The attachment owns the controller, which keeps this grid for reuse.
+        private weak var controller: MarkdownTableController?
         private var maximumWidth: CGFloat?
         private let stack = UIStackView()
         private var fields: [MarkdownTableCellPosition: MarkdownTableCellTextView] = [:]
@@ -1036,15 +1037,15 @@ private enum MarkdownTableCellSourceCodec {
                 self?.focusActiveSelection()
             }
             controller.onEditabilityChange = { [weak self] in
-                guard let self else {
+                guard let self, let controller = self.controller else {
                     return
                 }
                 for field in self.fields.values {
-                    field.isEditable = self.controller.isEditable
+                    field.isEditable = controller.isEditable
                 }
             }
             controller.onTypingAttributesChange = { [weak self] attributes in
-                guard let self, let selection = self.controller.activeSelection else {
+                guard let self, let selection = self.controller?.activeSelection else {
                     return
                 }
                 guard let field = self.fields[selection.position] else {
@@ -1065,7 +1066,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            guard let field = textView as? MarkdownTableCellTextView else {
+            guard let field = textView as? MarkdownTableCellTextView, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1081,7 +1082,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
-            guard let field = textView as? MarkdownTableCellTextView else {
+            guard let field = textView as? MarkdownTableCellTextView, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1090,7 +1091,7 @@ private enum MarkdownTableCellSourceCodec {
 
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let field = textView as? MarkdownTableCellTextView,
-                  let editor = field.markdownEditor else {
+                  let editor = field.markdownEditor, let controller else {
                 return nil
             }
             controller.updateSelection(at: field.position, range: range)
@@ -1106,7 +1107,7 @@ private enum MarkdownTableCellSourceCodec {
                         }
                         field.becomeFirstResponder()
                         field.selectedRange = range
-                        self.controller.updateSelection(at: field.position, range: range)
+                        self.controller?.updateSelection(at: field.position, range: range)
                         editor.perform(command)
                     }
                 })
@@ -1115,7 +1116,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard let field = textView as? MarkdownTableCellTextView, field.isFirstResponder else {
+            guard let field = textView as? MarkdownTableCellTextView, field.isFirstResponder, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1123,6 +1124,9 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         private func rebuild() {
+            guard let controller else {
+                return
+            }
             stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
             fields.removeAll()
             columnWidthConstraints.removeAll()
@@ -1146,6 +1150,9 @@ private enum MarkdownTableCellSourceCodec {
         /// Updates only the cells a table mutation changed, rebuilding when the change
         /// does not describe the difference between the grid and the table.
         private func apply(_ change: MarkdownTablePresentationChange) {
+            guard let controller else {
+                return
+            }
             let columnCount = columnWidthConstraints.count
             let rowCount = rowStacks.count
             let rowDelta = controller.table.rows.count + 1 - rowCount
@@ -1195,8 +1202,8 @@ private enum MarkdownTableCellSourceCodec {
                     if fields[field.position] === field {
                         previousPositions[position] = field.position
                         updatedHeights[position] = cellHeights[field.position]
-                        if controller.activeSelection?.position == field.position, field.position != position {
-                            controller.updateSelection(at: position, range: field.selectedRange)
+                        if controller?.activeSelection?.position == field.position, field.position != position {
+                            controller?.updateSelection(at: position, range: field.selectedRange)
                         }
                     } else {
                         newCells.append(position)
@@ -1242,15 +1249,15 @@ private enum MarkdownTableCellSourceCodec {
             field.textContainer.lineFragmentPadding = 0
             field.setContentHuggingPriority(.required, for: .vertical)
             field.accessibilityLabel = markdownTableAccessibilityLabel(for: position)
-            field.isEditable = controller.isEditable
+            field.isEditable = controller?.isEditable ?? false
             field.onTab = { [weak self, weak field] backwards in
                 // Tabbing from the last cell appends a row.
-                guard let self, let field, field.isEditable else {
+                guard let self, let field, field.isEditable, let controller = self.controller else {
                     return
                 }
                 let destination = backwards
-                    ? self.controller.moveBackward(from: field.position)
-                    : self.controller.moveForward(from: field.position)
+                    ? controller.moveBackward(from: field.position)
+                    : controller.moveForward(from: field.position)
                 if let destination {
                     self.rebuildIfNeededAndFocus(destination)
                 }
@@ -1273,6 +1280,9 @@ private enum MarkdownTableCellSourceCodec {
 
         /// Sets a cell's text the same way for new and updated cells.
         private func configureText(of field: MarkdownTableCellTextView) {
+            guard let controller else {
+                return
+            }
             field.attributedText = controller.richText(at: field.position, theme: cellTheme)
             field.textAlignment = controller.alignment(at: field.position)
             field.typingAttributes = [.font: cellTheme.bodyAttributes[.font] ?? UIFont.preferredFont(forTextStyle: .body)]
@@ -1371,7 +1381,7 @@ private enum MarkdownTableCellSourceCodec {
             let storage = editor.textStorage
             var attachmentRange: NSRange?
             storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
-                if (value as? MarkdownTableAttachment)?.controller === controller {
+                if let controller = self.controller, (value as? MarkdownTableAttachment)?.controller === controller {
                     attachmentRange = NSRange(location: range.location, length: 1)
                     stop.pointee = true
                 }
@@ -1397,7 +1407,7 @@ private enum MarkdownTableCellSourceCodec {
                 return
             }
             field.selectedRange = NSRange(location: 0, length: 0)
-            controller.updateSelection(at: position, range: field.selectedRange)
+            controller?.updateSelection(at: position, range: field.selectedRange)
             field.becomeFirstResponder()
             invalidateIntrinsicContentSize()
         }
@@ -1408,7 +1418,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         private func focusActiveSelection() {
-            guard let selection = controller.activeSelection,
+            guard let selection = controller?.activeSelection,
                   let field = fields[selection.position] else {
                 return
             }
@@ -1586,7 +1596,8 @@ private enum MarkdownTableCellSourceCodec {
 
     @MainActor final class AppKitMarkdownTableGridView: NSView, NSTextViewDelegate {
         private(set) var attachmentResizeCount = 0
-        private let controller: MarkdownTableController
+        /// The attachment owns the controller, which keeps this grid for reuse.
+        private weak var controller: MarkdownTableController?
         private var maximumWidth: CGFloat?
         private var gridView = NSGridView()
         private var fields: [MarkdownTableCellPosition: AppKitMarkdownTableCellTextView] = [:]
@@ -1612,15 +1623,15 @@ private enum MarkdownTableCellSourceCodec {
                 self?.focusActiveSelection()
             }
             controller.onEditabilityChange = { [weak self] in
-                guard let self else {
+                guard let self, let controller = self.controller else {
                     return
                 }
                 for field in self.fields.values {
-                    field.isEditable = self.controller.isEditable
+                    field.isEditable = controller.isEditable
                 }
             }
             controller.onTypingAttributesChange = { [weak self] attributes in
-                guard let self, let selection = self.controller.activeSelection else {
+                guard let self, let selection = self.controller?.activeSelection else {
                     return
                 }
                 guard let field = self.fields[selection.position] else {
@@ -1641,7 +1652,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1657,7 +1668,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
-            guard let field = notification.object as? AppKitMarkdownTableCellTextView else {
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1666,7 +1677,7 @@ private enum MarkdownTableCellSourceCodec {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let field = notification.object as? AppKitMarkdownTableCellTextView,
-                  window?.firstResponder === field else {
+                  window?.firstResponder === field, let controller else {
                 return
             }
             controller.activeTypingAttributes = field.typingAttributes
@@ -1675,7 +1686,7 @@ private enum MarkdownTableCellSourceCodec {
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             // Tabbing from the last cell appends a row.
-            guard let field = textView as? AppKitMarkdownTableCellTextView, field.isEditable else {
+            guard let field = textView as? AppKitMarkdownTableCellTextView, field.isEditable, let controller else {
                 return false
             }
             let destination: MarkdownTableCellPosition?
@@ -1694,6 +1705,9 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         private func rebuild() {
+            guard let controller else {
+                return
+            }
             gridView.removeFromSuperview()
             fields.removeAll()
             columnWidthConstraints.removeAll()
@@ -1731,6 +1745,9 @@ private enum MarkdownTableCellSourceCodec {
         /// Updates only the cells a table mutation changed, rebuilding when the change
         /// does not describe the difference between the grid and the table.
         private func apply(_ change: MarkdownTablePresentationChange) {
+            guard let controller else {
+                return
+            }
             let columnCount = gridView.numberOfColumns
             let rowCount = gridView.numberOfRows
             let rowDelta = controller.table.rows.count + 1 - rowCount
@@ -1785,8 +1802,8 @@ private enum MarkdownTableCellSourceCodec {
                     if fields[field.position] === field {
                         previousPositions[position] = field.position
                         updatedHeights[position] = cellHeights[field.position]
-                        if controller.activeSelection?.position == field.position, field.position != position {
-                            controller.updateSelection(at: position, range: field.selectedRange())
+                        if controller?.activeSelection?.position == field.position, field.position != position {
+                            controller?.updateSelection(at: position, range: field.selectedRange())
                         }
                     } else {
                         newCells.append(position)
@@ -1826,7 +1843,7 @@ private enum MarkdownTableCellSourceCodec {
             }
             configureText(of: field)
             field.delegate = self
-            field.isEditable = controller.isEditable
+            field.isEditable = controller?.isEditable ?? false
             field.backgroundColor = position.section == .header ? .controlBackgroundColor : .textBackgroundColor
             field.drawsBackground = true
             field.isRichText = true
@@ -1846,6 +1863,9 @@ private enum MarkdownTableCellSourceCodec {
 
         /// Sets a cell's text the same way for new and updated cells.
         private func configureText(of field: AppKitMarkdownTableCellTextView) {
+            guard let controller else {
+                return
+            }
             field.textStorage?.setAttributedString(controller.richText(at: field.position, theme: .basic))
             field.alignment = controller.alignment(at: field.position)
             field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
@@ -1876,7 +1896,7 @@ private enum MarkdownTableCellSourceCodec {
                 }
             }
             var affectedRows = Set<MarkdownTableCellPosition.Section>()
-            if remeasuringAllRows {
+            if remeasuringAllRows, let controller {
                 affectedRows.insert(.header)
                 affectedRows.formUnion(controller.table.rows.indices.map { .body(row: $0) })
             }
@@ -1937,7 +1957,7 @@ private enum MarkdownTableCellSourceCodec {
                 return
             }
             field.setSelectedRange(NSRange(location: 0, length: 0))
-            controller.updateSelection(at: position, range: field.selectedRange())
+            controller?.updateSelection(at: position, range: field.selectedRange())
             window?.makeFirstResponder(field)
         }
 
@@ -1947,7 +1967,7 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         private func focusActiveSelection() {
-            guard let selection = controller.activeSelection,
+            guard let selection = controller?.activeSelection,
                   let field = fields[selection.position] else {
                 return
             }
