@@ -241,6 +241,20 @@ import XCTest
         }
     }
 
+    func testReturnAfterHardLineBreakDoesNotLeaveTrailingBreak() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(blocks: [.paragraph([.text("a"), .lineBreak])]))
+        session.attach(to: bridge)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "a\n\n")
+        bridge.markdownSelectedRanges = [NSRange(location: 2, length: 0)]
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 2, length: 0), with: "\n"))
+
+        XCTAssertEqual(session.document.blocks, [.paragraph([.text("a")]), .paragraph([])])
+        XCTAssertFalse(session.document.markdown.contains("\\"))
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown).blocks.first, .paragraph([.text("a")]))
+    }
+
     func testReturnSplitsHeadingIntoHeadingAndParagraph() {
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 3, length: 0)])
         let session = MarkdownEditingSession(

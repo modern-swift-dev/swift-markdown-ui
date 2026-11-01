@@ -197,6 +197,58 @@ final class MarkdownEditingTests: XCTestCase {
         XCTAssertEqual(result.document, MarkdownDocument(markdown: "![long alt](image.png)**hello** world"))
     }
 
+    func testInlineCodeLeavesImagesOutsideAndKeepsLinks() {
+        // Each image counts as one UTF-16 unit of the paragraph's text.
+        let cases: [(source: String, length: Int, expected: String)] = [
+            ("a![alt](i.png)b", 3, "`a`![alt](i.png)`b`"),
+            ("a [b](/u) c", 5, "`a `[`b`](/u)` c`"),
+            ("a [b ![alt](i.png)](/u)", 5, "`a `[`b `![alt](i.png)](/u)")
+        ]
+        for (source, length, expected) in cases {
+            let document = MarkdownDocument(markdown: source)
+            let result = MarkdownEditingEngine.apply(
+                .toggleInline(.code),
+                to: document,
+                selection: MarkdownLogicalSelection(path: .block(0), utf16Length: length)
+            )
+            XCTAssertEqual(result.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertFalse(result.document.markdown.contains("\u{FFFC}"), source)
+            XCTAssertEqual(MarkdownDocument(markdown: result.document.markdown), result.document, source)
+        }
+    }
+
+    func testMultiLineCodeBlockConvertsToParagraphLinesOrSingleLineHeading() {
+        let code = MarkdownDocument(markdown: "```\nfirst line\n  second *line*\n\nlast\n```")
+        let selection = MarkdownLogicalSelection(path: .block(0))
+
+        let paragraph = MarkdownEditingEngine.apply(.convertBlock(.paragraph), to: code, selection: selection)
+        XCTAssertEqual(paragraph.document.blocks, [.paragraph([.text("first line"), .lineBreak, .text("second *line*"), .lineBreak, .text("last")])])
+        XCTAssertEqual(MarkdownDocument(markdown: paragraph.document.markdown), paragraph.document)
+
+        let heading = MarkdownEditingEngine.apply(.convertBlock(.heading(.two)), to: code, selection: selection)
+        XCTAssertEqual(heading.document.blocks, [.heading(level: .two, content: [.text("first line second *line* last")])])
+        XCTAssertEqual(MarkdownDocument(markdown: heading.document.markdown), heading.document)
+
+        let softBreaks = MarkdownDocument(markdown: "a *b\nc* d")
+        let joined = MarkdownEditingEngine.apply(.convertBlock(.heading(.one)), to: softBreaks, selection: selection)
+        XCTAssertEqual(joined.document, MarkdownDocument(markdown: "# a *b c* d"))
+        XCTAssertEqual(MarkdownDocument(markdown: joined.document.markdown), joined.document)
+    }
+
+    func testParagraphNeverSavesWithTrailingHardBreak() {
+        let document = MarkdownDocument(blocks: [
+            .paragraph([.text("a"), .lineBreak]),
+            .paragraph([.strong([.text("b"), .lineBreak])]),
+            .paragraph([.text("c"), .lineBreak, .text("d")])
+        ])
+        XCTAssertEqual(document.markdown, "a\n\n**b**\n\nc  \nd\n")
+        XCTAssertEqual(MarkdownDocument(markdown: document.markdown), MarkdownDocument(blocks: [
+            .paragraph([.text("a")]),
+            .paragraph([.strong([.text("b")])]),
+            .paragraph([.text("c"), .lineBreak, .text("d")])
+        ]))
+    }
+
     func testInlineCodeCanBePartiallyUnformatted() {
         let document = MarkdownDocument(markdown: "`hello world`")
         let result = MarkdownEditingEngine.apply(

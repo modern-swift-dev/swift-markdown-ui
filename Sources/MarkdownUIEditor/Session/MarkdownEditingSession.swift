@@ -1221,9 +1221,9 @@ import Foundation
                 location: NSMaxRange(effectiveRange),
                 length: contentLength - NSMaxRange(localRange)
             )
-            let before = MarkdownAttributedInlineDecoder.decode(
+            let before = MarkdownEditingEngine.trimmingTrailingBreaks(MarkdownAttributedInlineDecoder.decode(
                 bridge.markdownTextStorage.attributedSubstring(from: beforeRange)
-            )
+            ))
             let after = MarkdownAttributedInlineDecoder.decode(
                 bridge.markdownTextStorage.attributedSubstring(from: afterRange)
             )

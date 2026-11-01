@@ -215,11 +215,46 @@ private extension MarkdownEditingEngine {
                 case .strong: [.strong(parts.middle.flatMap { removing(style, from: $0) })]
                 case .strikethrough: [.strikethrough(parts.middle.flatMap { removing(style, from: $0) })]
                 case .code:
-                    [.code(plainText(parts.middle))]
+                    codeSpans(parts.middle)
             }
         }
         inlines = normalized(parts.before + middle + parts.after)
         return true
+    }
+
+    /// Turns text runs into code spans. Images stay outside the spans, and
+    /// links and other styles keep wrapping the code they contained.
+    static func codeSpans(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
+        var result: [MarkdownInline] = []
+        var pending: [MarkdownInline] = []
+        func flush() {
+            if !pending.isEmpty {
+                result.append(.code(plainText(pending)))
+                pending = []
+            }
+        }
+        for inline in inlines {
+            let wrapped: MarkdownInline
+            switch inline {
+                case .image:
+                    wrapped = inline
+                case let .emphasis(children):
+                    wrapped = .emphasis(codeSpans(children))
+                case let .strong(children):
+                    wrapped = .strong(codeSpans(children))
+                case let .strikethrough(children):
+                    wrapped = .strikethrough(codeSpans(children))
+                case let .link(destination, title, children):
+                    wrapped = .link(destination: destination, title: title, children: codeSpans(children))
+                default:
+                    pending.append(inline)
+                    continue
+            }
+            flush()
+            result.append(wrapped)
+        }
+        flush()
+        return result
     }
 
     static func carries(_ style: MarkdownInlineStyle, inline: MarkdownInline) -> Bool {
@@ -381,6 +416,39 @@ extension MarkdownEditingEngine {
             default:
                 return false
         }
+    }
+
+    /// Drops line breaks that end inline content, including inside trailing
+    /// styles. A paragraph's final hard break has no Markdown representation.
+    static func trimmingTrailingBreaks(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
+        guard let last = inlines.last else {
+            return inlines
+        }
+        let children: [MarkdownInline]
+        let wrap: ([MarkdownInline]) -> MarkdownInline
+        switch last {
+            case .softBreak,
+                 .lineBreak:
+                return trimmingTrailingBreaks(Array(inlines.dropLast()))
+            case let .emphasis(content):
+                (children, wrap) = (content, MarkdownInline.emphasis)
+            case let .strong(content):
+                (children, wrap) = (content, MarkdownInline.strong)
+            case let .strikethrough(content):
+                (children, wrap) = (content, MarkdownInline.strikethrough)
+            case let .link(destination, title, content):
+                (children, wrap) = (content, { .link(destination: destination, title: title, children: $0) })
+            default:
+                return inlines
+        }
+        let trimmed = trimmingTrailingBreaks(children)
+        if trimmed == children {
+            return inlines
+        }
+        if trimmed.isEmpty {
+            return trimmingTrailingBreaks(Array(inlines.dropLast()))
+        }
+        return inlines.dropLast() + [wrap(trimmed)]
     }
 
     /// Canonicalizes native formatting runs before they become Markdown delimiters.
@@ -622,7 +690,10 @@ private extension MarkdownEditingEngine {
                 case .paragraph:
                     inlineContent(of: block).map(MarkdownBlock.paragraph)
                 case let .heading(level):
-                    inlineContent(of: block).map { .heading(level: level, content: $0) }
+                    inlineContent(of: block).map { content in
+                        let joined = joiningLines(content)
+                        return .heading(level: level, content: joined == content ? content : normalized(joined))
+                    }
                 case .blockquote:
                     .blockquote([block])
                 case let .code(info):
@@ -648,8 +719,29 @@ private extension MarkdownEditingEngine {
             case let .paragraph(content),
                  let .heading(_, content): content
             case let .codeBlock(_, content),
-                 let .html(content): [.text(content)]
+                 let .html(content):
+                // Source lines become hard breaks. A paragraph cannot keep blank
+                // lines or edge whitespace through save and reload.
+                Array(content.split(separator: "\n").compactMap { line -> [MarkdownInline]? in
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    return trimmed.isEmpty ? nil : [.text(trimmed)]
+                }.joined(separator: [.lineBreak]))
             default: nil
+        }
+    }
+
+    /// Replaces line breaks with spaces, because a heading is a single line.
+    static func joiningLines(_ inlines: [MarkdownInline]) -> [MarkdownInline] {
+        inlines.map { inline in
+            switch inline {
+                case .softBreak,
+                     .lineBreak: .text(" ")
+                case let .emphasis(children): .emphasis(joiningLines(children))
+                case let .strong(children): .strong(joiningLines(children))
+                case let .strikethrough(children): .strikethrough(joiningLines(children))
+                case let .link(destination, title, children): .link(destination: destination, title: title, children: joiningLines(children))
+                default: inline
+            }
         }
     }
 

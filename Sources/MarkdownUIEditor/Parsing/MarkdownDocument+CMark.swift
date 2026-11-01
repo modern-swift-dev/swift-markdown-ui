@@ -407,7 +407,8 @@ private extension CMarkNode {
                 guard let node = cmark_node_new(CMARK_NODE_PARAGRAPH) else {
                     return nil
                 }
-                append(MarkdownEditingEngine.normalized(content).compactMap(make), to: node)
+                let inlines = MarkdownEditingEngine.trimmingTrailingBreaks(MarkdownEditingEngine.normalized(content))
+                append(inlines.compactMap(make), to: node)
                 return node
             case let .heading(level, content):
                 guard let node = cmark_node_new(CMARK_NODE_HEADING) else {
