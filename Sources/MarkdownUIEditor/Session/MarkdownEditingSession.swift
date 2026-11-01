@@ -753,6 +753,14 @@ import Foundation
             guard let bridge, let range = bridge.markdownSelectedRanges.first else {
                 return false
             }
+            // A paste at the start of a table or rule line goes before it, like typed text.
+            if range.length == 0, let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
+               unit.kind.isAtomic, unit.kind != .htmlBlock, range.location == unit.projectionRange.location {
+                let blocks = payload.markdown.map { MarkdownDocument(markdown: $0).blocks }
+                    ?? payload.plainText.map { Self.plainTextBlocks(Self.normalizingLineEndings($0)) }
+                    ?? []
+                return blocks.isEmpty || insertBlocks(blocks, before: unit)
+            }
             let insertion: NSAttributedString
             if let unit = projection.index.unit(atProjectionUTF16Offset: range.location), unit.kind == .codeBlock,
                NSMaxRange(range) < unit.projectionRange.upperBound,
@@ -1862,6 +1870,11 @@ import Foundation
                || (unit.kind != .htmlBlock && range.location == contentEnd) {
                 return insertParagraph(replacement, after: unit)
             }
+            // Text typed, or Return pressed, at the start of a table or rule line starts a paragraph before it.
+            if unit.kind.isAtomic, unit.kind != .htmlBlock, range.length == 0, !replacement.isEmpty,
+               range.location == unit.projectionRange.location {
+                return insertBlocks([.paragraph(replacement == "\n" ? [] : [.text(replacement)])], before: unit)
+            }
             // Deleting the line break next to an atomic block selects the block, so a second press removes it.
             if replacement.isEmpty, range.length == 1, range.location == contentEnd,
                let next = projection.index.unit(after: unit.path),
@@ -1957,6 +1970,21 @@ import Foundation
             return true
         }
 
+        /// Inserts blocks before a table or rule, with the caret at the end of the last block's text,
+        /// or at the start of the table or rule when the last block has no inline text.
+        func insertBlocks(_ blocks: [MarkdownBlock], before unit: ProjectionUnit) -> Bool {
+            guard let last = blocks.last, let block = leafBlock(at: unit.path), let logical = logicalPath(for: unit.path) else {
+                return false
+            }
+            let selection = if let content = inlineContent(of: last) {
+                MarkdownLogicalSelection(path: siblingPath(logical, offset: blocks.count - 1), utf16Offset: plainTextLength(content))
+            } else {
+                MarkdownLogicalSelection(path: siblingPath(logical, offset: blocks.count))
+            }
+            applyStructuralReplacement(rewritingDocument([unit.path: blocks + [block]]), selection: selection)
+            return true
+        }
+
         /// Treats every platform line and paragraph separator as a newline, so none reaches the document.
         static func normalizingLineEndings(_ text: String) -> String {
             text.replacingOccurrences(of: "\r\n", with: "\n")
@@ -1977,6 +2005,15 @@ import Foundation
                 default:
                     break
             }
+            let paragraphs = Self.plainTextBlocks(text)
+            guard paragraphs.count > 1 else {
+                return nil
+            }
+            return MarkdownDocument(blocks: paragraphs)
+        }
+
+        /// Paragraphs of plain text separated by blank lines, with soft breaks between the lines of each.
+        static func plainTextBlocks(_ text: String) -> [MarkdownBlock] {
             var paragraphs: [[String]] = [[]]
             for line in text.components(separatedBy: "\n") {
                 if !line.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1986,12 +2023,9 @@ import Foundation
                 }
             }
             paragraphs.removeAll { $0.isEmpty }
-            guard paragraphs.count > 1 else {
-                return nil
-            }
-            return MarkdownDocument(blocks: paragraphs.map { lines in
+            return paragraphs.map { lines in
                 .paragraph(Array(lines.map { [MarkdownInline.text($0)] }.joined(separator: [.softBreak])))
-            })
+            }
         }
 
         func pasteBlockFragment(_ fragment: MarkdownDocument, replacing range: NSRange) -> Bool {

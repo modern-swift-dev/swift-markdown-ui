@@ -75,6 +75,73 @@
             }
         }
 
+        func testTypingAtTheStartOfATableOrRuleLineStartsAParagraphBeforeIt() {
+            for block in [Self.table, "---"] {
+                for (markdown, start) in [("before\n\n" + block, 7), (block + "\n\nafter", 0)] {
+                    let editor = MarkdownTextView.editing(markdown, in: self)
+                    var expected = editor.document.blocks
+                    let index = start == 0 ? 0 : 1
+                    expected.insert(.paragraph([.text("x")]), at: index)
+                    editor.selectedRange = NSRange(location: start, length: 0)
+
+                    editor.type("x")
+
+                    XCTAssertEqual(editor.document.blocks, expected, markdown)
+                    XCTAssertEqual(editor.selectedRange, NSRange(location: start + 1, length: 0), markdown)
+                    editor.assertProjectsDocument(markdown)
+                }
+            }
+        }
+
+        func testReturnAtTheStartOfATableOrRuleLineInsertsAnEmptyParagraphBeforeIt() {
+            for block in [Self.table, "---"] {
+                for (markdown, start) in [("before\n\n" + block, 7), (block + "\n\nafter", 0)] {
+                    let editor = MarkdownTextView.editing(markdown, in: self)
+                    var expected = editor.document.blocks
+                    expected.insert(.paragraph([]), at: start == 0 ? 0 : 1)
+                    editor.selectedRange = NSRange(location: start, length: 0)
+
+                    editor.pressReturn()
+
+                    XCTAssertEqual(editor.document.blocks, expected, markdown)
+                    XCTAssertEqual(editor.selectedRange, NSRange(location: start, length: 0), markdown)
+                    editor.assertProjectsDocument(markdown)
+                }
+            }
+        }
+
+        func testPastingAtTheStartOfATableOrRuleLineInsertsTheBlocksBeforeIt() {
+            let payloads: [(MarkdownClipboardPayload, [MarkdownBlock], caretOffset: Int)] = [
+                (MarkdownClipboardPayload(plainText: "plain"), [.paragraph([.text("plain")])], 5),
+                (MarkdownClipboardPayload(plainText: "one\n\ntwo"), [.paragraph([.text("one")]), .paragraph([.text("two")])], 7),
+                (MarkdownClipboardPayload(markdown: "**bold**", plainText: "bold"), [.paragraph([.strong([.text("bold")])])], 4),
+                (
+                    MarkdownClipboardPayload(markdown: "# Title\n\nbody", plainText: "Title\n\nbody"),
+                    [.heading(level: .one, content: [.text("Title")]), .paragraph([.text("body")])],
+                    10
+                ),
+                // A last block without inline text leaves the caret at the start of the table or rule.
+                (MarkdownClipboardPayload(markdown: "```\ncode\n```"), [.codeBlock(info: nil, content: "code\n")], 6)
+            ]
+            for block in [Self.table, "---"] {
+                for (markdown, start) in [("before\n\n" + block, 7), (block + "\n\nafter", 0)] {
+                    for (payload, pasted, caretOffset) in payloads {
+                        let editor = MarkdownTextView.editing(markdown, in: self)
+                        var expected = editor.document.blocks
+                        expected.insert(contentsOf: pasted, at: start == 0 ? 0 : 1)
+                        editor.selectedRange = NSRange(location: start, length: 0)
+
+                        XCTAssertTrue(editor.editingSession.paste(payload))
+
+                        let message = "\(markdown) + \(pasted)"
+                        XCTAssertEqual(editor.document.blocks, expected, message)
+                        XCTAssertEqual(editor.selectedRange, NSRange(location: start + caretOffset, length: 0), message)
+                        editor.assertProjectsDocument(message)
+                    }
+                }
+            }
+        }
+
         func testTypingAtEndOfDocumentEndingInAtomicBlockAddsParagraph() {
             for block in ["---", Self.html, Self.table] {
                 let editor = MarkdownTextView.editing("before\n\n" + block, in: self)

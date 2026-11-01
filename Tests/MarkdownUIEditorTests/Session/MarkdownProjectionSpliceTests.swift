@@ -310,7 +310,7 @@ import XCTest
         assertMatchesFullProjection(session, bridge, "command after typing", requiresSplice: false)
     }
 
-    func testRejectedNativeEditRendersOnlyItsBlockAgain() throws {
+    func testTypingBeforeARuleSplicesInOnlyTheNewParagraph() throws {
         let (session, bridge) = makeSession()
         let document = session.document
         let rule = try firstUnit(in: session) {
@@ -320,10 +320,13 @@ import XCTest
                 false
             }
         }
+        let ruleIndex = try XCTUnwrap(document.blocks.firstIndex(of: .thematicBreak))
         bridge.resetReplacements()
         edit(session, bridge, NSRange(location: rule.projectionRange.location, length: 0), "x")
-        XCTAssertEqual(session.document, document)
-        assertMatchesFullProjection(session, bridge, "rejected edit")
+        var expected = document.blocks
+        expected.insert(.paragraph([.text("x")]), at: ruleIndex)
+        XCTAssertEqual(session.document.blocks, expected)
+        assertMatchesFullProjection(session, bridge, "typing before a rule")
     }
 
     func testAttachmentsAfterInsertedBlocksReportTheirMovedPaths() throws {

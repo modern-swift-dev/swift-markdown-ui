@@ -1504,6 +1504,21 @@ import XCTest
         XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 3, length: 0)])
     }
 
+    func testTypingBeforeATableStartsAParagraphThatUndoRemoves() {
+        let original = MarkdownDocument(markdown: "| Name |\n| --- |\n| Old |")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 0, length: 0)])
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 0, length: 0), with: "x"))
+
+        XCTAssertEqual(session.document.blocks, [.paragraph([.text("x")])] + original.blocks)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "x\n\u{fffc}\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 1, length: 0)])
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, original)
+    }
+
     func testDelayedTableBindingEchoesDoNotReplaceNewerCellEdits() throws {
         let original = MarkdownDocument(markdown: "| Name |\n| --- |\n| Old |")
         let bridge = FakeTextViewBridge()
