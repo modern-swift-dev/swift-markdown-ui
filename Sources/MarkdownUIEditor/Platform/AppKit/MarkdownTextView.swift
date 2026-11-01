@@ -376,6 +376,16 @@
             super.mouseDown(with: event)
         }
 
+        /// AppKit asks whether the first marked text may change storage before it reports marked
+        /// text, so the composition is announced first, as on UIKit.
+        override public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+            attachEditingSessionIfNeeded()
+            editingSession.compositionWillChangeCharacters(in: replacementRange.location == NSNotFound
+                ? (hasMarkedText() ? markedRange() : self.selectedRange())
+                : replacementRange)
+            super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        }
+
         /// AppKit commits marked text here without posting a text change.
         override public func unmarkText() {
             super.unmarkText()

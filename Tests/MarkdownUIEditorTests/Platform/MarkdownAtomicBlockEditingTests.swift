@@ -171,6 +171,103 @@
             }
         }
 
+        /// Documents and carets where typed text starts a paragraph, with the index of that paragraph.
+        private static var paragraphStartingCarets: [(markdown: String, caret: (String) -> Int, index: Int)] {
+            [table, "---"].flatMap { block -> [(markdown: String, caret: (String) -> Int, index: Int)] in
+                [
+                    (block + "\n\nafter", { _ in 1 }, 1),
+                    (block + "\n\nafter", { _ in 0 }, 0),
+                    ("before\n\n" + block, { _ in 7 }, 1)
+                ]
+            } + [table, "---", html].map { block in
+                ("before\n\n" + block, { $0.utf16.count }, 2)
+            }
+        }
+
+        func testComposingWhereTypedTextStartsAParagraphShowsAndCommitsTheTextThere() {
+            for (markdown, caret, index) in Self.paragraphStartingCarets {
+                let editor = MarkdownTextView.editing(markdown, in: self)
+                let start = caret(editor.projectedText)
+                let message = "\(markdown) at \(start)"
+                var expected = editor.document.blocks
+                expected.insert(.paragraph([.text("你好")]), at: index)
+                editor.selectedRange = NSRange(location: start, length: 0)
+
+                editor.compose(["n", "ni"])
+
+                guard let marked = editor.composedRange else {
+                    XCTFail("The composition should be in progress: \(message)")
+                    continue
+                }
+                // The marked text is on a line of its own, not on the table's or rule's line.
+                let text = editor.projectedText as NSString
+                XCTAssertEqual(text.substring(with: marked), "ni", message)
+                XCTAssertTrue(marked.location == 0 || text.substring(with: NSRange(location: marked.location - 1, length: 1)) == "\n", message)
+                XCTAssertEqual(text.substring(with: NSRange(location: NSMaxRange(marked), length: 1)), "\n", message)
+
+                editor.commitComposition("你好")
+
+                XCTAssertNil(editor.composedRange, message)
+                XCTAssertEqual(editor.document.blocks, expected, message)
+                XCTAssertEqual(editor.selectedRange, NSRange(location: marked.location + 2, length: 0), message)
+                editor.assertProjectsDocument(message)
+            }
+        }
+
+        func testCancellingACompositionWhereTypedTextStartsAParagraphChangesNothing() {
+            for (markdown, caret, _) in Self.paragraphStartingCarets {
+                let editor = MarkdownTextView.editing(markdown, in: self)
+                let original = editor.document
+                let originalText = editor.projectedText
+                let start = caret(originalText)
+                let message = "\(markdown) at \(start)"
+                editor.selectedRange = NSRange(location: start, length: 0)
+
+                editor.compose(["n", "ni"])
+                editor.cancelComposition()
+
+                XCTAssertNil(editor.composedRange, message)
+                XCTAssertEqual(editor.document, original, message)
+                XCTAssertEqual(editor.projectedText, originalText, message)
+            }
+        }
+
+        func testOneUndoRemovesTheParagraphACompositionStarted() throws {
+            for (markdown, caret, _) in Self.paragraphStartingCarets {
+                let editor = MarkdownTextView.editing(markdown, in: self)
+                #if os(macOS)
+                    // An AppKit text view gets its undo manager from its window.
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+                    window.contentView = editor
+                    defer { window.contentView = nil }
+                #endif
+                let original = editor.document
+                let start = caret(editor.projectedText)
+                let message = "\(markdown) at \(start)"
+                editor.selectedRange = NSRange(location: start, length: 0)
+                let undoManager = try XCTUnwrap(editor.undoManager)
+                undoManager.groupsByEvent = false
+                defer { undoManager.groupsByEvent = true }
+                /// Each input method step is a separate event, with its own undo group.
+                func event(_ action: () -> Void) {
+                    undoManager.beginUndoGrouping()
+                    action()
+                    undoManager.endUndoGrouping()
+                }
+
+                event { editor.compose(["n"]) }
+                event { editor.compose(["ni"]) }
+                event { editor.commitComposition("你好") }
+                XCTAssertNotEqual(editor.document, original, message)
+
+                undoManager.undo()
+
+                XCTAssertEqual(editor.document, original, message)
+                editor.assertProjectsDocument(message)
+                undoManager.removeAllActions()
+            }
+        }
+
         func testReturnAtEndOfDocumentEndingInAtomicBlockAddsParagraph() {
             for block in ["---", Self.html] {
                 let editor = MarkdownTextView.editing("before\n\n" + block, in: self)

@@ -38,6 +38,27 @@
             func type(_ text: String) {
                 insertText(text, replacementRange: selectedRange)
             }
+
+            /// Shows each step of an input method composition as marked text.
+            func compose(_ steps: [String]) {
+                for step in steps {
+                    setMarkedText(
+                        step,
+                        selectedRange: NSRange(location: step.utf16.count, length: 0),
+                        replacementRange: NSRange(location: NSNotFound, length: 0)
+                    )
+                }
+            }
+
+            /// Replaces the marked text with the text the input method commits.
+            func commitComposition(_ text: String) {
+                insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+
+            /// The range of the marked text, or nil when nothing is being composed.
+            var composedRange: NSRange? {
+                hasMarkedText() ? markedRange() : nil
+            }
         #else
             /// Creates a first-responder editor in a window, showing a document.
             static func editing(_ markdown: String, in testCase: XCTestCase) -> MarkdownTextView {
@@ -80,7 +101,35 @@
             func type(_ text: String) {
                 insertText(text)
             }
+
+            /// Shows each step of an input method composition as marked text.
+            func compose(_ steps: [String]) {
+                for step in steps {
+                    setMarkedText(step, selectedRange: NSRange(location: step.utf16.count, length: 0))
+                }
+            }
+
+            /// Replaces the marked text with the text the input method commits.
+            func commitComposition(_ text: String) {
+                insertText(text)
+            }
+
+            /// The range of the marked text, or nil when nothing is being composed.
+            var composedRange: NSRange? {
+                markedTextRange.map { range in
+                    NSRange(
+                        location: offset(from: beginningOfDocument, to: range.start),
+                        length: offset(from: range.start, to: range.end)
+                    )
+                }
+            }
         #endif
+
+        /// Cancels a composition the way deleting all of its marked text does.
+        func cancelComposition() {
+            compose([""])
+            unmarkText()
+        }
 
         /// Asserts that the native text is the projection of the document, without stray object characters.
         func assertProjectsDocument(_ message: String, file: StaticString = #filePath, line: UInt = #line) {

@@ -31,6 +31,17 @@ import Foundation
         var cell: MarkdownTableCellSelection
     }
 
+    /// An input method composition that started a paragraph where typed text would,
+    /// next to a table, horizontal rule or HTML block.
+    private struct CompositionParagraph {
+        /// The state before the composition, which cancelling it or one Undo restores.
+        var origin: MarkdownEditingSession.Snapshot
+        /// The document with the composition's paragraph still empty.
+        var started: MarkdownDocument
+        /// The undo manager that records nothing until the composition ends.
+        var undoManager: UndoManager?
+    }
+
     /// The undo step of the latest edit to one table cell, which further edits to
     /// that cell join, so one undo reverts a run of typing as in ordinary text.
     @MainActor private final class TableCellUndoStep {
@@ -92,6 +103,8 @@ import Foundation
         private var isUpdatingBridge = false
         /// Defers parsing until an IME composition completes.
         private var needsCompositionFlush = false
+        /// The paragraph the current composition started next to an atomic block.
+        private var compositionParagraph: CompositionParagraph?
         /// Native text was rendered with a previous configuration, so no block of it can be kept.
         private var needsFullProjection = false
         /// Native edit captured before TextKit mutates the attributed storage.
@@ -236,10 +249,79 @@ import Foundation
             guard !isUpdatingBridge, !needsCompositionFlush else {
                 return
             }
+            let location = startCompositionParagraph(at: range)?.location ?? range.location
             needsCompositionFlush = true
             pendingNativeEdits = projection.index.unit(
-                atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)
+                atProjectionUTF16Offset: min(location, projection.index.projectionUTF16Length)
             ).map { [PendingNativeEdit(path: $0.path, unitRange: $0.projectionRange.nsRange, projectionDelta: 0)] } ?? []
+        }
+
+        /// Starts a composition where typed text starts a paragraph next to an atomic block, by
+        /// adding an empty paragraph there and moving the caret into it, so the platform shows the
+        /// marked text in it. Returns the caret, or nil when the composition goes where it is.
+        ///
+        /// Undo records nothing until the composition ends, so it is then one undo step, or nothing
+        /// at all if it was cancelled. The platform records the marked text's native undo steps,
+        /// which would edit the text at offsets that removing the paragraph made wrong.
+        private func startCompositionParagraph(at range: NSRange) -> NSRange? {
+            guard compositionParagraph == nil, isEditable, let bridge,
+                  let unit = projection.index.unit(atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)),
+                  let block = leafBlock(at: unit.path), let logical = logicalPath(for: unit.path) else {
+                return nil
+            }
+            let blocks: [MarkdownBlock]
+            let offset: Int
+            if startsParagraphAfter(range, unit) {
+                (blocks, offset) = ([block, .paragraph([])], 1)
+            } else if isAtStartOfTableOrRule(range, unit) {
+                (blocks, offset) = ([.paragraph([]), block], 0)
+            } else {
+                return nil
+            }
+            let origin = Snapshot(
+                document: document,
+                selectedRanges: bridge.markdownSelectedRanges,
+                typingAttributes: bridge.markdownTypingAttributes,
+                tableSelection: activeTableSelection
+            )
+            document = rewritingDocument([unit.path: blocks])
+            pendingNativeEdits = []
+            refreshProjection(selectedRanges: [
+                projectionRange(for: MarkdownLogicalSelection(path: siblingPath(logical, offset: offset))) ?? range
+            ])
+            let undoManager = bridge.undoManager
+            undoManager?.disableUndoRegistration()
+            compositionParagraph = CompositionParagraph(origin: origin, started: document, undoManager: undoManager)
+            return bridge.markdownSelectedRanges.first
+        }
+
+        /// Ends a composition that started a paragraph. Committed text stays in the paragraph as
+        /// one undo step. A cancelled composition leaves the document as it was before.
+        private func finishCompositionParagraph() {
+            guard let paragraph = compositionParagraph, let bridge, !bridge.markdownHasMarkedText else {
+                return
+            }
+            discardCompositionParagraph()
+            guard document != paragraph.started else {
+                document = paragraph.origin.document
+                pendingNativeEdits = []
+                refreshProjection(selectedRanges: paragraph.origin.selectedRanges)
+                bridge.markdownTypingAttributes = paragraph.origin.typingAttributes
+                return
+            }
+            let current = Snapshot(
+                document: document,
+                selectedRanges: bridge.markdownSelectedRanges,
+                typingAttributes: bridge.markdownTypingAttributes,
+                tableSelection: activeTableSelection
+            )
+            registerUndo(from: current, to: paragraph.origin)
+        }
+
+        /// Forgets the paragraph a composition started, recording undo steps again.
+        private func discardCompositionParagraph() {
+            compositionParagraph?.undoManager?.enableUndoRegistration()
+            compositionParagraph = nil
         }
 
         /// Records an AppKit multi-selection edit without collapsing its ranges.
@@ -321,6 +403,7 @@ import Foundation
             activeTableSelection = validated(activeTableSelection, in: replacement)
             refreshProjection(selectedRanges: restoredRanges(bridge?.markdownSelectedRanges ?? [], in: projection))
             needsCompositionFlush = false
+            discardCompositionParagraph()
             return true
         }
 
@@ -455,10 +538,10 @@ import Foundation
 
         /// Flushes a deferred IME edit with the structural fallback enabled.
         func compositionDidEnd() {
-            guard needsCompositionFlush else {
-                return
+            if needsCompositionFlush {
+                reconcileRichStorageChange()
             }
-            reconcileRichStorageChange()
+            finishCompositionParagraph()
         }
 
         /// Applies a structural command and registers the result as one undo operation.
@@ -1864,9 +1947,7 @@ import Foundation
         func handleAtomicBlockEdit(in range: NSRange, with replacement: String, startingIn unit: ProjectionUnit) -> Bool {
             let contentEnd = unit.projectionRange.upperBound - 1
             // Text typed after an atomic block, or at the end of a document ending with one, starts a paragraph.
-            if unit.kind.isAtomic, range.length == 0, !replacement.isEmpty,
-               range.location == projection.index.projectionUTF16Length
-               || (unit.kind != .htmlBlock && range.location == contentEnd) {
+            if !replacement.isEmpty, startsParagraphAfter(range, unit) {
                 return insertParagraph(replacement, after: unit)
             }
             // Text typed, or Return pressed, at the start of a table or rule line starts a paragraph before it.
@@ -1966,6 +2047,14 @@ import Foundation
                 )
             )
             return true
+        }
+
+        /// Whether a range is a caret where typed text starts a paragraph after an atomic block: right
+        /// after a table or rule, or at the end of a document ending with an atomic block.
+        func startsParagraphAfter(_ range: NSRange, _ unit: ProjectionUnit) -> Bool {
+            unit.kind.isAtomic && range.length == 0
+                && (range.location == projection.index.projectionUTF16Length
+                    || (unit.kind != .htmlBlock && range.location == unit.projectionRange.upperBound - 1))
         }
 
         /// Whether a range is a caret at the start of a table or rule line, where edits go before the block.
@@ -2444,6 +2533,7 @@ import Foundation
             pendingNativeEdits = []
             refreshProjection(selectedRanges: snapshot.selectedRanges)
             needsCompositionFlush = false
+            discardCompositionParagraph()
             bridge?.markdownTypingAttributes = snapshot.typingAttributes
             publishDocumentChange()
             registerUndo(from: snapshot, to: inverse, using: undoManager)
