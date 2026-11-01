@@ -197,10 +197,14 @@ import Foundation
             }
             var edits: [EditorNodePath: PendingNativeEdit] = [:]
             for (range, replacement) in zip(ranges, replacements) {
+                // A group applies natively only when every edit stays inside the text of one
+                // leaf. Otherwise the whole group is rejected, so no edit is applied to a
+                // rebuilt text with stale offsets.
                 guard replacement != "\n",
                       let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
-                      NSMaxRange(range) <= unit.projectionRange.upperBound - 1 else {
-                    return true
+                      NSMaxRange(range) <= unit.projectionRange.upperBound - 1,
+                      !unit.kind.isAtomic || (unit.kind == .htmlBlock && !covers(range, unit)) else {
+                    return false
                 }
                 let delta = replacement.utf16.count - range.length
                 if var edit = edits[unit.path] {
@@ -943,8 +947,18 @@ import Foundation
                 }
             }
             if !edits.isEmpty {
+                let groupStart = document
                 for edit in edits {
-                    reconcileRichEdit(edit, bridge: bridge, isOnlyEdit: edits.count == 1)
+                    guard reconcileRichEdit(edit, bridge: bridge, isOnlyEdit: edits.count == 1) else {
+                        // The rejected edit rebuilt the text, so the rest of its group has no valid
+                        // offsets left. Reject the whole group instead of applying it partially.
+                        if document != groupStart {
+                            document = groupStart
+                            installFullProjection(selectedRanges: bridge.markdownSelectedRanges)
+                            publishDocumentChange()
+                        }
+                        break
+                    }
                 }
                 selectionDidChange()
                 return
@@ -1002,10 +1016,11 @@ import Foundation
             selectionDidChange()
         }
 
-        func reconcileRichEdit(_ edit: PendingNativeEdit, bridge: any TextViewBridge, isOnlyEdit: Bool) {
+        /// Reconciles one native edit, returning false when it was rejected and the text rebuilt.
+        @discardableResult func reconcileRichEdit(_ edit: PendingNativeEdit, bridge: any TextViewBridge, isOnlyEdit: Bool) -> Bool {
             guard let oldUnit = projection.index.unit(at: edit.path) else {
                 rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges)
-                return
+                return false
             }
             let unitLength = oldUnit.projectionRange.length + edit.projectionDelta
             let contentRange = NSRange(
@@ -1016,7 +1031,7 @@ import Foundation
                   NSMaxRange(contentRange) <= bridge.markdownTextStorage.length,
                   let currentBlock = leafBlock(at: edit.path) else {
                 rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges, rejecting: isOnlyEdit ? edit : nil)
-                return
+                return false
             }
             let attributedContent = bridge.markdownTextStorage.attributedSubstring(from: contentRange)
             guard let replacementBlock = replacingRichContent(in: currentBlock, with: attributedContent),
@@ -1028,12 +1043,13 @@ import Foundation
                       kind: projectionKind(at: edit.path, in: replacement)
                   ) else {
                 rebuildAfterUnsafeNativeEdit(selectedRanges: bridge.markdownSelectedRanges, rejecting: isOnlyEdit ? edit : nil)
-                return
+                return false
             }
             if replacement != document {
                 document = replacement
                 publishDocumentChange()
             }
+            return true
         }
 
         func replacingRichContent(
