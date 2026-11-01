@@ -367,6 +367,30 @@
             XCTAssertEqual(textView.string, "boXld\n")
         }
 
+        /// Redoing text typed at a paragraph's end leaves the caret past where that paragraph ended.
+        func testNativeTypingRedoAtTheEndOfAParagraphChangesThatParagraph() throws {
+            let textView = MarkdownTextView(usingTextLayoutManager: true)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = textView
+            textView.document = MarkdownDocument(markdown: "ab\n\ncd")
+            textView.selectedRange = NSRange(location: 2, length: 0)
+            textView.insertText("X", replacementRange: NSRange(location: 2, length: 0))
+
+            let undoManager = try XCTUnwrap(textView.undoManager)
+            undoManager.undo()
+            XCTAssertEqual(textView.document.markdown, "ab\n\ncd\n")
+            XCTAssertEqual(textView.string, "ab\ncd\n")
+
+            undoManager.redo()
+            XCTAssertEqual(textView.document.markdown, "abX\n\ncd\n")
+            XCTAssertEqual(textView.string, "abX\ncd\n")
+        }
+
         func testReturnAtEndOfOrderedListBeforeUnorderedListCreatesOrderedItem() {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             textView.document = MarkdownDocument(markdown: """

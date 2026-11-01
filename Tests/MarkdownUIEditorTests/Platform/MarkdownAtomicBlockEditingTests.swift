@@ -268,6 +268,64 @@
             }
         }
 
+        func testUndoAndRedoKeepTheTextTypedWhereTypedTextStartsAParagraph() throws {
+            for (markdown, caret, index) in Self.paragraphStartingCarets {
+                let editor = MarkdownTextView.editing(markdown, in: self)
+                #if os(macOS)
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+                    window.contentView = editor
+                    defer { window.contentView = nil }
+                #endif
+                let original = editor.document
+                let start = caret(editor.projectedText)
+                let message = "\(markdown) at \(start)"
+                /// The document with a paragraph of typed text where typed text starts one.
+                func typed(_ text: String) -> MarkdownDocument {
+                    var blocks = original.blocks
+                    blocks.insert(.paragraph([.text(text)]), at: index)
+                    return MarkdownDocument(blocks: blocks)
+                }
+                editor.selectedRange = NSRange(location: start, length: 0)
+                let undoManager = try XCTUnwrap(editor.undoManager)
+                undoManager.groupsByEvent = false
+                defer { undoManager.groupsByEvent = true }
+                /// Each key press is a separate event, with its own undo group.
+                func event(_ action: () -> Void) {
+                    undoManager.beginUndoGrouping()
+                    action()
+                    undoManager.endUndoGrouping()
+                }
+                func assertShows(_ expected: MarkdownDocument, line: UInt = #line) {
+                    XCTAssertEqual(editor.document, expected, message, line: line)
+                    editor.assertProjectsDocument(message, line: line)
+                }
+
+                event { editor.type("x") }
+                event { editor.type("y") }
+                event { editor.type("z") }
+                assertShows(typed("xyz"))
+
+                undoManager.undo()
+                assertShows(typed("xy"))
+                undoManager.undo()
+                assertShows(typed("x"))
+                undoManager.redo()
+                assertShows(typed("xy"))
+
+                undoManager.undo()
+                assertShows(typed("x"))
+                undoManager.undo()
+                assertShows(original)
+                undoManager.redo()
+                assertShows(typed("x"))
+                undoManager.redo()
+                assertShows(typed("xy"))
+                undoManager.redo()
+                assertShows(typed("xyz"))
+                undoManager.removeAllActions()
+            }
+        }
+
         func testCommittingACompositionWithUnmarkTextEndsItAtOnce() throws {
             let editor = MarkdownTextView.editing("---\n\nafter", in: self)
             #if os(macOS)

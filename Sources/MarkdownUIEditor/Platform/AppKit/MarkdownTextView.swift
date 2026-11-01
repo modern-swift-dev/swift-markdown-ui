@@ -475,6 +475,10 @@
             usesFindBar = true
             delegate = coordinator
             coordinator.observeUndoManager()
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(recordNativeUndoEdit),
+                name: NSTextStorage.didProcessEditingNotification, object: textStorage
+            )
             hasAttachedEditingSession = true
             editingSession.attach(to: self)
         }
@@ -615,6 +619,16 @@
     }
 
     private extension MarkdownTextView {
+        /// AppKit's native undo and redo change the storage without asking the delegate,
+        /// so the session learns where they edited from the storage instead.
+        @objc func recordNativeUndoEdit() {
+            guard let undoManager, undoManager.isUndoing || undoManager.isRedoing,
+                  markdownTextStorage.editedMask.contains(.editedCharacters) else {
+                return
+            }
+            editingSession.nativeUndoDidEditCharacters(at: markdownTextStorage.editedRange.location)
+        }
+
         func textDidChange() {
             editingSession.storageDidChange()
             needsLayout = true

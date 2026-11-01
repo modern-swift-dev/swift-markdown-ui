@@ -114,6 +114,9 @@ import Foundation
         /// The last table cell projected to read its inline styles, reused while its content is unchanged.
         private var projectedTableCell: ProjectedTableCell?
         private var restoredSnapshotSinceUndoNotification = false
+        /// Where a native undo or redo the platform didn't report as a pending edit first changed
+        /// the text, which is the same offset in the projection it is reconciled against.
+        private var nativeUndoEditLocation: Int?
         /// The open undo step of typing in a table cell, ended by any other undo step.
         private var tableCellUndoStep: TableCellUndoStep?
 
@@ -531,9 +534,21 @@ import Foundation
         func undoManagerDidChange() {
             if restoredSnapshotSinceUndoNotification {
                 restoredSnapshotSinceUndoNotification = false
+                nativeUndoEditLocation = nil
                 return
             }
             storageDidChange()
+        }
+
+        /// Records where a native undo or redo changed the text, for platforms whose text view
+        /// changes the storage without asking `shouldReplaceCharacters` first. Without it the edit
+        /// would be located from the caret after the change, which a redo that inserts text at a
+        /// paragraph's end leaves in the next paragraph.
+        func nativeUndoDidEditCharacters(at location: Int) {
+            guard !isUpdatingBridge else {
+                return
+            }
+            nativeUndoEditLocation = min(nativeUndoEditLocation ?? location, location)
         }
 
         /// Flushes a deferred IME edit with the structural fallback enabled.
@@ -1316,6 +1331,8 @@ import Foundation
 
             var edits = pendingNativeEdits
             pendingNativeEdits = []
+            let undoEditLocation = nativeUndoEditLocation
+            nativeUndoEditLocation = nil
             if needsCompositionFlush {
                 needsCompositionFlush = false
                 // The index is unchanged since the composition began, so the storage
@@ -1341,7 +1358,7 @@ import Foundation
                 selectionDidChange()
                 return
             }
-            let selectedOffset = bridge.markdownSelectedRanges.first?.location ?? 0
+            let selectedOffset = undoEditLocation ?? bridge.markdownSelectedRanges.first?.location ?? 0
             let lookupOffset = min(
                 max(0, selectedOffset),
                 projection.index.projectionUTF16Length
