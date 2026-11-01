@@ -420,7 +420,8 @@ import ImageIO
 
         /// Decodes a fully rendered bitmap no larger than `maximumPixelSize`, so drawing on the main
         /// actor doesn't decode. The image reports the point size `UIImage(data:)` or `NSImage(data:)`
-        /// would, including EXIF orientation and, on AppKit, DPI metadata.
+        /// would, including EXIF orientation and, on AppKit, DPI metadata. When a rotation swaps axes
+        /// that have different DPI, the point size keeps the image's proportions instead.
         nonisolated static func decode(
             _ data: Data, maximumPixelSize: Int, maximumPixelCount: Int = maximumPixelCount
         ) throws -> (image: MarkdownEditorPlatformImage, cost: Int) {
@@ -450,11 +451,6 @@ import ImageIO
                     return (try nativeImage(data), nativeOverflow ? Int.max : nativeCost)
                 }
             #endif
-            let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)
-                .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
-            let swapsAxes = [.left, .leftMirrored, .right, .rightMirrored].contains(orientation)
-            let orientedWidth = swapsAxes ? height : width
-            let orientedHeight = swapsAxes ? width : height
             guard let bitmap = CGImageSourceCreateThumbnailAtIndex(source, index, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
@@ -469,18 +465,24 @@ import ImageIO
             let cost = bitmapOverflow ? Int.max : bitmapCost
             #if canImport(UIKit)
                 // UIImage(data:) has a scale of 1, so a smaller bitmap gets a proportionally smaller scale.
-                let scale = CGFloat(max(bitmap.width, bitmap.height)) / CGFloat(max(orientedWidth, orientedHeight))
+                let scale = CGFloat(max(bitmap.width, bitmap.height)) / CGFloat(max(width, height))
                 return (UIImage(cgImage: bitmap, scale: scale, orientation: .up), cost)
             #else
-                // NSImage(data:) measures each oriented axis at 72 / DPI points per pixel.
+                /// Each stored axis measures 72 / DPI points per pixel. DPI describes the stored axes, so
+                /// a rotation that swaps them swaps their point lengths too, which keeps the proportions
+                /// of the thumbnail ImageIO resamples to the pixel aspect ratio.
                 func points(_ pixels: Int, dpi key: CFString) -> CGFloat {
                     let dpi = (properties[key] as? NSNumber)?.doubleValue ?? 72
                     return CGFloat(pixels) * 72 / (dpi > 0 ? dpi : 72)
                 }
-                let size = NSSize(
-                    width: points(orientedWidth, dpi: kCGImagePropertyDPIWidth),
-                    height: points(orientedHeight, dpi: kCGImagePropertyDPIHeight)
-                )
+                let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)
+                    .flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+                let swapsAxes = [.left, .leftMirrored, .right, .rightMirrored].contains(orientation)
+                let storedWidth = points(width, dpi: kCGImagePropertyDPIWidth)
+                let storedHeight = points(height, dpi: kCGImagePropertyDPIHeight)
+                let size = swapsAxes
+                    ? NSSize(width: storedHeight, height: storedWidth)
+                    : NSSize(width: storedWidth, height: storedHeight)
                 return (NSImage(cgImage: bitmap, size: size), cost)
             #endif
         }

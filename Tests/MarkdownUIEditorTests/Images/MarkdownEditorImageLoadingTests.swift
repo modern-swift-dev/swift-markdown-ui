@@ -405,8 +405,20 @@ import XCTest
         for sample in samples {
             let native = try XCTUnwrap(nativeImage(sample.data), sample.name)
             let decoded = try MarkdownEditorImageLoader.decode(sample.data, maximumPixelSize: 100).image
-            XCTAssertEqual(decoded.size.width, native.size.width, accuracy: 1, sample.name)
-            XCTAssertEqual(decoded.size.height, native.size.height, accuracy: 1, sample.name)
+            if sample.name == "rotated JPEG at mixed DPI" {
+                // Neither native decoder keeps this image's proportions: UIImage(data:) ignores DPI, and
+                // NSImage(data:) measures 200×300 rotated pixels as 100×300 points. DPI describes the
+                // stored 300×200 axes, so the image is 150×200 points before its 90° rotation.
+                #if canImport(AppKit)
+                    XCTAssertEqual(decoded.size.width, 200, accuracy: 1, sample.name)
+                    XCTAssertEqual(decoded.size.height, 150, accuracy: 1, sample.name)
+                #else
+                    XCTAssertEqual(max(decoded.size.width, decoded.size.height), 300, accuracy: 1, sample.name)
+                #endif
+            } else {
+                XCTAssertEqual(decoded.size.width, native.size.width, accuracy: 1, sample.name)
+                XCTAssertEqual(decoded.size.height, native.size.height, accuracy: 1, sample.name)
+            }
             #if canImport(AppKit)
                 if sample.name == "GIF" {
                     // AppKit keeps native decoding so image views still animate every frame.
@@ -423,6 +435,10 @@ import XCTest
             XCTAssertEqual(
                 bitmap.width > bitmap.height, decoded.size.width > decoded.size.height,
                 "Rotation is applied to the pixels: \(sample.name)"
+            )
+            XCTAssertEqual(
+                CGFloat(bitmap.width) / CGFloat(bitmap.height), decoded.size.width / decoded.size.height, accuracy: 0.02,
+                "The point size keeps the pixels' proportions: \(sample.name)"
             )
         }
         let small = try encodedImage(.png, width: 30, height: 20)
