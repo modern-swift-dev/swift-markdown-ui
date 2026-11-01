@@ -754,8 +754,7 @@ import Foundation
                 return false
             }
             // A paste at the start of a table or rule line goes before it, like typed text.
-            if range.length == 0, let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
-               unit.kind.isAtomic, unit.kind != .htmlBlock, range.location == unit.projectionRange.location {
+            if let unit = projection.index.unit(atProjectionUTF16Offset: range.location), isAtStartOfTableOrRule(range, unit) {
                 let blocks = payload.markdown.map { MarkdownDocument(markdown: $0).blocks }
                     ?? payload.plainText.map { Self.plainTextBlocks(Self.normalizingLineEndings($0)) }
                     ?? []
@@ -1871,8 +1870,7 @@ import Foundation
                 return insertParagraph(replacement, after: unit)
             }
             // Text typed, or Return pressed, at the start of a table or rule line starts a paragraph before it.
-            if unit.kind.isAtomic, unit.kind != .htmlBlock, range.length == 0, !replacement.isEmpty,
-               range.location == unit.projectionRange.location {
+            if !replacement.isEmpty, isAtStartOfTableOrRule(range, unit) {
                 return insertBlocks([.paragraph(replacement == "\n" ? [] : [.text(replacement)])], before: unit)
             }
             // Deleting the line break next to an atomic block selects the block, so a second press removes it.
@@ -1968,6 +1966,12 @@ import Foundation
                 )
             )
             return true
+        }
+
+        /// Whether a range is a caret at the start of a table or rule line, where edits go before the block.
+        func isAtStartOfTableOrRule(_ range: NSRange, _ unit: ProjectionUnit) -> Bool {
+            unit.kind.isAtomic && unit.kind != .htmlBlock && range.length == 0
+                && range.location == unit.projectionRange.location
         }
 
         /// Inserts blocks before a table or rule, with the caret at the end of the last block's text,
@@ -2465,12 +2469,20 @@ import Foundation
             }
         }
 
-        /// The link at the selection, which the link dialog edits. A caret at a link's edge is outside it.
+        /// The link at the selection, which the link dialog edits. A caret at a link's edge is outside it,
+        /// and a selected range is in the link its first character is in.
         var linkAtSelection: MarkdownEditorLink? {
             guard let bridge else {
                 return nil
             }
-            let attributes = activeTableController?.activeTypingAttributes ?? bridge.markdownTypingAttributes
+            let attributes = if let controller = activeTableController {
+                controller.activeTypingAttributes
+            } else if let range = bridge.markdownSelectedRanges.first, range.length > 0,
+                      range.location < bridge.markdownTextStorage.length {
+                bridge.markdownTextStorage.attributes(at: range.location, effectiveRange: nil)
+            } else {
+                bridge.markdownTypingAttributes
+            }
             guard let destination = attributes[.markdownEditorLinkDestination] as? String else {
                 return nil
             }

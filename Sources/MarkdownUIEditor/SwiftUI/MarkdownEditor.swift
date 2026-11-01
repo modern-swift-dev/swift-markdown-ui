@@ -58,11 +58,11 @@
                     isEditable: isEditable,
                     editorContext: editorContext,
                     convertsMarkdownShortcuts: convertsMarkdownShortcuts,
-                    presentLinkEditor: { showsLinkEditor = true }
+                    presentLinkEditor: presentLinkEditor
                 )
 
                 if showsFormattingToolbar {
-                    MarkdownEditorFormattingToolbar(context: editorContext, showsLinkEditor: $showsLinkEditor)
+                    MarkdownEditorFormattingToolbar(context: editorContext, presentLinkEditor: presentLinkEditor)
                 }
             }
             .focusedValue(\.markdownEditorContext, editorContext)
@@ -74,14 +74,14 @@
                 }.disabled(linkDestination.isEmpty)
                 Button("Cancel", role: .cancel) {}
             }
-            .onChange(of: showsLinkEditor) { _, isShown in
-                // Editing a link starts from its current values; adding one starts empty.
-                if isShown {
-                    let link = editorContext.linkAtSelection
-                    linkDestination = link?.destination ?? ""
-                    linkTitle = link?.title ?? ""
-                }
-            }
+        }
+
+        /// Shows the link dialog. Editing a link starts from its current values; adding one starts empty.
+        private func presentLinkEditor() {
+            let link = editorContext.linkAtSelection
+            linkDestination = link?.destination ?? ""
+            linkTitle = link?.title ?? ""
+            showsLinkEditor = true
         }
 
         private var documentBinding: Binding<MarkdownDocument> {
@@ -151,8 +151,8 @@
 
     struct MarkdownEditorFormattingToolbar: View {
         @ObservedObject var context: MarkdownEditorContext
-        /// Owned by the editor so that ⌘K can present the same dialog.
-        @Binding var showsLinkEditor: Bool
+        /// Shows the editor's link dialog, which ⌘K also presents.
+        let presentLinkEditor: () -> Void
         @State private var imageSource = ""
         @State private var imageAlt = ""
         @State private var showsImageEditor = false
@@ -200,7 +200,7 @@
                         commandItem("Align right", command: .setTableColumnAlignment(.right))
                     } label: { Label("Table", systemImage: "tablecells") }
                     Menu {
-                        Button("Add or edit link") { showsLinkEditor = true }
+                        Button("Add or edit link", action: presentLinkEditor)
                             .disabled(!context.commandState.canPerform(MarkdownEditorCommandState.linkPlaceholder))
                         commandItem("Remove link", command: .removeLink)
                         Button("Insert image") { showsImageEditor = true }

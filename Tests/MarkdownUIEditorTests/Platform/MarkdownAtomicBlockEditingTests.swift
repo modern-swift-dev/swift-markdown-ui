@@ -142,6 +142,20 @@
             }
         }
 
+        func testPastingBlankTextAtTheStartOfATableOrRuleLineChangesNothing() {
+            for block in [Self.table, "---"] {
+                for payload in [MarkdownClipboardPayload(markdown: " \n\n"), MarkdownClipboardPayload(plainText: "\n \n")] {
+                    let editor = MarkdownTextView.editing(block + "\n\nafter", in: self)
+                    let original = editor.document
+                    editor.selectedRange = NSRange(location: 0, length: 0)
+
+                    XCTAssertTrue(editor.editingSession.paste(payload))
+
+                    XCTAssertEqual(editor.document, original, block)
+                }
+            }
+        }
+
         func testTypingAtEndOfDocumentEndingInAtomicBlockAddsParagraph() {
             for block in ["---", Self.html, Self.table] {
                 let editor = MarkdownTextView.editing("before\n\n" + block, in: self)

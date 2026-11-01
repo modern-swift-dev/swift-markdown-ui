@@ -224,6 +224,12 @@ import XCTest
         bridge.markdownSelectedRanges = [NSRange(location: 4, length: 0)]
         session.selectionDidChange()
         XCTAssertEqual(session.linkAtSelection, MarkdownEditorLink(destination: "/old", title: "Old title"))
+
+        // A selected range reads the link from its text, whatever the platform's typing attributes are.
+        bridge.markdownTypingAttributes = [:]
+        bridge.markdownSelectedRanges = [NSRange(location: 2, length: 4)]
+        session.selectionDidChange()
+        XCTAssertEqual(session.linkAtSelection, MarkdownEditorLink(destination: "/old", title: "Old title"))
     }
 
     func testLinkDialogValuesReplaceTheTitleOrRemoveItWhenEmpty() {
