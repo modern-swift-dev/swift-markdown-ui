@@ -24,4 +24,4 @@ When punctuation would prevent a formatting delimiter from opening or closing,
 serialization uses numeric character references for adjacent text. This preserves
 the visible characters and formatting when the exported Markdown is parsed again.
 
-Plain-text paste inserts literal text. Asterisks and brackets in that payload remain visible characters. Markdown paste parses through ``MarkdownDocument/init(markdown:)`` and inserts the resulting semantic content. Serialization always goes through ``MarkdownDocument/markdown``.
+Plain-text paste inserts literal text. Asterisks and brackets in that payload remain visible characters. Carriage returns, CRLF pairs, and paragraph separators in plain text become newlines. A single newline becomes a soft line break, and a blank line starts a new paragraph, except inside code and HTML blocks, which keep the text as is. Markdown paste parses through ``MarkdownDocument/init(markdown:)`` and inserts the resulting semantic content. Serialization always goes through ``MarkdownDocument/markdown``.

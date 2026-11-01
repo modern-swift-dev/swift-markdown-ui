@@ -1369,6 +1369,70 @@ import XCTest
         XCTAssertEqual(bridge.markdownTextStorage.string, "**literal**\n")
     }
 
+    func testPlainTextPasteLineEndingsSurviveSaveAndReload() {
+        let paragraphs: [MarkdownBlock] = [.paragraph([.text("one")]), .paragraph([.text("two")])]
+        let softBreak: [MarkdownBlock] = [.paragraph([.text("one"), .softBreak, .text("two")])]
+        let cases: [(pasted: String, expected: [MarkdownBlock])] = [
+            ("one\n\ntwo", paragraphs),
+            ("one\r\n\r\ntwo", paragraphs),
+            ("one\r\rtwo", paragraphs),
+            ("one\u{2029}\u{2029}two", paragraphs),
+            ("one\ntwo", softBreak),
+            ("one\r\ntwo", softBreak),
+            ("one\rtwo", softBreak),
+            ("one\u{2029}two", softBreak)
+        ]
+        for (pasted, expected) in cases {
+            let name = pasted.debugDescription
+            let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 0, length: 0)])
+            let session = MarkdownEditingSession(document: MarkdownDocument(blocks: [.paragraph([])]))
+            session.attach(to: bridge)
+            session.selectionDidChange()
+
+            XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: pasted)), name)
+
+            XCTAssertEqual(session.document.blocks, expected, name)
+            XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown).blocks, expected, name)
+            XCTAssertFalse(session.document.markdown.contains("\r"), name)
+            XCTAssertFalse(bridge.markdownTextStorage.string.unicodeScalars.contains("\r"), name)
+            XCTAssertEqual(session.projection.string, bridge.markdownTextStorage.string, name)
+        }
+    }
+
+    func testPlainTextParagraphsPasteIntoAParagraphAndUndo() {
+        let original = MarkdownDocument(markdown: "ab")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+        session.selectionDidChange()
+
+        XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: "**one**\r\nline\r\n  \r\ntwo")))
+
+        XCTAssertEqual(session.document.markdown, "a\\*\\*one\\*\\*\nline\n\ntwob\n")
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown).blocks, [
+            .paragraph([.text("a**one**"), .softBreak, .text("line")]),
+            .paragraph([.text("twob")])
+        ])
+        XCTAssertEqual(bridge.markdownTextStorage.string, "a**one**\nline\ntwob\n")
+
+        bridge.undoManager?.undo()
+
+        XCTAssertEqual(session.document, original)
+    }
+
+    func testPlainTextPasteKeepsBlankLinesInsideACodeBlock() {
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "```\nab\n```"))
+        session.attach(to: bridge)
+        session.selectionDidChange()
+
+        XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: "x\r\n\r\ny")))
+
+        let expected: [MarkdownBlock] = [.codeBlock(info: nil, content: "ax\n\nyb\n")]
+        XCTAssertEqual(session.document.blocks, expected)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown).blocks, expected)
+    }
+
     func testMarkdownPasteSplicesMultipleSemanticBlocks() {
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 2, length: 0)])
         let session = MarkdownEditingSession(

@@ -511,8 +511,12 @@ import Foundation
                 let length = max(0, projected.length - 1)
                 insertion = projected.attributedSubstring(from: NSRange(location: 0, length: length))
             } else if let plainText = payload.plainText {
+                let text = Self.normalizingLineEndings(plainText)
+                if let paragraphs = plainTextParagraphs(text, at: range.location) {
+                    return pasteBlockFragment(paragraphs, replacing: range)
+                }
                 insertion = NSAttributedString(
-                    string: plainText,
+                    string: text,
                     attributes: bridge.markdownTypingAttributes.isEmpty
                         ? theme.bodyAttributes
                         : bridge.markdownTypingAttributes
@@ -1553,6 +1557,43 @@ import Foundation
                 )
             )
             return true
+        }
+
+        /// Treats every platform line and paragraph separator as a newline, so none reaches the document.
+        static func normalizingLineEndings(_ text: String) -> String {
+            text.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .replacingOccurrences(of: "\u{2029}", with: "\n")
+        }
+
+        /// Paragraphs of plain text separated by blank lines, or nil when the text is
+        /// one paragraph or is pasted into a code or HTML block, which keep raw text.
+        ///
+        /// Soft breaks would keep a blank line only until the document is saved and
+        /// parsed again, where it separates two paragraphs.
+        func plainTextParagraphs(_ text: String, at location: Int) -> MarkdownDocument? {
+            switch projection.index.unit(atProjectionUTF16Offset: location)?.kind {
+                case .codeBlock,
+                     .htmlBlock:
+                    return nil
+                default:
+                    break
+            }
+            var paragraphs: [[String]] = [[]]
+            for line in text.components(separatedBy: "\n") {
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    paragraphs[paragraphs.count - 1].append(line)
+                } else if !paragraphs[paragraphs.count - 1].isEmpty {
+                    paragraphs.append([])
+                }
+            }
+            paragraphs.removeAll { $0.isEmpty }
+            guard paragraphs.count > 1 else {
+                return nil
+            }
+            return MarkdownDocument(blocks: paragraphs.map { lines in
+                .paragraph(Array(lines.map { [MarkdownInline.text($0)] }.joined(separator: [.softBreak])))
+            })
         }
 
         func pasteBlockFragment(_ fragment: MarkdownDocument, replacing range: NSRange) -> Bool {
