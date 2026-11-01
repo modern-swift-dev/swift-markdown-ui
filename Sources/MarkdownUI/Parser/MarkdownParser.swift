@@ -290,12 +290,21 @@ private extension UnsafeNode {
                 // cmark renders them as bullets even inside ordered lists, so use an
                 // ordinary numbered item with a literal checkbox prefix instead.
                 if cmark_node_get_syntax_extension(self) != nil,
-                   let parent = cmark_node_parent(self), parent.listType == CMARK_ORDERED_LIST,
-                   let paragraph = cmark_node_first_child(self),
-                   cmark_node_get_type(paragraph) == CMARK_NODE_PARAGRAPH {
+                   let parent = cmark_node_parent(self), parent.listType == CMARK_ORDERED_LIST {
                     let prefix = self.isTaskListItemChecked ? "[x] " : "[ ] "
                     let type = format == .markdown ? CMARK_NODE_CUSTOM_INLINE : CMARK_NODE_TEXT
-                    if let marker = cmark_node_new(type) {
+                    // An item that does not start with a paragraph (for example an empty one)
+                    // gets a new paragraph to hold the checkbox.
+                    let paragraph: UnsafeNode?
+                    if let first = cmark_node_first_child(self), cmark_node_get_type(first) == CMARK_NODE_PARAGRAPH {
+                        paragraph = first
+                    } else if let created = cmark_node_new(CMARK_NODE_PARAGRAPH) {
+                        cmark_node_prepend_child(self, created)
+                        paragraph = created
+                    } else {
+                        paragraph = nil
+                    }
+                    if let paragraph, let marker = cmark_node_new(type) {
                         switch format {
                             case .markdown:
                                 cmark_node_set_on_enter(marker, prefix)

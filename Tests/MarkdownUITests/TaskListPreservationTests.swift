@@ -135,6 +135,54 @@ final class TaskListPreservationTests: XCTestCase {
         XCTAssertEqual(MarkdownContent(content.renderMarkdown()), content)
     }
 
+    func testEmptyOrderedTaskItemsKeepOrderedMarkerAtStartMiddleAndEnd() {
+        let samples: [(source: String, completion: [Bool])] = [
+            ("1. [ ]\n2. [x] done", [false, true]),
+            ("1. [x] done\n2. [ ]\n3. [x] done", [true, false, true]),
+            ("1. [x] done\n2. [ ]", [true, false]),
+            ("3. [ ]\n4. [X]", [false, true])
+        ]
+        for (source, completion) in samples {
+            let content = MarkdownContent(source)
+            XCTAssertEqual(taskCompletionStates(in: content.blocks), completion.map(Optional.init), source)
+
+            let markdown = content.renderMarkdown()
+            let plainText = content.renderPlainText()
+            XCTAssertFalse(markdown.contains("- ["), "\(source) -> \(markdown)")
+            XCTAssertFalse(plainText.contains("- ["), "\(source) -> \(plainText)")
+            XCTAssertEqual(MarkdownContent(markdown), content, "\(source) -> \(markdown)")
+
+            let start = content.blocks.first.flatMap { block -> Int? in
+                if case let .numberedList(_, start, _) = block {
+                    return start
+                }
+                return nil
+            }
+            XCTAssertNotNil(start, source)
+            for (offset, isCompleted) in completion.enumerated() {
+                let marker = "\((start ?? 0) + offset)."
+                let checkbox = isCompleted ? "[x]" : "[ ]"
+                XCTAssertTrue(markdown.contains("\(marker)  \(checkbox)"), "\(source) -> \(markdown)")
+                XCTAssertTrue(plainText.contains("\(marker)  \(checkbox)"), "\(source) -> \(plainText)")
+            }
+        }
+    }
+
+    func testEmptyBulletedAndOrderedTaskItemsKeepTheirOwnMarkers() {
+        let bulleted = MarkdownContent("- [ ]\n- [x] done")
+        XCTAssertEqual(bulleted.renderMarkdown().split(separator: "\n").map { $0.prefix(2) }, ["- ", "- "])
+        XCTAssertEqual(MarkdownContent(bulleted.renderMarkdown()), bulleted)
+
+        let ordered = MarkdownContent("1. [ ]\n2. [x] done")
+        XCTAssertEqual(MarkdownContent(ordered.renderMarkdown()), ordered)
+        XCTAssertEqual(ordered.blocks, [
+            .numberedList(isTight: true, start: 1, items: [
+                .init(children: [], isCompleted: false),
+                .init(children: [.paragraph(content: [.text("done")])], isCompleted: true)
+            ])
+        ])
+    }
+
     func testNestedListRewritesPreserveTaskMetadata() {
         let content = MarkdownContent(blocks: [.blockquote(children: [
             .bulletedList(isTight: true, items: [
