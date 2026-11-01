@@ -21,7 +21,7 @@ import XCTest
 
         XCTAssertEqual(bridge.replacementCount, 1)
         XCTAssertEqual(bridge.markdownTextStorage.string, "initial\n")
-        XCTAssertTrue(session.theme === theme)
+        XCTAssertTrue(session.configuredTheme === theme)
         XCTAssertEqual(session.baseURL, url)
         XCTAssertTrue(session.imageProvider === provider)
     }

@@ -40,10 +40,18 @@ import Foundation
         private(set) var document: MarkdownDocument
         /// Native projection and source mappings. Built lazily when a bridge attaches.
         private(set) lazy var projection: DocumentProjection = makeProjection(document: document)
-        /// Attributes used when building or refreshing the projection.
+        /// Theme set by the owner, before any scaling for the content size category.
+        private(set) var configuredTheme: MarkdownEditorTheme
+        /// Attributes used when building or refreshing the projection: the configured
+        /// theme at the current content size category.
         private(set) var theme: MarkdownEditorTheme {
             didSet { configurationDidChange() }
         }
+
+        #if os(iOS) || targetEnvironment(macCatalyst)
+            /// Text size of the native view, which scales themes that adjust for it.
+            private(set) var contentSizeCategory = UIContentSizeCategory.large
+        #endif
 
         /// Base URL used by URL-backed image attachments.
         private(set) var baseURL: URL? {
@@ -101,7 +109,12 @@ import Foundation
             onDocumentChange: @escaping (MarkdownDocument) -> Void = { _ in }
         ) {
             self.document = Self.editableDocument(document)
-            self.theme = theme
+            self.configuredTheme = theme
+            #if os(iOS) || targetEnvironment(macCatalyst)
+                self.theme = theme.scaled(to: contentSizeCategory)
+            #else
+                self.theme = theme
+            #endif
             self.baseURL = baseURL
             self.imageProvider = imageProvider
             self.imageLoadingPolicy = imageLoadingPolicy
@@ -283,10 +296,10 @@ import Foundation
             baseURL: URL?,
             imageProvider: (any MarkdownEditorImageProvider)?
         ) {
-            let themeChanged = theme !== replacementTheme && !themesAreEqual(theme, replacementTheme)
+            let themeChanged = configuredTheme !== replacementTheme && !themesAreEqual(configuredTheme, replacementTheme)
             let objectsChanged = self.baseURL != baseURL || !sameImageProvider(self.imageProvider, imageProvider)
             if themeChanged {
-                theme = replacementTheme
+                configure(replacementTheme)
             }
             if objectsChanged {
                 self.baseURL = baseURL
@@ -303,12 +316,37 @@ import Foundation
 
         /// Rebuilds the projection with a new attribute theme.
         func replaceTheme(_ replacement: MarkdownEditorTheme) {
-            guard theme !== replacement,
-                  !themesAreEqual(theme, replacement) else {
+            guard configuredTheme !== replacement,
+                  !themesAreEqual(configuredTheme, replacement) else {
                 return
             }
-            theme = replacement
+            configure(replacement)
             installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
+        }
+
+        #if os(iOS) || targetEnvironment(macCatalyst)
+            /// Renders again at a new text size when the theme adjusts for it.
+            func replaceContentSizeCategory(_ category: UIContentSizeCategory) {
+                guard category != contentSizeCategory else {
+                    return
+                }
+                contentSizeCategory = category
+                guard configuredTheme.adjustsFontForContentSizeCategory else {
+                    return
+                }
+                theme = configuredTheme.scaled(to: category)
+                installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
+            }
+        #endif
+
+        /// Stores an owner's theme and the projection theme it produces.
+        private func configure(_ replacement: MarkdownEditorTheme) {
+            configuredTheme = replacement
+            #if os(iOS) || targetEnvironment(macCatalyst)
+                theme = replacement.scaled(to: contentSizeCategory)
+            #else
+                theme = replacement
+            #endif
         }
 
         func replaceObjectConfiguration(
@@ -2345,7 +2383,8 @@ import Foundation
             func same(_ a: [NSAttributedString.Key: Any], _ b: [NSAttributedString.Key: Any]) -> Bool {
                 NSDictionary(dictionary: a).isEqual(to: b)
             }
-            return same(lhs.bodyAttributes, rhs.bodyAttributes)
+            return lhs.adjustsFontForContentSizeCategory == rhs.adjustsFontForContentSizeCategory
+                && same(lhs.bodyAttributes, rhs.bodyAttributes)
                 && same(lhs.codeAttributes, rhs.codeAttributes)
                 && same(lhs.sourceAttributes, rhs.sourceAttributes)
                 && same(lhs.linkAttributes, rhs.linkAttributes)

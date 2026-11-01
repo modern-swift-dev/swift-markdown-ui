@@ -15,8 +15,11 @@
         public weak var markdownDelegate: (any MarkdownTextViewDelegate)?
 
         /// The native text attributes used by the editor projection.
+        ///
+        /// When the theme adjusts its fonts for the content size category, the editor
+        /// renders them at this view's `preferredContentSizeCategory`.
         public var editorTheme: MarkdownEditorTheme {
-            get { editingSession.theme }
+            get { editingSession.configuredTheme }
             set {
                 attachEditingSessionIfNeeded()
                 editingSession.replaceTheme(newValue)
@@ -114,7 +117,7 @@
                 width: bounds.width,
                 textContainerInset: textContainerInset,
                 storageVersion: storageVersion,
-                theme: ObjectIdentifier(editorTheme),
+                theme: ObjectIdentifier(editingSession.theme),
                 color: color
             )
             guard force || needsTaskCheckboxPlacement || placement != taskCheckboxPlacement else {
@@ -135,7 +138,7 @@
                     layer.addSublayer(checkbox)
                     taskCheckboxLayers.append(checkbox)
                 }
-                taskCheckboxLayers[count].update(textRect: caretRect(for: position), checked: checked.boolValue, color: color, theme: editorTheme)
+                taskCheckboxLayers[count].update(textRect: caretRect(for: position), checked: checked.boolValue, color: color, theme: editingSession.theme)
                 count += 1
             }
             while taskCheckboxLayers.count > count {
@@ -403,11 +406,15 @@
                 self, selector: #selector(textStorageDidProcessEditing),
                 name: NSTextStorage.didProcessEditingNotification, object: textStorage
             )
+            editingSession.replaceContentSizeCategory(traitCollection.preferredContentSizeCategory)
             editingSession.attach(to: self)
             hasAttachedEditingSession = true
             // Layers keep a resolved color, so checkboxes recolor as soon as the appearance changes.
             registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: MarkdownTextView, _) in
                 view.placeTaskCheckboxes()
+            }
+            registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: MarkdownTextView, _) in
+                view.editingSession.replaceContentSizeCategory(view.traitCollection.preferredContentSizeCategory)
             }
         }
 
@@ -439,7 +446,7 @@
                 return nil
             }
             let caret = caretRect(for: start)
-            let markerBounds = MarkdownTaskCheckboxLayer.hitBounds(textRect: caret, theme: editorTheme)
+            let markerBounds = MarkdownTaskCheckboxLayer.hitBounds(textRect: caret, theme: editingSession.theme)
             return markerBounds.contains(point) ? range.location : nil
         }
     }

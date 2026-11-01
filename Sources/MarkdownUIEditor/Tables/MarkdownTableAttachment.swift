@@ -594,18 +594,23 @@ private enum MarkdownTableCellSourceCodec {
 
 #if canImport(UIKit) || canImport(AppKit)
     @MainActor private extension MarkdownTableController {
-        func richText(at position: MarkdownTableCellPosition) -> NSAttributedString {
+        func richText(at position: MarkdownTableCellPosition, theme: MarkdownEditorTheme) -> NSAttributedString {
             let content = cell(at: position)?.content ?? []
             let isHeader = position.section == .header
             let alignment = alignment(at: position)
-            return MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment) {
-                Self.projectRichText(content, isHeader: isHeader, alignment: alignment)
+            return MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment, theme: theme) {
+                Self.projectRichText(content, isHeader: isHeader, alignment: alignment, theme: theme)
             }
         }
 
-        private static func projectRichText(_ content: [MarkdownInline], isHeader: Bool, alignment: NSTextAlignment) -> NSAttributedString {
+        private static func projectRichText(
+            _ content: [MarkdownInline],
+            isHeader: Bool,
+            alignment: NSTextAlignment,
+            theme: MarkdownEditorTheme
+        ) -> NSAttributedString {
             let content = content.map(MarkdownTableCellSourceCodec.editableInline)
-            let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]))
+            let projection = MarkdownProjectionBuilder().build(document: MarkdownDocument(blocks: [.paragraph(content)]), theme: theme)
             let result = NSMutableAttributedString(attributedString: projection.attributedString)
             if result.string.hasSuffix("\n") {
                 result.deleteCharacters(in: NSRange(location: result.length - 1, length: 1))
@@ -658,12 +663,8 @@ private enum MarkdownTableCellSourceCodec {
             var content: [MarkdownInline]
             var isHeader: Bool
             var alignment: NSTextAlignment
-            // Theme fonts derive from the body font, which follows Dynamic Type.
-            #if canImport(UIKit)
-                var bodyFont = UIFont.preferredFont(forTextStyle: .body)
-            #elseif canImport(AppKit)
-                var bodyFont = NSFont.preferredFont(forTextStyle: .body)
-            #endif
+            /// The theme's body font. Its other fonts scale with it for Dynamic Type.
+            var bodyFont: NSObject?
         }
 
         /// The number of texts kept before the cache starts over.
@@ -674,9 +675,10 @@ private enum MarkdownTableCellSourceCodec {
             for content: [MarkdownInline],
             isHeader: Bool,
             alignment: NSTextAlignment,
+            theme: MarkdownEditorTheme,
             project: () -> NSAttributedString
         ) -> NSAttributedString {
-            let key = Key(content: content, isHeader: isHeader, alignment: alignment)
+            let key = Key(content: content, isHeader: isHeader, alignment: alignment, bodyFont: theme.bodyAttributes[.font] as? NSObject)
             if let text = texts[key] {
                 return text
             }
@@ -992,11 +994,16 @@ private enum MarkdownTableCellSourceCodec {
         private var rowStacks: [MarkdownTableRowStackView] = []
         private var cellLayout = MarkdownTableCellLayoutCache(positions: [], columnCount: 0)
         private var cellHeights: [MarkdownTableCellPosition: CGFloat] = [:]
+        /// Projects cell text at this grid's text size.
+        private lazy var cellTheme = MarkdownEditorTheme.basic.scaled(to: traitCollection.preferredContentSizeCategory)
 
         init(controller: MarkdownTableController, maximumWidth: CGFloat?) {
             self.controller = controller
             self.maximumWidth = maximumWidth
             super.init(frame: .zero)
+            registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (grid: UIKitMarkdownTableGridView, _) in
+                grid.contentSizeCategoryDidChange()
+            }
             stack.axis = .vertical
             stack.spacing = 0
             stack.translatesAutoresizingMaskIntoConstraints = false
@@ -1232,11 +1239,23 @@ private enum MarkdownTableCellSourceCodec {
             return field
         }
 
+        /// Projects every cell again at the new text size, keeping each cell's selection.
+        private func contentSizeCategoryDidChange() {
+            cellTheme = MarkdownEditorTheme.basic.scaled(to: traitCollection.preferredContentSizeCategory)
+            for field in fields.values {
+                let selection = field.selectedRange
+                configureText(of: field)
+                field.selectedRange = clamped(selection, toUTF16Length: field.textStorage.length)
+            }
+            updateColumnWidths(remeasuringAllRows: true)
+            resizeAttachment()
+        }
+
         /// Sets a cell's text the same way for new and updated cells.
         private func configureText(of field: MarkdownTableCellTextView) {
-            field.attributedText = controller.richText(at: field.position)
+            field.attributedText = controller.richText(at: field.position, theme: cellTheme)
             field.textAlignment = controller.alignment(at: field.position)
-            field.typingAttributes = [.font: UIFont.preferredFont(forTextStyle: .body)]
+            field.typingAttributes = [.font: cellTheme.bodyAttributes[.font] ?? UIFont.preferredFont(forTextStyle: .body)]
         }
 
         /// Lays out changed cells, or every cell when nil. Removing cells can lower
@@ -1778,7 +1797,7 @@ private enum MarkdownTableCellSourceCodec {
 
         /// Sets a cell's text the same way for new and updated cells.
         private func configureText(of field: AppKitMarkdownTableCellTextView) {
-            field.textStorage?.setAttributedString(controller.richText(at: field.position))
+            field.textStorage?.setAttributedString(controller.richText(at: field.position, theme: .basic))
             field.alignment = controller.alignment(at: field.position)
             field.typingAttributes = [.font: NSFont.preferredFont(forTextStyle: .body)]
         }

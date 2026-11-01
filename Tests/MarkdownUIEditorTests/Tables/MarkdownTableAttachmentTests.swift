@@ -328,8 +328,14 @@ import XCTest
     func testCellTextIsProjectedOncePerContentAndStyle() {
         let content: [MarkdownInline] = [.text(UUID().uuidString)]
         var projections = 0
-        func text(_ content: [MarkdownInline], isHeader: Bool = false, alignment: NSTextAlignment = .left) -> NSAttributedString {
-            MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment) {
+        let basic = MarkdownEditorTheme.basic
+        func text(
+            _ content: [MarkdownInline],
+            isHeader: Bool = false,
+            alignment: NSTextAlignment = .left,
+            theme: MarkdownEditorTheme? = nil
+        ) -> NSAttributedString {
+            MarkdownTableCellTextCache.text(for: content, isHeader: isHeader, alignment: alignment, theme: theme ?? basic) {
                 projections += 1
                 return NSAttributedString(string: "\(projections)")
             }
@@ -341,6 +347,17 @@ import XCTest
         XCTAssertFalse(text(content, isHeader: true) === first)
         XCTAssertFalse(text(content, alignment: .center) === first)
         XCTAssertEqual(projections, 3)
+        #if canImport(UIKit)
+            let largerFont = UIFont.systemFont(ofSize: 40)
+        #elseif canImport(AppKit)
+            let largerFont = NSFont.systemFont(ofSize: 40)
+        #endif
+        let larger = MarkdownEditorTheme(
+            bodyAttributes: [.font: largerFont], headingAttributes: [:], codeAttributes: [:],
+            sourceAttributes: [:], linkAttributes: [:], objectPlaceholderAttributes: [:]
+        )
+        XCTAssertFalse(text(content, theme: larger) === first, "Text in another body font, such as a larger text size, is projected again")
+        XCTAssertEqual(projections, 4)
 
         for index in 0 ..< MarkdownTableCellTextCache.capacity {
             _ = text([.text("\(content) \(index)")])

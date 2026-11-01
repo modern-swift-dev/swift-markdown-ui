@@ -38,6 +38,6 @@ struct SourceEditor: View {
 
 `baseURL` resolves relative image URLs in the editor projection. It does not rewrite the Markdown document.
 
-`MarkdownEditorTheme` belongs to this product. It is not `MarkdownUI.Theme` and does not require the renderer. Choose `.basic`, `.gitHub`, or `.docC`, or initialize a theme with native attributed-string attributes.
+`MarkdownEditorTheme` belongs to this product. It is not `MarkdownUI.Theme` and does not require the renderer. Choose `.basic`, `.gitHub`, or `.docC`, or initialize a theme with native attributed-string attributes. On iOS, iPadOS, and Mac Catalyst the built-in themes follow Dynamic Type; a custom theme follows it only when initialized with `adjustsFontForContentSizeCategory: true`.
 
 The default toolbar includes bold, italic, strikethrough, inline code, paragraph styles, lists, links, images, and table commands. Its enabled and selected states follow the current selection. Commands return keyboard focus to the edited text or table cell so typing can continue after using a control.

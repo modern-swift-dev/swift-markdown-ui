@@ -20,15 +20,28 @@ import Foundation
     public let linkAttributes: [NSAttributedString.Key: Any]
     /// Attributes for table and image placeholders when their native view is unavailable.
     public let objectPlaceholderAttributes: [NSAttributedString.Key: Any]
+    /// Whether the editor scales this theme's fonts with the content size category (Dynamic Type).
+    ///
+    /// On iOS, iPadOS, and Mac Catalyst, the fonts are the sizes used at the default
+    /// (Large) content size category. The editor scales every font by the factor the
+    /// system body text style scales by, so body text matches the system body size and
+    /// the other fonts keep their sizes relative to it. It renders again when the text
+    /// size changes. AppKit has no content size category, so macOS ignores this property.
+    public let adjustsFontForContentSizeCategory: Bool
 
     /// Creates a theme from the attributes used by each projected content category.
+    ///
+    /// Pass `true` for `adjustsFontForContentSizeCategory` to scale the fonts with
+    /// Dynamic Type on UIKit. Give fonts of a fixed size then, such as
+    /// `UIFont.systemFont(ofSize:)`, because the editor does the scaling.
     public init(
         bodyAttributes: [NSAttributedString.Key: Any],
         headingAttributes: [MarkdownHeadingLevel: [NSAttributedString.Key: Any]],
         codeAttributes: [NSAttributedString.Key: Any],
         sourceAttributes: [NSAttributedString.Key: Any],
         linkAttributes: [NSAttributedString.Key: Any],
-        objectPlaceholderAttributes: [NSAttributedString.Key: Any]
+        objectPlaceholderAttributes: [NSAttributedString.Key: Any],
+        adjustsFontForContentSizeCategory: Bool = false
     ) {
         self.bodyAttributes = bodyAttributes
         self.headingAttributes = headingAttributes
@@ -36,6 +49,7 @@ import Foundation
         self.sourceAttributes = sourceAttributes
         self.linkAttributes = linkAttributes
         self.objectPlaceholderAttributes = objectPlaceholderAttributes
+        self.adjustsFontForContentSizeCategory = adjustsFontForContentSizeCategory
     }
 
     /// A system-colored theme with standard body, heading, and code fonts.
@@ -46,7 +60,8 @@ import Foundation
             codeAttributes: codeAttributes(color: labelColor),
             sourceAttributes: codeAttributes(color: labelColor),
             linkAttributes: [.foregroundColor: linkColor],
-            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor)
+            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor),
+            adjustsFontForContentSizeCategory: true
         )
     }
 
@@ -58,7 +73,8 @@ import Foundation
             codeAttributes: codeAttributes(color: labelColor),
             sourceAttributes: codeAttributes(color: labelColor),
             linkAttributes: [.foregroundColor: gitHubLinkColor],
-            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor)
+            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor),
+            adjustsFontForContentSizeCategory: true
         )
     }
 
@@ -70,7 +86,8 @@ import Foundation
             codeAttributes: codeAttributes(color: labelColor),
             sourceAttributes: codeAttributes(color: labelColor),
             linkAttributes: [.foregroundColor: docCLinkColor],
-            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor)
+            objectPlaceholderAttributes: bodyAttributes(color: secondaryLabelColor),
+            adjustsFontForContentSizeCategory: true
         )
     }
 }
@@ -91,6 +108,38 @@ private extension MarkdownEditorTheme {
         [.font: monospacedFont(size: preferredBodyFont().pointSize, weight: .regular), .foregroundColor: color]
     }
 }
+
+#if os(iOS) || targetEnvironment(macCatalyst)
+    extension MarkdownEditorTheme {
+        /// This theme with every font scaled to `category`, or the theme itself when it
+        /// doesn't adjust fonts for the content size category.
+        func scaled(to category: UIContentSizeCategory) -> MarkdownEditorTheme {
+            guard adjustsFontForContentSizeCategory else {
+                return self
+            }
+            func bodySize(_ category: UIContentSizeCategory) -> CGFloat {
+                UIFont.preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: category)).pointSize
+            }
+            let scale = bodySize(category) / bodySize(.large)
+            func scaled(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+                guard let font = attributes[.font] as? UIFont else {
+                    return attributes
+                }
+                var attributes = attributes
+                attributes[.font] = font.withSize(font.pointSize * scale)
+                return attributes
+            }
+            return MarkdownEditorTheme(
+                bodyAttributes: scaled(bodyAttributes),
+                headingAttributes: headingAttributes.mapValues(scaled),
+                codeAttributes: scaled(codeAttributes),
+                sourceAttributes: scaled(sourceAttributes),
+                linkAttributes: scaled(linkAttributes),
+                objectPlaceholderAttributes: scaled(objectPlaceholderAttributes)
+            )
+        }
+    }
+#endif
 
 /// sRGB components of a fixed theme color, each between 0 and 1.
 private typealias RGB = (red: CGFloat, green: CGFloat, blue: CGFloat)
@@ -127,7 +176,12 @@ private typealias RGB = (red: CGFloat, green: CGFloat, blue: CGFloat)
         }
 
         static func preferredBodyFont() -> UIFont {
-            UIFont.preferredFont(forTextStyle: .body)
+            #if os(iOS) || targetEnvironment(macCatalyst)
+                // The editor scales built-in themes, so they start from the default text size.
+                UIFont.preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: .large))
+            #else
+                UIFont.preferredFont(forTextStyle: .body)
+            #endif
         }
 
         static func systemFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
