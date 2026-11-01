@@ -212,6 +212,38 @@ import XCTest
         XCTAssertEqual(session.document, original)
     }
 
+    func testLinkAtSelectionReportsTheSurroundingLinksDestinationAndTitle() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: #"a [link](/old "Old title") b"#))
+        session.attach(to: bridge)
+
+        bridge.markdownSelectedRanges = [NSRange(location: 1, length: 0)]
+        session.selectionDidChange()
+        XCTAssertNil(session.linkAtSelection)
+
+        bridge.markdownSelectedRanges = [NSRange(location: 4, length: 0)]
+        session.selectionDidChange()
+        XCTAssertEqual(session.linkAtSelection, MarkdownEditorLink(destination: "/old", title: "Old title"))
+    }
+
+    func testLinkDialogValuesReplaceTheTitleOrRemoveItWhenEmpty() {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: #"a [link](/old "Old title") b"#))
+        session.attach(to: bridge)
+        bridge.markdownSelectedRanges = [NSRange(location: 4, length: 0)]
+        session.selectionDidChange()
+
+        session.perform(MarkdownEditorLink(destination: "/new", title: #"Say "hi""#).command)
+        XCTAssertEqual(session.document.blocks, [.paragraph([
+            .text("a "), .link(destination: "/new", title: #"Say "hi""#, children: [.text("link")]), .text(" b")
+        ])])
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), session.document, "The title's quotes are escaped")
+
+        session.selectionDidChange()
+        session.perform(MarkdownEditorLink(destination: "/new", title: "").command)
+        XCTAssertEqual(session.document, MarkdownDocument(markdown: "a [link](/new) b"))
+    }
+
     func testTextTypedAfterLinkOrInlineHTMLIsPlainButKeepsInlineStyles() {
         let cases: [(source: String, typed: String, expected: String)] = [
             ("[link](/u)", "x", "[link](/u)x"),

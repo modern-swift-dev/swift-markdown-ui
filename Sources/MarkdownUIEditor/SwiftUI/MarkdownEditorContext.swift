@@ -20,6 +20,11 @@
             textView?.editingSession.isActive(command) ?? false
         }
 
+        /// The link at the focused editor's selection.
+        var linkAtSelection: MarkdownEditorLink? {
+            textView?.editingSession.linkAtSelection
+        }
+
         /// The toolbar's command state, evaluated once after each editor change.
         var commandState: MarkdownEditorCommandState {
             if let cachedCommandState {

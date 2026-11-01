@@ -26,7 +26,7 @@ While the editor itself has keyboard focus, these shortcuts apply on macOS and w
 - **Tab** and **Shift-Tab** indent and outdent the list item at the caret. Shift-Tab on a top-level item turns it into a paragraph. Outside a list, both keep their standard behavior, and table cells keep using them to move between cells.
 - **Shift-Return** inserts a hard line break in a paragraph, saved as a trailing backslash (`\`).
 - **Shift-Command-X** toggles strikethrough.
-- **Command-K** opens the "Add or edit link" dialog of the SwiftUI `MarkdownEditor`. `MarkdownTextView` used directly has no Command-K, so apps add their own link interface.
+- **Command-K** opens the "Add or edit link" dialog of the SwiftUI `MarkdownEditor`. The dialog edits the URL and optional title of the link at the selection. `MarkdownTextView` used directly has no Command-K, so apps add their own link interface.
 
 The shortcuts don't fire while a table cell or another view has focus. On iOS, they appear in the hardware keyboard's discoverability overlay.
 

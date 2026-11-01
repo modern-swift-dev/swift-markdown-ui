@@ -319,6 +319,44 @@
             XCTAssertNotNil(window.attachedSheet, "The Add or edit link dialog should be presented")
         }
 
+        func testLinkDialogShowsTheDestinationAndTitleOfTheLinkAtTheSelection() async throws {
+            let hostingView = NSHostingView(rootView:
+                MarkdownEditor(document: .constant(MarkdownDocument(markdown: #"a [link](/old "Old title") b"#)))
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+                styleMask: [.titled], backing: .buffered, defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                window.attachedSheet.map { window.endSheet($0) }
+                window.orderOut(nil)
+            }
+            hostingView.layoutSubtreeIfNeeded()
+            let textView = try XCTUnwrap(findTextView(in: hostingView))
+            window.makeFirstResponder(textView)
+            textView.selectedRange = NSRange(location: 4, length: 0)
+
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "k",
+                charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40
+            ))
+            XCTAssertTrue(textView.performKeyEquivalent(with: event))
+            try await Task.sleep(for: .milliseconds(300))
+
+            let sheet = try XCTUnwrap(window.attachedSheet?.contentView)
+            let fields = editableTextFields(in: sheet)
+            XCTAssertEqual(fields.map(\.placeholderString), ["Link URL", "Title (optional)"])
+            XCTAssertEqual(fields.map(\.stringValue), ["/old", "Old title"])
+        }
+
+        private func editableTextFields(in view: NSView) -> [NSTextField] {
+            let current = (view as? NSTextField).flatMap { $0.isEditable ? [$0] : nil } ?? []
+            return current + view.subviews.flatMap(editableTextFields)
+        }
+
         func testMarkdownShortcutsModifierTurnsConversionOnAndOff() throws {
             func editor(convertsShortcuts: Bool?) -> some View {
                 let editor = MarkdownEditor(document: .constant(MarkdownDocument(markdown: "text")))

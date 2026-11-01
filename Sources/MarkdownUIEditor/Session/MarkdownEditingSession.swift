@@ -2431,6 +2431,18 @@ import Foundation
             }
         }
 
+        /// The link at the selection, which the link dialog edits. A caret at a link's edge is outside it.
+        var linkAtSelection: MarkdownEditorLink? {
+            guard let bridge else {
+                return nil
+            }
+            let attributes = activeTableController?.activeTypingAttributes ?? bridge.markdownTypingAttributes
+            guard let destination = attributes[.markdownEditorLinkDestination] as? String else {
+                return nil
+            }
+            return MarkdownEditorLink(destination: destination, title: attributes[.markdownEditorLinkTitle] as? String)
+        }
+
         func isActive(_ command: MarkdownEditorCommand) -> Bool {
             guard let bridge, let range = bridge.markdownSelectedRanges.first else {
                 return false

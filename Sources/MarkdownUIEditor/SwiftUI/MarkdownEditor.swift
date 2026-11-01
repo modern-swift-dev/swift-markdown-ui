@@ -18,6 +18,7 @@
         /// Whether the "Add or edit link" dialog is shown, from the toolbar or ⌘K.
         @State private var showsLinkEditor = false
         @State private var linkDestination = ""
+        @State private var linkTitle = ""
         @Environment(\.markdownEditorTheme) private var theme
         @Environment(\.markdownEditorShowsFormattingToolbar) private var showsFormattingToolbar
         @Environment(\.markdownEditorIsEditable) private var isEditable
@@ -67,11 +68,19 @@
             .focusedValue(\.markdownEditorContext, editorContext)
             .alert("Add or edit link", isPresented: $showsLinkEditor) {
                 TextField("Link URL", text: $linkDestination)
+                TextField("Title (optional)", text: $linkTitle)
                 Button("Apply") {
-                    editorContext.perform(.setLink(destination: linkDestination, title: nil))
-                    linkDestination = ""
+                    editorContext.perform(MarkdownEditorLink(destination: linkDestination, title: linkTitle).command)
                 }.disabled(linkDestination.isEmpty)
                 Button("Cancel", role: .cancel) {}
+            }
+            .onChange(of: showsLinkEditor) { _, isShown in
+                // Editing a link starts from its current values; adding one starts empty.
+                if isShown {
+                    let link = editorContext.linkAtSelection
+                    linkDestination = link?.destination ?? ""
+                    linkTitle = link?.title ?? ""
+                }
             }
         }
 
