@@ -689,6 +689,71 @@ import XCTest
         XCTAssertEqual(bridge.markdownTextStorage.string, "qu\note\n")
     }
 
+    func testHardLineBreakSplitsParagraphLineInOneUndoStep() {
+        let document = MarkdownDocument(markdown: "ab**cd**ef")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 3, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.attach(to: bridge)
+        session.selectionDidChange()
+
+        XCTAssertTrue(session.insertHardLineBreak())
+
+        XCTAssertEqual(session.document.blocks, [
+            .paragraph([.text("ab"), .strong([.text("c")]), .lineBreak, .strong([.text("d")]), .text("ef")])
+        ])
+        XCTAssertEqual(session.document.markdown, "ab**c**\\\n**d**ef\n")
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), session.document)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "abc\ndef\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 4, length: 0)])
+
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, document)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "abcdef\n")
+    }
+
+    func testHardLineBreakReplacesSelectionAndIsUnavailableOutsideParagraphs() {
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 2)])
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "abcd\n\n# Title\n\n```\ncode\n```"))
+        session.attach(to: bridge)
+
+        XCTAssertTrue(session.insertHardLineBreak())
+        XCTAssertEqual(session.document.blocks.first, .paragraph([.text("a"), .lineBreak, .text("d")]))
+
+        let afterParagraph = session.document
+        for text in ["Title", "code"] {
+            let location = (bridge.markdownTextStorage.string as NSString).range(of: text).location
+            bridge.markdownSelectedRanges = [NSRange(location: location + 1, length: 0)]
+            XCTAssertFalse(session.insertHardLineBreak(), text)
+            XCTAssertEqual(session.document, afterParagraph, text)
+        }
+    }
+
+    func testEditorShortcutsRequireOuterFocusWithoutTableCellOrComposition() throws {
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "- item\n\n| Name |\n| --- |\n| Editor |"))
+        session.attach(to: bridge)
+        XCTAssertFalse(session.acceptsEditorShortcuts)
+        XCTAssertTrue(session.selectionIsInListItem)
+
+        bridge.markdownIsFirstResponder = true
+        XCTAssertTrue(session.acceptsEditorShortcuts)
+
+        bridge.markdownHasMarkedText = true
+        XCTAssertFalse(session.acceptsEditorShortcuts)
+        XCTAssertFalse(session.insertHardLineBreak())
+        bridge.markdownHasMarkedText = false
+
+        let tableAttachment = try XCTUnwrap(
+            attachment(in: bridge.markdownTextStorage, ofType: MarkdownTableAttachment.self)
+        )
+        tableAttachment.controller.updateSelection(
+            at: MarkdownTableCellPosition(section: .body(row: 0), column: 0),
+            range: NSRange(location: 2, length: 0)
+        )
+        XCTAssertFalse(session.acceptsEditorShortcuts)
+        XCTAssertFalse(session.insertHardLineBreak())
+    }
+
     func testBackwardDeletionJoinsAdjacentParagraphs() {
         let document = MarkdownDocument(blocks: [
             .paragraph([.strong([.text("one")])]),
@@ -1527,6 +1592,7 @@ import XCTest
     var markdownSelectedRanges: [NSRange]
     var markdownTypingAttributes: [NSAttributedString.Key: Any] = [:]
     var markdownHasMarkedText = false
+    var markdownIsFirstResponder = false
     let undoManager: UndoManager? = UndoManager()
     private(set) var replacementCount = 0
 

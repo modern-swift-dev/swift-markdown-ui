@@ -190,6 +190,24 @@ final class MarkdownDocumentParsingTests: XCTestCase {
         ])
     }
 
+    func testHardLineBreakSavesAsTrailingBackslashAndRoundTrips() {
+        let cases: [(MarkdownDocument, String)] = [
+            (MarkdownDocument(blocks: [.paragraph([.text("a"), .lineBreak, .text("b")])]), "a\\\nb\n"),
+            (MarkdownDocument(blocks: [.paragraph([.strong([.text("a"), .lineBreak, .text("b")])])]), "**a\\\nb**\n"),
+            (
+                MarkdownDocument(blocks: [.list(MarkdownList(kind: .unordered, isTight: true, items: [
+                    MarkdownListItem(blocks: [.paragraph([.text("a"), .lineBreak, .text("b")])])
+                ]))]),
+                "  - a\\\n    b\n"
+            ),
+            (MarkdownDocument(blocks: [.blockquote([.paragraph([.text("a"), .lineBreak, .text("b")])])]), "> a\\\n> b\n")
+        ]
+        for (document, expected) in cases {
+            XCTAssertEqual(document.markdown, expected)
+            XCTAssertEqual(MarkdownDocument(markdown: document.markdown), document, expected)
+        }
+    }
+
     func testLooseNestedListsRoundTrip() {
         let source = """
         - first paragraph

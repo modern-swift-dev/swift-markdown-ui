@@ -281,6 +281,38 @@
             XCTAssertEqual(document.markdown, "**hello**\n")
         }
 
+        func testCommandKOpensTheLinkDialogEvenWithoutTheToolbar() async throws {
+            let hostingView = NSHostingView(rootView:
+                MarkdownEditor(document: .constant(MarkdownDocument(markdown: "hello")))
+                    .markdownEditorShowsFormattingToolbar(false)
+            )
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
+                styleMask: [.titled], backing: .buffered, defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                window.attachedSheet.map { window.endSheet($0) }
+                window.orderOut(nil)
+            }
+            hostingView.layoutSubtreeIfNeeded()
+            let textView = try XCTUnwrap(findTextView(in: hostingView))
+            window.makeFirstResponder(textView)
+            textView.selectedRange = NSRange(location: 0, length: 5)
+            XCTAssertNil(window.attachedSheet)
+
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "k",
+                charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40
+            ))
+            XCTAssertTrue(textView.performKeyEquivalent(with: event))
+            try await Task.sleep(for: .milliseconds(300))
+
+            XCTAssertNotNil(window.attachedSheet, "The Add or edit link dialog should be presented")
+        }
+
         func testToolbarRestoresFocusAndPreservesCaretTypingStyle() {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             let window = NSWindow(

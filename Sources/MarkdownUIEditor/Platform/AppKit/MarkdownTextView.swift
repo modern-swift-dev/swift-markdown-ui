@@ -66,6 +66,9 @@
             }
         }
 
+        /// Presents the SwiftUI editor's link dialog. ⌘K is handled only while it is set.
+        var presentLinkEditor: (() -> Void)?
+
         /// The empty document used before the lazy editing session attaches.
         private let initialDocument = MarkdownDocument()
         /// Prevents installing the session and native delegate more than once.
@@ -188,6 +191,53 @@
             perform(.convertList(.ordered(start: 1)))
         }
 
+        /// Indents the list item at the caret. Outside a list, Tab keeps its standard behavior.
+        override public func insertTab(_ sender: Any?) {
+            guard handlesEditorShortcuts, editingSession.selectionIsInListItem else {
+                super.insertTab(sender)
+                return
+            }
+            perform(.indent)
+        }
+
+        /// Outdents the list item at the caret, turning a top-level item into a paragraph.
+        /// Outside a list, Shift-Tab keeps its standard behavior.
+        override public func insertBacktab(_ sender: Any?) {
+            guard handlesEditorShortcuts, editingSession.selectionIsInListItem else {
+                super.insertBacktab(sender)
+                return
+            }
+            perform(.outdent)
+        }
+
+        override public func keyDown(with event: NSEvent) {
+            // Shift-Return inserts a hard line break, saved as a trailing backslash.
+            if event.charactersIgnoringModifiers == "\r",
+               event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift,
+               handlesEditorShortcuts,
+               editingSession.insertHardLineBreak() {
+                return
+            }
+            super.keyDown(with: event)
+        }
+
+        override public func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard handlesEditorShortcuts else {
+                return super.performKeyEquivalent(with: event)
+            }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            switch (event.charactersIgnoringModifiers?.lowercased(), modifiers) {
+                case ("x", [.command, .shift]) where canPerform(.toggleInline(.strikethrough)):
+                    perform(.toggleInline(.strikethrough))
+                    return true
+                case ("k", .command) where presentLinkEditor != nil && canPerform(.setLink(destination: "", title: nil)):
+                    presentLinkEditor?()
+                    return true
+                default:
+                    return super.performKeyEquivalent(with: event)
+            }
+        }
+
         override public func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
             switch item.action {
                 case #selector(toggleBoldface(_:)):
@@ -222,12 +272,26 @@
                 item.target = self
                 item.representedObject = command
                 item.isEnabled = canPerform(command)
+                if command == .toggleInline(.strikethrough) {
+                    item.keyEquivalent = "x"
+                    item.keyEquivalentModifierMask = [.command, .shift]
+                }
                 styleMenu.addItem(item)
             }
             let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
             styleItem.submenu = styleMenu
             menu.addItem(styleItem)
+            if presentLinkEditor != nil {
+                let linkItem = NSMenuItem(title: "Add or Edit Link…", action: #selector(presentLinkEditorFromMenu(_:)), keyEquivalent: "k")
+                linkItem.target = self
+                linkItem.keyEquivalentModifierMask = .command
+                menu.addItem(linkItem)
+            }
             return menu
+        }
+
+        @objc private func presentLinkEditorFromMenu(_ sender: NSMenuItem) {
+            presentLinkEditor?()
         }
 
         @objc private func performContextFormatting(_ sender: NSMenuItem) {
@@ -271,6 +335,13 @@
     }
 
     private extension MarkdownTextView {
+        /// Editor shortcuts apply only while this view itself has focus and accepts edits,
+        /// so they never fire while a table cell or another view has focus.
+        var handlesEditorShortcuts: Bool {
+            attachEditingSessionIfNeeded()
+            return editingSession.acceptsEditorShortcuts
+        }
+
         func taskMarkerOffset(at point: NSPoint) -> Int? {
             let offset = characterIndexForInsertion(at: point)
             guard let range = editingSession.taskItemProjectionRange(containing: offset),

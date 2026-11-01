@@ -70,6 +70,9 @@
             }
         }
 
+        /// Presents the SwiftUI editor's link dialog. ⌘K is offered only while it is set.
+        var presentLinkEditor: (() -> Void)?
+
         /// Prevents installing the session and native delegate more than once.
         private var hasAttachedEditingSession = false
         /// Owns the document, projection, selection mapping, and undo state.
@@ -262,8 +265,26 @@
                     action: #selector(toggleEmphasis),
                     input: "i",
                     modifierFlags: .command
-                )
-            ]
+                ),
+                editorKeyCommand("Strikethrough", action: #selector(toggleStrikethrough), input: "x", modifierFlags: [.command, .shift]),
+                editorKeyCommand("Indent", action: #selector(indentListItem), input: "\t"),
+                editorKeyCommand("Outdent", action: #selector(outdentListItem), input: "\t", modifierFlags: .shift),
+                editorKeyCommand("Line Break", action: #selector(insertHardLineBreak), input: "\r", modifierFlags: .shift)
+            ] + (presentLinkEditor == nil ? [] : [
+                editorKeyCommand("Add or Edit Link", action: #selector(presentLinkEditorFromKeyboard), input: "k", modifierFlags: .command)
+            ])
+        }
+
+        private func editorKeyCommand(
+            _ title: String,
+            action: Selector,
+            input: String,
+            modifierFlags: UIKeyModifierFlags = []
+        ) -> UIKeyCommand {
+            let command = UIKeyCommand(title: title, action: action, input: input, modifierFlags: modifierFlags)
+            command.discoverabilityTitle = title
+            command.wantsPriorityOverSystemBehavior = true
+            return command
         }
 
         override public func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
@@ -274,6 +295,14 @@
                     canPerform(.toggleInline(.emphasis))
                 case #selector(toggleStrikethrough):
                     canPerform(.toggleInline(.strikethrough))
+                case #selector(indentListItem),
+                     #selector(outdentListItem):
+                    // Outside a list, Tab and Shift-Tab keep their standard behavior.
+                    handlesEditorShortcuts && editingSession.selectionIsInListItem
+                case #selector(insertHardLineBreak):
+                    handlesEditorShortcuts
+                case #selector(presentLinkEditorFromKeyboard):
+                    handlesEditorShortcuts && presentLinkEditor != nil && canPerform(.setLink(destination: "", title: nil))
                 default:
                     super.canPerformAction(action, withSender: sender)
             }
@@ -326,6 +355,32 @@
 
         @objc private func toggleStrikethrough() {
             perform(.toggleInline(.strikethrough))
+        }
+
+        @objc private func indentListItem() {
+            perform(.indent)
+        }
+
+        @objc private func outdentListItem() {
+            perform(.outdent)
+        }
+
+        @objc private func insertHardLineBreak() {
+            // Where a hard break has no Markdown form, Shift-Return behaves like Return.
+            if !editingSession.insertHardLineBreak() {
+                insertText("\n")
+            }
+        }
+
+        @objc private func presentLinkEditorFromKeyboard() {
+            presentLinkEditor?()
+        }
+
+        /// Editor shortcuts apply only while this view itself has focus and accepts edits,
+        /// so they never fire while a table cell or another view has focus.
+        private var handlesEditorShortcuts: Bool {
+            attachEditingSessionIfNeeded()
+            return editingSession.acceptsEditorShortcuts
         }
 
         @objc private func textStorageDidProcessEditing() {

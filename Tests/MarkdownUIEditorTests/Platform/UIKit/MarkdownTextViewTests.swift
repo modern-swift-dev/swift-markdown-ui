@@ -458,6 +458,101 @@
             XCTAssertFalse(source.contains(".layout" + "Manager"))
         }
 
+        func testHardwareKeyboardShortcutsAreDiscoverable() throws {
+            let textView = makeTextView()
+            textView.document = MarkdownDocument(markdown: "text")
+            let expected: [(String, String, UIKeyModifierFlags)] = [
+                ("Strikethrough", "x", [.command, .shift]),
+                ("Indent", "\t", []),
+                ("Outdent", "\t", .shift),
+                ("Line Break", "\r", .shift)
+            ]
+            for (title, input, modifiers) in expected {
+                let command = try XCTUnwrap(keyCommand(input, modifiers, in: textView), title)
+                XCTAssertEqual(command.discoverabilityTitle, title)
+            }
+            XCTAssertNil(keyCommand("k", .command, in: textView), "Only the SwiftUI editor offers ⌘K")
+
+            var presentations = 0
+            textView.presentLinkEditor = { presentations += 1 }
+            XCTAssertTrue(textView.becomeFirstResponder())
+            textView.selectedRange = NSRange(location: 0, length: 4)
+            let link = try XCTUnwrap(keyCommand("k", .command, in: textView))
+            XCTAssertEqual(link.discoverabilityTitle, "Add or Edit Link")
+            XCTAssertTrue(send(link, to: textView))
+            XCTAssertEqual(presentations, 1)
+            XCTAssertEqual(textView.document.markdown, "text\n")
+        }
+
+        func testTabAndShiftTabIndentAndOutdentListItemsOnly() throws {
+            let textView = makeTextView()
+            textView.document = MarkdownDocument(markdown: "- A\n- B\n\ntext")
+            XCTAssertTrue(textView.becomeFirstResponder())
+            let tab = try XCTUnwrap(keyCommand("\t", [], in: textView))
+            let shiftTab = try XCTUnwrap(keyCommand("\t", .shift, in: textView))
+
+            textView.selectedRange = NSRange(location: 6, length: 0)
+            XCTAssertFalse(textView.canPerformAction(try XCTUnwrap(tab.action), withSender: tab), "Tab outside a list keeps its behavior")
+            XCTAssertFalse(textView.canPerformAction(try XCTUnwrap(shiftTab.action), withSender: shiftTab))
+
+            textView.selectedRange = NSRange(location: 3, length: 0)
+            XCTAssertTrue(send(tab, to: textView))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n  - B\n\ntext"))
+            XCTAssertTrue(send(shiftTab, to: textView))
+            XCTAssertTrue(send(shiftTab, to: textView))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n\nB\n\ntext"))
+            textView.undoManager?.undo()
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n- B\n\ntext"))
+        }
+
+        func testShiftReturnAndShiftCommandXEditTheFocusedEditor() throws {
+            let textView = makeTextView()
+            textView.document = MarkdownDocument(markdown: "abcd")
+            XCTAssertTrue(textView.becomeFirstResponder())
+
+            textView.selectedRange = NSRange(location: 2, length: 0)
+            XCTAssertTrue(send(try XCTUnwrap(keyCommand("\r", .shift, in: textView)), to: textView))
+            XCTAssertEqual(textView.document.markdown, "ab\\\ncd\n")
+            XCTAssertEqual(MarkdownDocument(markdown: textView.document.markdown), textView.document)
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 3, length: 0))
+
+            textView.selectedRange = NSRange(location: 0, length: 5)
+            XCTAssertTrue(send(try XCTUnwrap(keyCommand("x", [.command, .shift], in: textView)), to: textView))
+            XCTAssertEqual(textView.document.markdown, "~~ab\\\ncd~~\n")
+        }
+
+        func testShortcutsDoNotFireWithoutFocusOrWhenNotEditable() {
+            let textView = makeTextView()
+            textView.document = MarkdownDocument(markdown: "- A\n- B")
+            textView.presentLinkEditor = {}
+            textView.selectedRange = NSRange(location: 3, length: 0)
+            let actions = [("\t", UIKeyModifierFlags()), ("\t", .shift), ("\r", .shift), ("k", .command)]
+                .compactMap { keyCommand($0.0, $0.1, in: textView)?.action }
+            XCTAssertEqual(actions.count, 4)
+
+            for action in actions {
+                XCTAssertFalse(textView.canPerformAction(action, withSender: nil), "\(action) without focus")
+            }
+            XCTAssertTrue(textView.becomeFirstResponder())
+            textView.selectedRange = NSRange(location: 3, length: 0)
+            textView.isEditable = false
+            for action in actions {
+                XCTAssertFalse(textView.canPerformAction(action, withSender: nil), "\(action) when not editable")
+            }
+        }
+
+        private func keyCommand(_ input: String, _ modifiers: UIKeyModifierFlags, in textView: MarkdownTextView) -> UIKeyCommand? {
+            textView.keyCommands?.first { $0.input == input && $0.modifierFlags == modifiers }
+        }
+
+        private func send(_ command: UIKeyCommand, to textView: MarkdownTextView) -> Bool {
+            guard let action = command.action, textView.canPerformAction(action, withSender: command) else {
+                return false
+            }
+            _ = textView.perform(action, with: command)
+            return true
+        }
+
         private func makeTextView() -> MarkdownTextView {
             let textView = MarkdownTextView(usingTextLayoutManager: true)
             let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 480))

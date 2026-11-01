@@ -491,7 +491,9 @@ private extension CMarkNode {
             case .softBreak:
                 return cmark_node_new(CMARK_NODE_SOFTBREAK)
             case .lineBreak:
-                return cmark_node_new(CMARK_NODE_LINEBREAK)
+                // cmark writes a hard break as two trailing spaces, which whitespace
+                // trimming removes. A trailing backslash is the equivalent form that survives.
+                return literalNode(CMARK_NODE_HTML_INLINE, content: "\\\n")
             case let .code(content):
                 return literalNode(CMARK_NODE_CODE, content: content)
             case let .html(content):

@@ -495,6 +495,62 @@ import Foundation
             }
         }
 
+        /// Whether the outer text view's keyboard shortcuts apply: it accepts edits and owns
+        /// keyboard focus, no table cell is active and no IME composition is in progress.
+        var acceptsEditorShortcuts: Bool {
+            guard isEditable, let bridge else {
+                return false
+            }
+            return bridge.markdownIsFirstResponder && activeTableSelection == nil
+                && !needsCompositionFlush && !bridge.markdownHasMarkedText
+        }
+
+        /// Whether the selection starts in a list item, where Tab and Shift-Tab indent and outdent.
+        var selectionIsInListItem: Bool {
+            guard let range = bridge?.markdownSelectedRanges.first,
+                  let unit = projection.index.unit(atProjectionUTF16Offset: range.location) else {
+                return false
+            }
+            return unit.path.components.contains {
+                if case .listItem = $0 {
+                    return true
+                }
+                return false
+            }
+        }
+
+        /// Replaces the selection in a paragraph with a hard line break as one undo step.
+        ///
+        /// Returns false outside paragraphs, where a hard break has no Markdown form.
+        @discardableResult func insertHardLineBreak() -> Bool {
+            guard isEditable, let bridge, activeTableSelection == nil,
+                  !needsCompositionFlush, !bridge.markdownHasMarkedText,
+                  let range = bridge.markdownSelectedRanges.first,
+                  let unit = projection.index.unit(atProjectionUTF16Offset: range.location),
+                  NSMaxRange(range) < unit.projectionRange.upperBound,
+                  case .paragraph? = leafBlock(at: unit.path),
+                  let logical = logicalPath(for: unit.path) else {
+                return false
+            }
+            let contentRange = NSRange(location: unit.projectionRange.location, length: unit.projectionRange.length - 1)
+            let content = NSMutableAttributedString(attributedString: bridge.markdownTextStorage.attributedSubstring(from: contentRange))
+            var attributes = bridge.markdownTypingAttributes
+            attributes[.markdownEditorHardBreak] = true
+            let localLocation = range.location - unit.projectionRange.location
+            content.replaceCharacters(
+                in: NSRange(location: localLocation, length: range.length),
+                with: NSAttributedString(string: "\n", attributes: attributes)
+            )
+            guard let replacement = replacingBlock(
+                at: unit.path,
+                with: .paragraph(MarkdownAttributedInlineDecoder.decode(content))
+            ) else {
+                return false
+            }
+            applyStructuralReplacement(replacement, selection: MarkdownLogicalSelection(path: logical, utf16Offset: localLocation + 1))
+            return true
+        }
+
         /// Toggles the task item containing a projected text position.
         ///
         /// Marker hit testing is platform-specific, but the semantic lookup and

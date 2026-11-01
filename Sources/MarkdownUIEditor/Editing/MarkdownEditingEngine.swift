@@ -371,10 +371,7 @@ extension MarkdownEditingEngine {
             case .indent:
                 return (listItemLocation(selection.path)?.item ?? 0) > 0
             case .outdent:
-                guard case .listItemBlock? = listItemLocation(selection.path)?.list else {
-                    return false
-                }
-                return true
+                return listItemLocation(selection.path) != nil
             case .insertTableRow,
                  .deleteTableRow,
                  .moveTableRow,
@@ -865,9 +862,12 @@ private extension MarkdownEditingEngine {
     }
 
     static func outdent(_ document: MarkdownDocument, _ selection: MarkdownLogicalSelection) -> MarkdownEditingResult {
-        guard let inner = listItemLocation(selection.path),
-              case let .listItemBlock(outerListPath, parentItem, nestedBlock) = inner.list else {
+        guard let inner = listItemLocation(selection.path) else {
             return unchanged(document, selection)
+        }
+        // A top-level item has no outer list, so it turns back into its blocks.
+        guard case let .listItemBlock(outerListPath, parentItem, nestedBlock) = inner.list else {
+            return liftListItem(document, selection)
         }
         var copy = document
         var movedItem: MarkdownListItem?

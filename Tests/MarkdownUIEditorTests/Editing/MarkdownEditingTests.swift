@@ -241,7 +241,7 @@ final class MarkdownEditingTests: XCTestCase {
             .paragraph([.strong([.text("b"), .lineBreak])]),
             .paragraph([.text("c"), .lineBreak, .text("d")])
         ])
-        XCTAssertEqual(document.markdown, "a\n\n**b**\n\nc  \nd\n")
+        XCTAssertEqual(document.markdown, "a\n\n**b**\n\nc\\\nd\n")
         XCTAssertEqual(MarkdownDocument(markdown: document.markdown), MarkdownDocument(blocks: [
             .paragraph([.text("a")]),
             .paragraph([.strong([.text("b")])]),
@@ -392,6 +392,23 @@ final class MarkdownEditingTests: XCTestCase {
                 MarkdownLogicalSelection(path: .listItemBlock(list: .block(0), item: 1, block: 0), utf16Offset: 1),
                 source
             )
+        }
+    }
+
+    func testOutdentingTopLevelItemTurnsItIntoParagraphBetweenListParts() {
+        let cases: [(source: String, path: MarkdownLogicalPath, expected: String, expectedPath: MarkdownLogicalPath)] = [
+            ("- A\n- B\n- C\n", .listItemBlock(list: .block(0), item: 1, block: 0), "- A\n\nB\n\n- C\n", .block(1)),
+            ("- [x] A\n- B\n", .listItemBlock(list: .block(0), item: 0, block: 0), "A\n\n- B\n", .block(0)),
+            ("3. A\n4. B\n5. C\n", .listItemBlock(list: .block(0), item: 1, block: 0), "3. A\n\nB\n\n5. C\n", .block(1)),
+            ("- A\n  - A1\n", .listItemBlock(list: .block(0), item: 0, block: 0), "A\n\n- A1\n", .block(0)),
+            ("> - A\n> - B\n", .listItemBlock(list: .blockquote(parent: .block(0), child: 0), item: 1, block: 0), "> - A\n>\n> B\n", .blockquote(parent: .block(0), child: 1))
+        ]
+        for (source, path, expected, expectedPath) in cases {
+            let selection = MarkdownLogicalSelection(path: path, utf16Offset: 1)
+            XCTAssertTrue(MarkdownEditingEngine.mayChange(.outdent, selection: selection), source)
+            let result = MarkdownEditingEngine.apply(.outdent, to: MarkdownDocument(markdown: source), selection: selection)
+            XCTAssertEqual(result.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertEqual(result.selection, MarkdownLogicalSelection(path: expectedPath, utf16Offset: 1), source)
         }
     }
 

@@ -15,6 +15,9 @@
         private let baseURL: URL?
         /// The focused command target for this editor instance.
         @StateObject private var editorContext = MarkdownEditorContext()
+        /// Whether the "Add or edit link" dialog is shown, from the toolbar or ⌘K.
+        @State private var showsLinkEditor = false
+        @State private var linkDestination = ""
         @Environment(\.markdownEditorTheme) private var theme
         @Environment(\.markdownEditorShowsFormattingToolbar) private var showsFormattingToolbar
         @Environment(\.markdownEditorIsEditable) private var isEditable
@@ -51,14 +54,23 @@
                     imageProvider: imageProvider,
                     imageLoadingPolicy: imageLoadingPolicy,
                     isEditable: isEditable,
-                    editorContext: editorContext
+                    editorContext: editorContext,
+                    presentLinkEditor: { showsLinkEditor = true }
                 )
 
                 if showsFormattingToolbar {
-                    MarkdownEditorFormattingToolbar(context: editorContext)
+                    MarkdownEditorFormattingToolbar(context: editorContext, showsLinkEditor: $showsLinkEditor)
                 }
             }
             .focusedValue(\.markdownEditorContext, editorContext)
+            .alert("Add or edit link", isPresented: $showsLinkEditor) {
+                TextField("Link URL", text: $linkDestination)
+                Button("Apply") {
+                    editorContext.perform(.setLink(destination: linkDestination, title: nil))
+                    linkDestination = ""
+                }.disabled(linkDestination.isEmpty)
+                Button("Cancel", role: .cancel) {}
+            }
         }
 
         private var documentBinding: Binding<MarkdownDocument> {
@@ -128,10 +140,10 @@
 
     struct MarkdownEditorFormattingToolbar: View {
         @ObservedObject var context: MarkdownEditorContext
-        @State private var linkDestination = ""
+        /// Owned by the editor so that ⌘K can present the same dialog.
+        @Binding var showsLinkEditor: Bool
         @State private var imageSource = ""
         @State private var imageAlt = ""
-        @State private var showsLinkEditor = false
         @State private var showsImageEditor = false
 
         var body: some View {
@@ -188,14 +200,6 @@
                 .buttonStyle(.bordered)
                 .padding(8)
             }
-            .alert("Add or edit link", isPresented: $showsLinkEditor) {
-                TextField("Link URL", text: $linkDestination)
-                Button("Apply") {
-                    context.perform(.setLink(destination: linkDestination, title: nil))
-                    linkDestination = ""
-                }.disabled(linkDestination.isEmpty)
-                Button("Cancel", role: .cancel) {}
-            }
             .alert("Insert image", isPresented: $showsImageEditor) {
                 TextField("Image URL", text: $imageSource)
                 TextField("Alternative text", text: $imageAlt)
@@ -249,6 +253,8 @@
             let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
+            /// Presents the editor's link dialog for ⌘K.
+            let presentLinkEditor: () -> Void
 
             func makeCoordinator() -> Coordinator {
                 Coordinator(document: document, context: editorContext)
@@ -266,6 +272,7 @@
                 textView.document = initialDocument
                 textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
+                textView.presentLinkEditor = presentLinkEditor
                 return textView
             }
 
@@ -278,10 +285,12 @@
                     textView.isEditable = isEditable
                 }
                 context.coordinator.context.setTextView(textView)
+                textView.presentLinkEditor = presentLinkEditor
             }
 
             static func dismantleUIView(_ textView: MarkdownTextView, coordinator: Coordinator) {
                 textView.markdownDelegate = nil
+                textView.presentLinkEditor = nil
                 coordinator.context.setTextView(nil)
             }
 
@@ -344,6 +353,8 @@
             let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
+            /// Presents the editor's link dialog for ⌘K.
+            let presentLinkEditor: () -> Void
 
             func makeCoordinator() -> Coordinator {
                 Coordinator(document: document, context: editorContext)
@@ -379,6 +390,7 @@
                 textView.document = initialDocument
                 textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
+                textView.presentLinkEditor = presentLinkEditor
                 return scrollView
             }
 
@@ -394,10 +406,12 @@
                     textView.isEditable = isEditable
                 }
                 context.coordinator.context.setTextView(textView)
+                textView.presentLinkEditor = presentLinkEditor
             }
 
             static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
                 (scrollView.documentView as? MarkdownTextView)?.markdownDelegate = nil
+                (scrollView.documentView as? MarkdownTextView)?.presentLinkEditor = nil
                 coordinator.context.setTextView(nil)
             }
 

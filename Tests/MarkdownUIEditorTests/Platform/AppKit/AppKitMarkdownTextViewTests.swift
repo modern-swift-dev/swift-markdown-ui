@@ -389,6 +389,135 @@
             }
         }
 
+        func testTabIndentsAndShiftTabOutdentsListItemsUntilTheyBecomeParagraphs() throws {
+            let (textView, window) = makeFocusedTextView("- A\n- B")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 3, length: 0)
+
+            textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n  - B"))
+
+            textView.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n- B"))
+
+            textView.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n\nB"))
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 3, length: 0))
+
+            try XCTUnwrap(textView.undoManager).undo()
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n- B"))
+        }
+
+        func testTabOutsideListKeepsInsertingATab() {
+            let (textView, window) = makeFocusedTextView("text")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 4, length: 0)
+
+            textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+
+            XCTAssertEqual(textView.document.blocks, [.paragraph([.text("text\t")])])
+        }
+
+        func testShiftReturnInsertsHardLineBreakSavedAsTrailingBackslash() throws {
+            let (textView, window) = makeFocusedTextView("abcd")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 2, length: 0)
+
+            textView.keyDown(with: try keyEvent("\r", modifiers: .shift, in: window))
+
+            XCTAssertEqual(textView.document.markdown, "ab\\\ncd\n")
+            XCTAssertEqual(MarkdownDocument(markdown: textView.document.markdown), textView.document)
+            XCTAssertEqual(textView.string, "ab\ncd\n")
+            XCTAssertEqual(textView.selectedRange, NSRange(location: 3, length: 0))
+        }
+
+        func testShiftCommandXTogglesStrikethroughOnlyWhileTheEditorHasFocus() throws {
+            let (textView, window) = makeFocusedTextView("text")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 0, length: 4)
+            let event = try keyEvent("X", ignoringModifiers: "X", modifiers: [.command, .shift], in: window)
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: event))
+            XCTAssertEqual(textView.document.markdown, "~~text~~\n")
+            try XCTUnwrap(textView.undoManager).undo()
+            XCTAssertEqual(textView.document.markdown, "text\n")
+
+            let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+            window.contentView?.addSubview(other)
+            window.makeFirstResponder(other)
+            XCTAssertFalse(textView.performKeyEquivalent(with: event))
+            XCTAssertEqual(textView.document.markdown, "text\n")
+        }
+
+        func testShortcutsDoNotEditANonEditableEditor() throws {
+            let (textView, window) = makeFocusedTextView("- A\n- B")
+            defer { window.contentView = nil }
+            textView.isEditable = false
+            textView.selectedRange = NSRange(location: 2, length: 3)
+
+            textView.insertTab(nil)
+            XCTAssertFalse(textView.performKeyEquivalent(with: try keyEvent("X", ignoringModifiers: "X", modifiers: [.command, .shift], in: window)))
+
+            XCTAssertEqual(textView.document, MarkdownDocument(markdown: "- A\n- B"))
+        }
+
+        func testCommandKPresentsLinkEditorOnlyWhenTheSwiftUIEditorInstallsIt() throws {
+            let (textView, window) = makeFocusedTextView("text")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 0, length: 4)
+            let event = try keyEvent("k", modifiers: .command, in: window)
+            XCTAssertFalse(textView.performKeyEquivalent(with: event))
+
+            var presentations = 0
+            textView.presentLinkEditor = { presentations += 1 }
+            XCTAssertTrue(textView.performKeyEquivalent(with: event))
+            XCTAssertEqual(presentations, 1)
+            XCTAssertEqual(textView.document.markdown, "text\n")
+        }
+
+        func testContextMenuShowsStrikethroughAndLinkShortcuts() throws {
+            let (textView, window) = makeFocusedTextView("text")
+            defer { window.contentView = nil }
+            textView.selectedRange = NSRange(location: 0, length: 4)
+            let event = try XCTUnwrap(NSEvent.mouseEvent(
+                with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ))
+            XCTAssertNil(textView.menu(for: event)?.item(withTitle: "Add or Edit Link…"))
+
+            textView.presentLinkEditor = {}
+            let menu = try XCTUnwrap(textView.menu(for: event))
+            let strikethrough = try XCTUnwrap(menu.item(withTitle: "Style")?.submenu?.item(withTitle: "Strikethrough"))
+            XCTAssertEqual(strikethrough.keyEquivalent, "x")
+            XCTAssertEqual(strikethrough.keyEquivalentModifierMask, [.command, .shift])
+            let link = try XCTUnwrap(menu.item(withTitle: "Add or Edit Link…"))
+            XCTAssertEqual(link.keyEquivalent, "k")
+            XCTAssertEqual(link.keyEquivalentModifierMask, .command)
+        }
+
+        private func makeFocusedTextView(_ markdown: String) -> (MarkdownTextView, NSWindow) {
+            let textView = MarkdownTextView(usingTextLayoutManager: true)
+            textView.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+            let window = NSWindow(contentRect: textView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = textView
+            textView.document = MarkdownDocument(markdown: markdown)
+            window.makeFirstResponder(textView)
+            return (textView, window)
+        }
+
+        private func keyEvent(
+            _ characters: String,
+            ignoringModifiers: String? = nil,
+            modifiers: NSEvent.ModifierFlags,
+            in window: NSWindow
+        ) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: ignoringModifiers ?? characters, isARepeat: false, keyCode: 0
+            ))
+        }
+
         func testSourceDoesNotReferenceTextKit1LayoutManager() throws {
             let fileURL = URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
