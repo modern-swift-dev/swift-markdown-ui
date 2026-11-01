@@ -1248,7 +1248,11 @@ import Foundation
             }
             let remaining = Array(list.items[itemIndex].blocks.dropFirst())
             list.items[itemIndex].blocks = [.paragraph(before)]
-            let taskState: MarkdownTaskState? = list.items[itemIndex].taskState == nil ? nil : .unchecked
+            var taskState: MarkdownTaskState? = list.items[itemIndex].taskState == nil ? nil : .unchecked
+            if before.isEmpty {
+                // Return at the start adds an empty item above; the check stays with the text.
+                swap(&taskState, &list.items[itemIndex].taskState)
+            }
             list.items.insert(MarkdownListItem(taskState: taskState, blocks: [.paragraph(after)] + remaining), at: itemIndex + 1)
             guard let replacement = replacingBlock(at: listPath, with: .list(list)) else {
                 return false

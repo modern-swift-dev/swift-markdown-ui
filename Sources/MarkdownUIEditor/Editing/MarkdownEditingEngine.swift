@@ -687,7 +687,7 @@ private extension MarkdownEditingEngine {
             let nestedIndex: Int
             let nestedItem: Int
             if let last = list.items[parent].blocks.indices.last,
-               case var .list(nested) = list.items[parent].blocks[last], nested.kind == list.kind {
+               case var .list(nested) = list.items[parent].blocks[last], sameMarkerType(nested.kind, list.kind) {
                 nestedItem = nested.items.count
                 nested.items.append(moved)
                 list.items[parent].blocks[last] = .list(nested)
@@ -695,7 +695,7 @@ private extension MarkdownEditingEngine {
             } else {
                 nestedIndex = list.items[parent].blocks.count
                 nestedItem = 0
-                list.items[parent].blocks.append(.list(MarkdownList(kind: list.kind, isTight: list.isTight, items: [moved])))
+                list.items[parent].blocks.append(.list(MarkdownList(kind: restartedKind(list.kind), isTight: list.isTight, items: [moved])))
             }
             block = .list(list)
             let nestedListPath = MarkdownLogicalPath.listItemBlock(list: location.list, item: parent, block: nestedIndex)
@@ -727,13 +727,11 @@ private extension MarkdownEditingEngine {
             var moved = list.items.remove(at: inner.item)
             if !following.items.isEmpty {
                 if let last = moved.blocks.indices.last,
-                   case var .list(children) = moved.blocks[last], children.kind == list.kind {
+                   case var .list(children) = moved.blocks[last], sameMarkerType(children.kind, list.kind) {
                     children.items += following.items
                     moved.blocks[last] = .list(children)
                 } else {
-                    if case .ordered = following.kind {
-                        following.kind = .ordered(start: 1)
-                    }
+                    following.kind = restartedKind(list.kind)
                     moved.blocks.append(.list(following))
                 }
             }
@@ -766,6 +764,19 @@ private extension MarkdownEditingEngine {
             to: .listItemBlock(list: outerListPath, item: parentItem + 1, block: inner.block)
         )
         return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    /// A newly nested list numbers from one rather than inheriting its parent's start.
+    static func restartedKind(_ kind: MarkdownListKind) -> MarkdownListKind {
+        if case .ordered = kind {
+            return .ordered(start: 1)
+        }
+        return kind
+    }
+
+    /// Whether two lists use the same marker type, ignoring an ordered list's start.
+    static func sameMarkerType(_ lhs: MarkdownListKind, _ rhs: MarkdownListKind) -> Bool {
+        restartedKind(lhs) == restartedKind(rhs)
     }
 
     static func relocating(_ path: MarkdownLogicalPath, from oldParent: MarkdownLogicalPath, to newParent: MarkdownLogicalPath) -> MarkdownLogicalPath {

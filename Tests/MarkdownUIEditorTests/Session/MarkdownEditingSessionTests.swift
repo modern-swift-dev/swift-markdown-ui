@@ -224,6 +224,46 @@ import XCTest
         XCTAssertEqual(bridge.markdownTextStorage.string, "ta\nsk\n")
     }
 
+    func testReturnAtStartOfCheckedTaskKeepsCheckWithText() {
+        let original = MarkdownDocument(markdown: "- [x] done")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 0, length: 0)])
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 0, length: 0), with: "\n"))
+
+        let expected = MarkdownDocument(blocks: [.list(MarkdownList(kind: .unordered, isTight: true, items: [
+            MarkdownListItem(taskState: .unchecked, blocks: [.paragraph([])]),
+            MarkdownListItem(taskState: .checked, blocks: [.paragraph([.text("done")])])
+        ]))])
+        XCTAssertEqual(session.document, expected)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), expected)
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 1, length: 0)])
+
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, original)
+    }
+
+    func testIndentingInOrderedListStartingAtFiveStartsNestedListAtOne() {
+        let original = MarkdownDocument(markdown: "5. A\n6. B\n7. C")
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 2, length: 0)])
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+
+        session.perform(.indent)
+        let expected = MarkdownDocument(markdown: "5. A\n   1. B\n6. C")
+        XCTAssertEqual(session.document, expected)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), expected)
+
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, original)
+
+        bridge.undoManager?.redo()
+        bridge.markdownSelectedRanges = [NSRange(location: 4, length: 0)]
+        session.perform(.indent)
+        XCTAssertEqual(session.document, MarkdownDocument(markdown: "5. A\n   1. B\n   2. C"))
+    }
+
     func testReturnAtEndCreatesNewUnorderedListItem() {
         let document = MarkdownDocument(blocks: [
             .list(MarkdownList(
