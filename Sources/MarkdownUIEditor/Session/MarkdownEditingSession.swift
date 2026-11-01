@@ -360,6 +360,7 @@ import Foundation
             }
             if activeTableSelection == nil,
                nativeSelection.length == 0,
+               !editsLinkAtCaret(command, caret: nativeSelection),
                updateTypingAttributes(for: command, bridge: bridge) {
                 return
             }
@@ -392,6 +393,21 @@ import Foundation
                 tableSelection: activeTableSelection
             )
             registerUndo(from: after, to: before)
+        }
+
+        /// Whether a link command at a collapsed caret changes the link around it,
+        /// rather than only the attributes of subsequent typing.
+        private func editsLinkAtCaret(_ command: MarkdownEditorCommand, caret: NSRange) -> Bool {
+            switch command {
+                case .setLink,
+                     .removeLink:
+                    guard let selection = logicalSelection(for: caret) else {
+                        return false
+                    }
+                    return MarkdownEditingEngine.apply(command, to: document, selection: selection).document != document
+                default:
+                    return false
+            }
         }
 
         /// Toggles the task item containing a projected text position.
@@ -1034,7 +1050,38 @@ import Foundation
             attributes.removeValue(forKey: .attachment)
             attributes.removeValue(forKey: .markdownEditorNodeID)
             attributes.removeValue(forKey: .markdownEditorObjectKind)
+            if index < clampedOffset {
+                removeSemanticsEnding(at: clampedOffset, from: &attributes, in: textStorage)
+            }
             return attributes
+        }
+
+        /// Text typed right after a link or inline HTML is plain text, while other
+        /// inline styles carry over. Typing strictly inside the run still extends it.
+        func removeSemanticsEnding(
+            at offset: Int,
+            from attributes: inout [NSAttributedString.Key: Any],
+            in textStorage: NSTextStorage
+        ) {
+            let next = offset < textStorage.length ? textStorage.attributes(at: offset, effectiveRange: nil) : [:]
+            if let destination = attributes[.markdownEditorLinkDestination] as? String,
+               next[.markdownEditorLinkDestination] as? String != destination {
+                attributes.removeValue(forKey: .markdownEditorLinkDestination)
+                attributes.removeValue(forKey: .markdownEditorLinkTitle)
+                attributes.removeValue(forKey: .link)
+                let base = if (attributes[.markdownEditorCode] as? NSNumber)?.boolValue == true {
+                    theme.codeAttributes
+                } else if case let .heading(level)? = projection.index.unit(atProjectionUTF16Offset: offset - 1)?.kind {
+                    theme.headingAttributes[level] ?? theme.bodyAttributes
+                } else {
+                    theme.bodyAttributes
+                }
+                attributes[.foregroundColor] = base[.foregroundColor]
+            }
+            if (attributes[.markdownEditorInlineHTML] as? NSNumber)?.boolValue == true,
+               (next[.markdownEditorInlineHTML] as? NSNumber)?.boolValue != true {
+                attributes.removeValue(forKey: .markdownEditorInlineHTML)
+            }
         }
 
         func updateTypingAttributes(

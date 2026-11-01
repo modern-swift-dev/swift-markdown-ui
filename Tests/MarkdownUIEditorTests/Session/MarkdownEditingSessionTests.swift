@@ -179,6 +179,68 @@ import XCTest
         XCTAssertEqual(bridge.markdownTextStorage.string, "link\n")
     }
 
+    func testLinkCommandsAtCollapsedCaretEditTheSurroundingLink() {
+        let original = MarkdownDocument(markdown: "a [*link*](/old) b")
+        let bridge = FakeTextViewBridge()
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+        XCTAssertEqual(bridge.markdownTextStorage.string, "a link b\n")
+
+        bridge.markdownSelectedRanges = [NSRange(location: 1, length: 0)]
+        session.selectionDidChange()
+        XCTAssertFalse(session.canPerform(.removeLink))
+
+        bridge.markdownSelectedRanges = [NSRange(location: 4, length: 0)]
+        session.selectionDidChange()
+        XCTAssertTrue(session.canPerform(.removeLink))
+        XCTAssertTrue(session.isActive(.removeLink))
+
+        session.perform(.setLink(destination: "/new", title: "Title"))
+        let relinked = MarkdownDocument(markdown: "a [*link*](/new \"Title\") b")
+        XCTAssertEqual(session.document, relinked)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), relinked)
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 4, length: 0)])
+
+        session.perform(.removeLink)
+        let unlinked = MarkdownDocument(markdown: "a *link* b")
+        XCTAssertEqual(session.document, unlinked)
+        XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), unlinked)
+        session.selectionDidChange()
+        XCTAssertFalse(session.canPerform(.removeLink))
+
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, original)
+    }
+
+    func testTextTypedAfterLinkOrInlineHTMLIsPlainButKeepsInlineStyles() {
+        let cases: [(source: String, typed: String, expected: String)] = [
+            ("[link](/u)", "x", "[link](/u)x"),
+            // Native runs decode with the link outermost.
+            ("**[link](/u)**", "x", "[**link**](/u)**x**"),
+            ("<span>x</span>", " 2*3*4", "<span>x</span> 2\\*3\\*4")
+        ]
+        for (source, typed, expected) in cases {
+            let bridge = FakeTextViewBridge()
+            let session = MarkdownEditingSession(document: MarkdownDocument(markdown: source))
+            session.attach(to: bridge)
+            let end = bridge.markdownTextStorage.length - 1
+            bridge.markdownSelectedRanges = [NSRange(location: end, length: 0)]
+            session.selectionDidChange()
+            XCTAssertFalse(session.canPerform(.removeLink), source)
+
+            XCTAssertTrue(session.shouldReplaceCharacters(in: NSRange(location: end, length: 0), with: typed), source)
+            bridge.replaceAttributedCharacters(
+                in: NSRange(location: end, length: 0),
+                with: NSAttributedString(string: typed, attributes: bridge.markdownTypingAttributes)
+            )
+            bridge.markdownSelectedRanges = [NSRange(location: end + typed.utf16.count, length: 0)]
+            session.storageDidChange()
+
+            XCTAssertEqual(session.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertEqual(MarkdownDocument(markdown: session.document.markdown), session.document, source)
+        }
+    }
+
     func testReturnSplitsHeadingIntoHeadingAndParagraph() {
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 3, length: 0)])
         let session = MarkdownEditingSession(

@@ -22,11 +22,11 @@ enum MarkdownEditingEngine {
                 }
             case let .setLink(destination, title):
                 return editInlines(document, selection) { inlines, range in
-                    wrapLink(destination: destination, title: title, in: &inlines, range: range)
+                    wrapLink(destination: destination, title: title, in: &inlines, range: linkRange(around: range, in: inlines))
                 }
             case .removeLink:
                 return editInlines(document, selection) { inlines, range in
-                    removeLinks(in: &inlines, range: range)
+                    removeLinks(in: &inlines, range: linkRange(around: range, in: inlines))
                 }
             case let .insertImage(source, title, alt):
                 return insertImage(source: source, title: title, alt: alt, in: document, selection: selection)
@@ -284,6 +284,33 @@ private extension MarkdownEditingEngine {
         }
         inlines = normalized(parts.before + middle + parts.after)
         return true
+    }
+
+    /// A collapsed caret strictly inside a link stands for that whole link.
+    static func linkRange(around range: UTF16Range, in inlines: [MarkdownInline]) -> UTF16Range {
+        guard range.isEmpty else {
+            return range
+        }
+        var start = 0
+        for inline in inlines {
+            let length = inlineLength(inline)
+            let end = start + length
+            if start < range.lowerBound, range.lowerBound < end {
+                switch inline {
+                    case .link:
+                        return start ..< end
+                    case let .emphasis(children),
+                         let .strong(children),
+                         let .strikethrough(children):
+                        let inner = linkRange(around: (range.lowerBound - start) ..< (range.lowerBound - start), in: children)
+                        return inner.isEmpty ? range : (inner.lowerBound + start) ..< (inner.upperBound + start)
+                    default:
+                        return range
+                }
+            }
+            start = end
+        }
+        return range
     }
 
     static func removingLinks(_ inline: MarkdownInline) -> [MarkdownInline] {
