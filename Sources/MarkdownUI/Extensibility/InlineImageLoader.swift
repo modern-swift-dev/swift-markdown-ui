@@ -55,6 +55,9 @@ actor InlineImageLoader {
         case downloaded(Data, expiration: Date?, validators: Validators?)
         /// The server confirmed that the revalidated image is still current.
         case notModified(expiration: Date?, validators: Validators?)
+        /// Revalidation failed with a network error or a server error, so the stale image is reused
+        /// and stays stale, to be revalidated again by the next request.
+        case revalidationFailed
     }
 
     /// Returns an `HTTPURLResponse` for HTTP URLs and a plain `URLResponse` for `file:` and `data:` URLs.
@@ -372,6 +375,11 @@ actor InlineImageLoader {
                         }
                         insert(revalidated, expiration: expiration, validators: validators, for: job.key)
                         return .success(revalidated)
+                    case .revalidationFailed:
+                        guard let stale = job.revalidating?.image else {
+                            return .failure(URLError(.badServerResponse))
+                        }
+                        return .success(stale)
                 }
             }
             for continuation in job.waiters.values {
@@ -521,7 +529,13 @@ actor InlineImageLoader {
                 request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
             }
         }
-        let (data, response) = try await fetch(request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await fetch(request)
+        } catch where validators != nil && !(error is CancellationError) {
+            return .revalidationFailed
+        }
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else {
             // `file:` and `data:` responses have no status and aren't cached or revalidated.
@@ -532,6 +546,9 @@ actor InlineImageLoader {
                 expiration: cacheExpiration(for: response, now: now()),
                 validators: Validators(response: response, merging: validators)
             )
+        }
+        if validators != nil, 500 ..< 600 ~= response.statusCode {
+            return .revalidationFailed
         }
         guard 200 ..< 300 ~= response.statusCode else {
             throw URLError(.badServerResponse)

@@ -487,6 +487,70 @@ import XCTest
         XCTAssertEqual(requests[2].value(forHTTPHeaderField: "If-None-Match"), "\"a\"")
     }
 
+    func testFailedRevalidationReturnsStaleImageToEveryWaiterAndRetriesOnNextRequest() async throws {
+        let failures: [FetchProbe.Reply] = [
+            .init(status: 200, headers: [:], error: URLError(.notConnectedToInternet)),
+            .init(status: 503, headers: [:])
+        ]
+        for failure in failures {
+            let probe = try FetchProbe()
+            await probe.enqueue(.init(status: 200, headers: ["ETag": "\"a\""], body: probe.png))
+            let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+            let key = try key("stale")
+            let stale = try await loader.image(for: key).image
+
+            await probe.hold()
+            await probe.enqueue(failure)
+            let first = Task { try await loader.image(for: key).image }
+            try await wait { await probe.requests.count == 2 }
+            let second = Task { try await loader.image(for: key).image }
+            try await Task.sleep(for: .milliseconds(30))
+            await probe.release()
+            let firstImage = try await first.value
+            let secondImage = try await second.value
+            XCTAssertTrue(stale === firstImage, "\(failure.status)")
+            XCTAssertTrue(stale === secondImage, "\(failure.status)")
+
+            await probe.enqueue(.init(status: 304, headers: [:]))
+            let revalidated = try await loader.image(for: key).image
+            XCTAssertTrue(stale === revalidated)
+            let requests = await probe.requests
+            XCTAssertEqual(
+                requests.map { $0.value(forHTTPHeaderField: "If-None-Match") }, [nil, "\"a\"", "\"a\""],
+                "The next request revalidates the stale image again"
+            )
+        }
+    }
+
+    func testNonSuccessFirstLoadsFail() async throws {
+        for status in [304, 404, 503] {
+            let probe = try FetchProbe()
+            await probe.enqueue(.init(status: status, headers: ["ETag": "\"a\""], body: probe.png))
+            let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+            do {
+                _ = try await loader.image(for: key("first"))
+                XCTFail("Expected a \(status) first load to fail")
+            } catch let error as URLError {
+                XCTAssertEqual(error.code, .badServerResponse)
+            }
+        }
+    }
+
+    func testNotModifiedWithoutValidatorsKeepsPreviousValidators() async throws {
+        let probe = try FetchProbe()
+        await probe.enqueue(.init(status: 200, headers: ["ETag": "\"a\""], body: probe.png))
+        let loader = InlineImageLoader(fetch: { try await probe.fetch($0) })
+        let key = try key("validators")
+        let first = try await loader.image(for: key).image
+        for _ in 0 ..< 2 {
+            await probe.enqueue(.init(status: 304, headers: [:]))
+            let revalidated = try await loader.image(for: key).image
+            XCTAssertTrue(first === revalidated)
+        }
+        let requests = await probe.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "If-None-Match") }, [nil, "\"a\"", "\"a\""])
+    }
+
     func testDecodingHasItsOwnLimitAndDoesNotHoldDownloadSlots() async throws {
         let fetches = try FetchProbe()
         let decodes = DecodeProbe()
@@ -619,6 +683,8 @@ private actor FetchProbe {
         var status: Int
         var headers: [String: String]
         var body = Data()
+        /// Thrown instead of returning a response, like a failed network request.
+        var error: URLError?
     }
 
     nonisolated let png: Data
@@ -659,6 +725,9 @@ private actor FetchProbe {
         }
         let reply = try XCTUnwrap(replies.first, "Unexpected request")
         replies.removeFirst()
+        if let error = reply.error {
+            throw error
+        }
         let url = try XCTUnwrap(request.url)
         let response = try XCTUnwrap(HTTPURLResponse(
             url: url, statusCode: reply.status, httpVersion: nil, headerFields: reply.headers
