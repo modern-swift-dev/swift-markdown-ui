@@ -509,7 +509,7 @@ import Foundation
                NSMaxRange(range) < unit.projectionRange.upperBound,
                let text = payload.plainText ?? payload.markdown {
                 // Code block content is plain text, so a paste inside one stays in it.
-                insertion = attributedInsertion(text)
+                insertion = attributedInsertion(Self.normalizingLineEndings(text))
             } else if let markdown = payload.markdown {
                 let parsed = MarkdownDocument(markdown: markdown)
                 if parsed.blocks.count != 1 || !isParagraph(parsed.blocks[0]) {
