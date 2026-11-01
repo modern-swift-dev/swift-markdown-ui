@@ -613,7 +613,121 @@ import XCTest
         XCTAssertEqual(loadedImageCount(in: editor), 1, "The blocked image keeps showing its alt text")
     }
 
+    func testFocusLeavingTheEditorEndsTheCellSelection() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        let original = MarkdownDocument(markdown: "Before\n\n| A | B |\n| - | - |\n| a | b |")
+        editor.document = original
+        let (window, other) = showBesideOtherTextView(editor)
+        defer { hide(window) }
+        layout(editor)
+        let controller = try XCTUnwrap(tableAttachments(in: editor).first).controller
+        var reported: [MarkdownTableCellSelection?] = []
+        let reportToEditor = controller.onSelectionChange
+        controller.onSelectionChange = { selection in
+            reported.append(selection)
+            reportToEditor?(selection)
+        }
+        let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+        focus(cell, selecting: NSRange(location: 1, length: 0))
+        XCTAssertNotNil(controller.activeSelection)
+        XCTAssertTrue(editor.editingSession.hasActiveTableSelection)
+
+        makeFirstResponder(other)
+        XCTAssertEqual(reported.last, .some(nil), "Leaving the cell reports no selection")
+        XCTAssertNil(controller.activeSelection)
+        XCTAssertFalse(editor.editingSession.hasActiveTableSelection)
+
+        // A command after focus left applies to the editor's text, and undoing it leaves the cell unfocused.
+        editor.selectedRange = NSRange(location: 0, length: 6)
+        editor.perform(.toggleInline(.strong))
+        XCTAssertEqual(editor.document, MarkdownDocument(markdown: "**Before**\n\n| A | B |\n| - | - |\n| a | b |"))
+        try XCTUnwrap(editor.undoManager).undo()
+        layout(editor)
+        XCTAssertEqual(editor.document, original)
+        XCTAssertFalse(editor.editingSession.hasActiveTableSelection)
+        XCTAssertNil(try XCTUnwrap(tableAttachments(in: editor).first).controller.activeSelection)
+        XCTAssertFalse(isFirstResponder(try XCTUnwrap(cellView("Table row 1, column 1", in: editor))), "Undo does not focus the cell")
+    }
+
+    func testTableCommandsAndUndoKeepTheFocusedCellSelection() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.document = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let undoManager = try XCTUnwrap(editor.undoManager)
+        while undoManager.groupingLevel > 0 {
+            undoManager.endUndoGrouping()
+        }
+        undoManager.removeAllActions()
+        focus(try XCTUnwrap(cellView("Table row 1, column 2", in: editor)), selecting: NSRange(location: 1, length: 0))
+
+        /// The command's cell keeps focus, ending with its selection active.
+        func assertSelection(inRow row: Int, _ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
+            layout(editor)
+            RunLoop.current.run(until: Date())
+            layout(editor)
+            let position = MarkdownTableCellPosition(section: .body(row: row), column: 1)
+            XCTAssertTrue(editor.editingSession.hasActiveTableSelection, name, file: file, line: line)
+            let controller = try XCTUnwrap(tableAttachments(in: editor).first).controller
+            XCTAssertEqual(controller.activeSelection?.position, position, name, file: file, line: line)
+            let cell = try XCTUnwrap(cellView("Table row \(row + 1), column 2", in: editor))
+            XCTAssertTrue(isFirstResponder(cell), name, file: file, line: line)
+        }
+        undoManager.beginUndoGrouping()
+        editor.perform(.insertTableRow)
+        undoManager.endUndoGrouping()
+        XCTAssertEqual(editor.document, MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |\n|  |  |"))
+        try assertSelection(inRow: 1, "insert row")
+        undoManager.undo()
+        try assertSelection(inRow: 0, "undo")
+        undoManager.redo()
+        try assertSelection(inRow: 1, "redo")
+    }
+
+    func testTabbingToAnotherCellEndsWithItsSelection() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.document = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let controller = try XCTUnwrap(tableAttachments(in: editor).first).controller
+        focus(try XCTUnwrap(cellView("Table header, column 1", in: editor)), selecting: NSRange(location: 1, length: 0))
+
+        pressTab(in: try XCTUnwrap(cellView("Table header, column 1", in: editor)))
+        layout(editor)
+        let next = MarkdownTableCellSelection(position: .init(section: .header, column: 1), range: NSRange(location: 0, length: 0))
+        XCTAssertEqual(controller.activeSelection, next)
+        XCTAssertTrue(editor.editingSession.hasActiveTableSelection)
+        XCTAssertTrue(isFirstResponder(try XCTUnwrap(cellView("Table header, column 2", in: editor))))
+    }
+
     #if os(macOS)
+        func testResigningKeyKeepsTheCellSelection() throws {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+            editor.document = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+            let window = NSWindow(contentRect: editor.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = editor
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            layout(editor)
+            let controller = try XCTUnwrap(tableAttachments(in: editor).first).controller
+            let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+            focus(cell, selecting: NSRange(location: 1, length: 0))
+            let selection = controller.activeSelection
+            XCTAssertNotNil(selection)
+
+            window.resignKey()
+            let otherWindow = NSWindow(contentRect: editor.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            otherWindow.makeKeyAndOrderFront(nil)
+            defer { otherWindow.orderOut(nil) }
+            XCTAssertFalse(window.isKeyWindow)
+            XCTAssertTrue(window.firstResponder === cell)
+            XCTAssertEqual(controller.activeSelection, selection)
+            XCTAssertTrue(editor.editingSession.hasActiveTableSelection)
+        }
+
         func testStableCellEditsSkipAttachmentFittingUntilRowHeightChanges() throws {
             let attachment = MarkdownTableAttachment(table: sizingTable())
             let storage = NSTextContentStorage()
@@ -1432,6 +1546,17 @@ import XCTest
         }
     #endif
 
+    private func tableAttachments(in editor: MarkdownTextView) -> [MarkdownTableAttachment] {
+        let storage: NSTextStorage? = editor.textStorage
+        var attachments: [MarkdownTableAttachment] = []
+        storage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage?.length ?? 0)) { value, _, _ in
+            if let attachment = value as? MarkdownTableAttachment {
+                attachments.append(attachment)
+            }
+        }
+        return attachments
+    }
+
     private func cellTheme(fontName: String, size: CGFloat, color: PlatformColor) -> MarkdownEditorTheme {
         let font = PlatformFont(name: fontName, size: size) ?? .systemFont(ofSize: size)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
@@ -1548,6 +1673,32 @@ import XCTest
             cell.insertText(text, replacementRange: cell.selectedRange())
         }
 
+        /// Shows the editor below another text view in the same window.
+        private func showBesideOtherTextView(_ editor: MarkdownTextView) -> (NSWindow, NSTextView) {
+            editor.frame = NSRect(x: 0, y: 100, width: 600, height: 400)
+            let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+            other.string = "other"
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+            content.addSubview(other)
+            content.addSubview(editor)
+            let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = content
+            window.makeKeyAndOrderFront(nil)
+            return (window, other)
+        }
+
+        private func makeFirstResponder(_ view: NSView) {
+            view.window?.makeFirstResponder(view)
+        }
+
+        private func isFirstResponder(_ view: NSView) -> Bool {
+            view.window?.firstResponder === view
+        }
+
+        private func pressTab(in cell: NSTextView) {
+            cell.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        }
+
         private func loadedImageCount(in editor: MarkdownTextView) -> Int {
             tableGrids(in: editor).flatMap { subviews(of: NSImageView.self, in: $0) }.count { $0.image != nil }
         }
@@ -1638,6 +1789,34 @@ import XCTest
 
         private func typeText(_ text: String, into cell: UITextView) {
             cell.insertText(text)
+        }
+
+        /// Shows the editor below another text view in the same window.
+        private func showBesideOtherTextView(_ editor: MarkdownTextView) -> (UIWindow, UITextView) {
+            editor.frame = CGRect(x: 0, y: 100, width: 358, height: 500)
+            let other = UITextView(frame: CGRect(x: 0, y: 0, width: 358, height: 100))
+            other.text = "other"
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 358, height: 600))
+            window.rootViewController = UIViewController()
+            window.rootViewController?.view.addSubview(other)
+            window.rootViewController?.view.addSubview(editor)
+            window.makeKeyAndVisible()
+            return (window, other)
+        }
+
+        private func makeFirstResponder(_ view: UIView) {
+            view.becomeFirstResponder()
+        }
+
+        private func isFirstResponder(_ view: UIView) -> Bool {
+            view.isFirstResponder
+        }
+
+        private func pressTab(in cell: UITextView) {
+            let tab = cell.keyCommands?.first { $0.input == "\t" && $0.modifierFlags.isEmpty }
+            if let action = tab?.action {
+                cell.perform(action)
+            }
         }
 
         private func loadedImageCount(in editor: MarkdownTextView) -> Int {

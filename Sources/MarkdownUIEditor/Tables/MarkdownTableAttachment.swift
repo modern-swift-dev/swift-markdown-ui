@@ -254,8 +254,10 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
         onSelectionChange?(selection)
     }
 
+    /// Clears the selection of a cell that lost focus. A cell whose grid is being
+    /// presented keeps it, since its owner restores the selection afterwards.
     func endSelection(at position: MarkdownTableCellPosition) {
-        guard activeSelection?.position == position else {
+        guard !isPresenting, activeSelection?.position == position else {
             return
         }
         activeSelection = nil
@@ -1209,6 +1211,13 @@ private enum MarkdownTableCellSourceCodec {
             controller.updateSelection(at: field.position, range: field.selectedRange)
         }
 
+        func textViewDidEndEditing(_ textView: UITextView) {
+            guard let field = textView as? MarkdownTableCellTextView else {
+                return
+            }
+            controller?.endSelection(at: field.position)
+        }
+
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let field = textView as? MarkdownTableCellTextView,
                   let editor = field.markdownEditor, let controller else {
@@ -1792,6 +1801,16 @@ private enum MarkdownTableCellSourceCodec {
             }
             controller.activeTypingAttributes = field.typingAttributes
             controller.updateSelection(at: field.position, range: field.selectedRange())
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            // A cell resigning first responder ends editing while it still is one. AppKit
+            // also ends the edits of a cell that was never focused, which had no selection.
+            guard let field = notification.object as? AppKitMarkdownTableCellTextView,
+                  window?.firstResponder === field else {
+                return
+            }
+            controller?.endSelection(at: field.position)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
