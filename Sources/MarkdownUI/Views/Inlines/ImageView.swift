@@ -3,6 +3,7 @@ import SwiftUI
 struct ImageView: View {
     @Environment(\.theme.image) private var image
     @Environment(\.imageProvider) private var imageProvider
+    @Environment(\.imageLoadingPolicy) private var imageLoadingPolicy
     @Environment(\.imageBaseURL) private var baseURL
 
     private let data: RawImageData
@@ -21,9 +22,18 @@ struct ImageView: View {
     }
 
     private var label: some View {
-        self.imageProvider.makeImage(url: self.url)
+        self.loadableImage
             .link(destination: self.data.destination)
             .accessibilityLabel(self.data.alt)
+    }
+
+    /// Checks the policy before the provider sees the URL, so custom providers never request blocked images.
+    @ViewBuilder private var loadableImage: some View {
+        if let url = self.url, !self.imageLoadingPolicy.allows(url) {
+            Text(self.data.alt)
+        } else {
+            self.imageProvider.makeImage(url: self.url)
+        }
     }
 
     private var content: BlockNode {

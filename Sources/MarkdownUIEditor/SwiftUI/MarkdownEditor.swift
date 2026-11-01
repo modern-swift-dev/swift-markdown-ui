@@ -18,6 +18,7 @@
         @Environment(\.markdownEditorTheme) private var theme
         @Environment(\.markdownEditorShowsFormattingToolbar) private var showsFormattingToolbar
         @Environment(\.markdownEditorImageProvider) private var imageProvider
+        @Environment(\.markdownEditorImageLoadingPolicy) private var imageLoadingPolicy
 
         /// Creates an editor for a structured Markdown document.
         public init(document: Binding<MarkdownDocument>, baseURL: URL? = nil) {
@@ -47,6 +48,7 @@
                     theme: theme,
                     baseURL: baseURL,
                     imageProvider: imageProvider,
+                    imageLoadingPolicy: imageLoadingPolicy,
                     editorContext: editorContext
                 )
 
@@ -239,6 +241,8 @@
             let baseURL: URL?
             /// Provider used by image attachments.
             let imageProvider: (any MarkdownEditorImageProvider)?
+            /// Decides which URLs image attachments may request.
+            let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
 
@@ -250,6 +254,7 @@
                 let textView = MarkdownTextView(usingTextLayoutManager: true)
                 textView.markdownDelegate = context.coordinator
                 let initialDocument = document.wrappedValue
+                textView.editingSession.imageLoadingPolicy = imageLoadingPolicy
                 textView.editingSession.synchronizeFromBinding(
                     document: initialDocument, theme: theme, baseURL: baseURL, imageProvider: imageProvider
                 )
@@ -260,6 +265,7 @@
             }
 
             func updateUIView(_ textView: MarkdownTextView, context: Context) {
+                textView.editingSession.imageLoadingPolicy = imageLoadingPolicy
                 context.coordinator.update(
                     document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
                 )
@@ -324,6 +330,8 @@
             let baseURL: URL?
             /// Provider used by image attachments.
             let imageProvider: (any MarkdownEditorImageProvider)?
+            /// Decides which URLs image attachments may request.
+            let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
 
@@ -353,6 +361,7 @@
                 scrollView.documentView = textView
                 textView.markdownDelegate = context.coordinator
                 let initialDocument = document.wrappedValue
+                textView.editingSession.imageLoadingPolicy = imageLoadingPolicy
                 textView.editingSession.synchronizeFromBinding(
                     document: initialDocument, theme: theme, baseURL: baseURL, imageProvider: imageProvider
                 )
@@ -366,6 +375,7 @@
                 guard let textView = scrollView.documentView as? MarkdownTextView else {
                     return
                 }
+                textView.editingSession.imageLoadingPolicy = imageLoadingPolicy
                 context.coordinator.update(
                     document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
                 )

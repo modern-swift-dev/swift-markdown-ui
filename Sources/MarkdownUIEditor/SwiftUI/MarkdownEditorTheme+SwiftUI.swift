@@ -13,6 +13,10 @@
         static let defaultValue: (any MarkdownEditorImageProvider)? = nil
     }
 
+    private struct MarkdownEditorImageLoadingPolicyKey: EnvironmentKey {
+        static let defaultValue = MarkdownEditorImageLoadingPolicy.allowAll
+    }
+
     extension EnvironmentValues {
         /// The theme inherited by `MarkdownEditor` descendants.
         var markdownEditorTheme: MarkdownEditorTheme {
@@ -31,6 +35,12 @@
             get { self[MarkdownEditorImageProviderKey.self] }
             set { self[MarkdownEditorImageProviderKey.self] = newValue }
         }
+
+        /// The image loading policy inherited by `MarkdownEditor` descendants.
+        var markdownEditorImageLoadingPolicy: MarkdownEditorImageLoadingPolicy {
+            get { self[MarkdownEditorImageLoadingPolicyKey.self] }
+            set { self[MarkdownEditorImageLoadingPolicyKey.self] = newValue }
+        }
     }
 
     public extension View {
@@ -47,6 +57,17 @@
         /// Sets the URL image provider used by descendant Markdown editors.
         func markdownEditorImageProvider(_ provider: (any MarkdownEditorImageProvider)?) -> some View {
             environment(\.markdownEditorImageProvider, provider)
+        }
+
+        /// Sets the policy that decides which URLs descendant Markdown editors may load images from.
+        ///
+        /// The policy applies whichever image provider the editor uses. Blocked images are never
+        /// requested and show their alternative text instead. Set the policy before the editor appears;
+        /// a change applies to images the editor displays afterwards.
+        /// - Parameter policy: The image loading policy to set. The default is
+        ///   ``MarkdownEditorImageLoadingPolicy/allowAll``.
+        func markdownEditorImageLoadingPolicy(_ policy: MarkdownEditorImageLoadingPolicy) -> some View {
+            environment(\.markdownEditorImageLoadingPolicy, policy)
         }
     }
 #endif

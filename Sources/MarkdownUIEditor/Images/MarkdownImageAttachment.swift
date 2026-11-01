@@ -146,6 +146,16 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         public var onChange: ((MarkdownImageMetadata) -> Void)?
         /// The editor path reported by `onChange`, updated when earlier blocks change.
         var pathReference: EditorPathReference?
+        /// Decides whether native views may request ``resolvedURL`` from ``imageProvider``.
+        var imageLoadingPolicy = MarkdownEditorImageLoadingPolicy.allowAll
+
+        /// The provider native views may request ``resolvedURL`` from, or `nil` when the policy blocks it.
+        var permittedImageProvider: (any MarkdownEditorImageProvider)? {
+            guard let url = resolvedURL, !imageLoadingPolicy.allows(url) else {
+                return imageProvider
+            }
+            return nil
+        }
 
         /// Absolute image URL after resolving `metadata.source` against `baseURL`.
         public var resolvedURL: URL? {
@@ -234,7 +244,7 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
                 return
             }
             let altText = attachment.metadata.altText
-            let provider = attachment.imageProvider
+            let provider = attachment.permittedImageProvider
             let url = attachment.resolvedURL
             let imageView = MainActor.assumeIsolated {
                 UIKitMarkdownImageView(altText: altText, provider: provider, url: url)
@@ -312,7 +322,7 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
                 return
             }
             let altText = attachment.metadata.altText
-            let provider = attachment.imageProvider
+            let provider = attachment.permittedImageProvider
             let url = attachment.resolvedURL
             let imageView = MainActor.assumeIsolated {
                 AppKitMarkdownImageView(altText: altText, provider: provider, url: url)

@@ -10,8 +10,19 @@ public extension View {
     func markdownImageProvider(_ imageProvider: some ImageProvider) -> some View {
         self.environment(\.imageProvider, .init(imageProvider))
     }
+
+    /// Sets the policy that decides which URLs the Markdown images in a view hierarchy may load from.
+    ///
+    /// The policy applies to block and inline images, whichever image providers load them.
+    /// Blocked images are never requested and show their alternative text instead.
+    /// - Parameter policy: The image loading policy to set. The default is ``ImageLoadingPolicy/allowAll``.
+    /// - Returns: A view that uses the specified image loading policy for itself and its child views.
+    func markdownImageLoadingPolicy(_ policy: ImageLoadingPolicy) -> some View {
+        self.environment(\.imageLoadingPolicy, policy)
+    }
 }
 
 extension EnvironmentValues {
     @Entry var imageProvider: AnyImageProvider = .init(.default)
+    @Entry var imageLoadingPolicy: ImageLoadingPolicy = .allowAll
 }

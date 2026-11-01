@@ -55,6 +55,10 @@ import Foundation
             didSet { configurationDidChange() }
         }
 
+        /// Decides which resolved image URLs attachments may request. Policies can't be compared,
+        /// so a change applies to attachments projected afterwards without a full rebuild.
+        var imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
+
         /// Platform adapter that owns TextKit storage and native selection.
         private weak var bridge: (any TextViewBridge)?
         /// Delivers committed document changes to the owning text view.
@@ -93,12 +97,14 @@ import Foundation
             theme: MarkdownEditorTheme = .basic,
             baseURL: URL? = nil,
             imageProvider: (any MarkdownEditorImageProvider)? = nil,
+            imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
             onDocumentChange: @escaping (MarkdownDocument) -> Void = { _ in }
         ) {
             self.document = Self.editableDocument(document)
             self.theme = theme
             self.baseURL = baseURL
             self.imageProvider = imageProvider
+            self.imageLoadingPolicy = imageLoadingPolicy
             self.onDocumentChange = onDocumentChange
         }
 
@@ -600,6 +606,7 @@ import Foundation
                 theme: theme,
                 baseURL: baseURL,
                 imageProvider: imageProvider,
+                imageLoadingPolicy: imageLoadingPolicy,
                 callbacks: projectionCallbacks
             )
         }
@@ -615,6 +622,7 @@ import Foundation
                 theme: theme,
                 baseURL: baseURL,
                 imageProvider: imageProvider,
+                imageLoadingPolicy: imageLoadingPolicy,
                 callbacks: projectionCallbacks,
                 reusing: tables
             )
@@ -696,6 +704,7 @@ import Foundation
                     theme: theme,
                     baseURL: baseURL,
                     imageProvider: imageProvider,
+                    imageLoadingPolicy: imageLoadingPolicy,
                     callbacks: projectionCallbacks,
                     reusing: tables
                 )

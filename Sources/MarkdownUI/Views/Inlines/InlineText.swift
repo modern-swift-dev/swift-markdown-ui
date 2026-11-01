@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InlineText: View {
     @Environment(\.inlineImageProvider) private var inlineImageProvider
+    @Environment(\.imageLoadingPolicy) private var imageLoadingPolicy
     @Environment(\.baseURL) private var baseURL
     @Environment(\.imageBaseURL) private var imageBaseURL
     @Environment(\.softBreakMode) private var softBreakMode
@@ -70,7 +71,8 @@ struct InlineText: View {
             let images = await Self.loadInlineImages(
                 images: missingImages,
                 baseURL: self.imageBaseURL,
-                imageProvider: self.inlineImageProvider.provider
+                imageProvider: self.inlineImageProvider.provider,
+                imageLoadingPolicy: self.imageLoadingPolicy
             )
             guard !Task.isCancelled, self.imageLoadID == loadID else {
                 return
@@ -97,15 +99,22 @@ struct InlineText: View {
     static func loadInlineImages(
         in inlines: [InlineNode],
         baseURL: URL?,
-        imageProvider: any InlineImageProvider
+        imageProvider: any InlineImageProvider,
+        imageLoadingPolicy: ImageLoadingPolicy = .allowAll
     ) async -> [RawImageData: Image] {
-        await loadInlineImages(images: inlines.inlineImageDataSet(), baseURL: baseURL, imageProvider: imageProvider)
+        await loadInlineImages(
+            images: inlines.inlineImageDataSet(),
+            baseURL: baseURL,
+            imageProvider: imageProvider,
+            imageLoadingPolicy: imageLoadingPolicy
+        )
     }
 
     private static func loadInlineImages(
         images: Set<RawImageData>,
         baseURL: URL?,
-        imageProvider: any InlineImageProvider
+        imageProvider: any InlineImageProvider,
+        imageLoadingPolicy: ImageLoadingPolicy
     ) async -> [RawImageData: Image] {
         guard !images.isEmpty else {
             return [:]
@@ -118,7 +127,9 @@ struct InlineText: View {
                     return
                 }
                 while let image = pending.next() {
-                    guard let url = URL(string: image.source, relativeTo: baseURL) else {
+                    // Blocked images are never requested and keep rendering their alt text.
+                    guard let url = URL(string: image.source, relativeTo: baseURL),
+                          imageLoadingPolicy.allows(url) else {
                         continue
                     }
                     taskGroup.addTask {

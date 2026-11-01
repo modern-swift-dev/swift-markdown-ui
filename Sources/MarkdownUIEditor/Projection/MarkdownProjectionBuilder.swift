@@ -255,6 +255,7 @@ struct ChangedBlocks: Equatable {
         theme: MarkdownEditorTheme = .basic,
         baseURL: URL? = nil,
         imageProvider: (any MarkdownEditorImageProvider)? = nil,
+        imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
         onTableChange: ((EditorNodePath, MarkdownTable) -> Void)? = nil,
         tableSelection: ((EditorNodePath) -> MarkdownTableCellSelection?)? = nil,
         onTableSelectionChange: ((EditorNodePath, MarkdownTableCellSelection?) -> Void)? = nil,
@@ -266,6 +267,7 @@ struct ChangedBlocks: Equatable {
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
+            imageLoadingPolicy: imageLoadingPolicy,
             callbacks: Callbacks(
                 onTableChange: onTableChange,
                 tableSelection: tableSelection,
@@ -281,6 +283,7 @@ struct ChangedBlocks: Equatable {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
+        imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
         callbacks: Callbacks,
         reusing tables: ReusableTables? = nil
     ) -> DocumentProjection {
@@ -293,6 +296,7 @@ struct ChangedBlocks: Equatable {
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
+            imageLoadingPolicy: imageLoadingPolicy,
             callbacks: callbacks,
             reusing: tables
         )
@@ -320,6 +324,7 @@ struct ChangedBlocks: Equatable {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
+        imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
         callbacks: Callbacks,
         reusing tables: ReusableTables? = nil
     ) -> ProjectionFragment {
@@ -328,6 +333,7 @@ struct ChangedBlocks: Equatable {
             theme: theme,
             baseURL: baseURL,
             imageProvider: imageProvider,
+            imageLoadingPolicy: imageLoadingPolicy,
             callbacks: callbacks,
             reusableTables: tables,
             projectionOrigin: projectionOrigin,
@@ -402,6 +408,7 @@ private struct BlockPresentation {
     private let theme: MarkdownEditorTheme
     private let baseURL: URL?
     private let imageProvider: (any MarkdownEditorImageProvider)?
+    private let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
     private let callbacks: MarkdownProjectionBuilder.Callbacks
     private let reusableTables: MarkdownProjectionBuilder.ReusableTables?
     private let identities = EditorIdentityTree()
@@ -413,6 +420,7 @@ private struct BlockPresentation {
         theme: MarkdownEditorTheme,
         baseURL: URL?,
         imageProvider: (any MarkdownEditorImageProvider)?,
+        imageLoadingPolicy: MarkdownEditorImageLoadingPolicy,
         callbacks: MarkdownProjectionBuilder.Callbacks,
         reusableTables: MarkdownProjectionBuilder.ReusableTables?,
         projectionOrigin: Int,
@@ -422,6 +430,7 @@ private struct BlockPresentation {
         self.theme = theme
         self.baseURL = baseURL
         self.imageProvider = imageProvider
+        self.imageLoadingPolicy = imageLoadingPolicy
         self.callbacks = callbacks
         self.reusableTables = reusableTables
         self.projectionOrigin = projectionOrigin
@@ -754,6 +763,7 @@ private struct BlockPresentation {
                 }
                 attachment.pathReference = reference
                 attachment.altContent = children
+                attachment.imageLoadingPolicy = imageLoadingPolicy
                 appendAttachment(
                     attachment,
                     source: "![" + alt + "](" + Self.linkDestination(source) + Self.titleSuffix(title) + ")",

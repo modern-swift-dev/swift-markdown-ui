@@ -105,6 +105,26 @@
                 assertSnapshot(of: view, as: .image(layout: layout))
             }
 
+            @Test func blockedImages() {
+                let view = MarkdownView {
+                    #"""
+                    Blocked images show their alt text:
+
+                    ![A blocked tracking pixel](https://tracker.example.net/pixel.gif)
+
+                    Inline ![blocked inline image](https://tracker.example.net/inline.gif) in text.
+
+                    ![](https://example.com/picsum/237-100x150)
+                    """#
+                }
+                .border(Color.accentColor)
+                .padding()
+                .markdownImageProvider(AssetImageProvider(bundle: .module))
+                .markdownImageLoadingPolicy(.allowing(schemes: ["https"], hosts: ["example.com"]))
+
+                assertSnapshot(of: view, as: .image(layout: layout))
+            }
+
             @Test func colorScheme() {
                 let content = """
                 This image is contextualized for either dark or light mode:
