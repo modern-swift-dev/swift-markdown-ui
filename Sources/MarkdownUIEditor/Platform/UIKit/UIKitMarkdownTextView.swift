@@ -355,6 +355,9 @@
         }
 
         override public func paste(_ sender: Any?) {
+            // The plain-text fallback below must not convert a pasted marker either.
+            editingSession.isPasting = true
+            defer { editingSession.isPasting = false }
             guard let payload = MarkdownEditorClipboard.read(), editingSession.paste(payload) else {
                 super.paste(sender)
                 return

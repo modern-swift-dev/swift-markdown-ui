@@ -283,6 +283,20 @@ final class MarkdownEditingTests: XCTestCase {
         XCTAssertEqual(code.document.blocks, [.codeBlock(info: "swift", content: "value")])
     }
 
+    func testTaskListOnAPlainItemInAMixedListMakesItATask() {
+        let document = MarkdownDocument(markdown: "- [x] a\n- b")
+        let selection = MarkdownLogicalSelection(path: .listItemBlock(list: .block(0), item: 1, block: 0), utf16Offset: 1)
+        XCTAssertFalse(MarkdownEditingEngine.styleIsActive(.convertList(.task), in: document, selection: selection))
+
+        let result = MarkdownEditingEngine.apply(.convertList(.task), to: document, selection: selection)
+        guard case let .list(list)? = result.document.blocks.first else {
+            return XCTFail("The items should stay in one list")
+        }
+        XCTAssertEqual(result.document.blocks.count, 1)
+        XCTAssertEqual(list.items.map { $0.taskState != nil }, [true, true], "The plain item becomes a task")
+        XCTAssertTrue(MarkdownEditingEngine.styleIsActive(.convertList(.task), in: result.document, selection: result.selection))
+    }
+
     func testActiveBlockAndListStylesToggleOff() {
         let quotedItem = MarkdownLogicalPath.listItemBlock(list: .blockquote(parent: .block(0), child: 0), item: 0, block: 0)
         let cases: [(MarkdownEditorCommand, String, MarkdownLogicalPath, String, MarkdownLogicalPath)] = [

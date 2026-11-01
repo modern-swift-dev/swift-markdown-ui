@@ -405,7 +405,8 @@ extension MarkdownEditingEngine {
                     return false
                 }
                 switch (style, list.kind) {
-                    case (.task, _): return list.items.contains { $0.taskState != nil }
+                    // In a list mixing tasks and plain items, only a task item toggles off.
+                    case (.task, _): return list.items.indices.contains(location.item) && list.items[location.item].taskState != nil
                     case (.unordered, .unordered): return list.items.allSatisfy { $0.taskState == nil }
                     case (.ordered, .ordered): return true
                     default: return false

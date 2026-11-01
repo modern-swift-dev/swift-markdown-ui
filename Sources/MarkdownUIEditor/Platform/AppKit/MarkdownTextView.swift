@@ -345,6 +345,9 @@
         }
 
         override public func paste(_ sender: Any?) {
+            // The plain-text fallback below must not convert a pasted marker either.
+            editingSession.isPasting = true
+            defer { editingSession.isPasting = false }
             guard let payload = MarkdownEditorClipboard.read(), editingSession.paste(payload) else {
                 super.paste(sender)
                 return
@@ -412,9 +415,11 @@
 
     /// Exposes one drawn task checkbox as a checkbox that toggles its task.
     @MainActor final class MarkdownTaskCheckboxAccessibilityElement: NSAccessibilityElement {
-        private weak var textView: MarkdownTextView?
+        /// AppKit declares the accessibility methods below nonisolated but calls them on the
+        /// main thread, so they read these properties there and hop onto the main actor.
+        private nonisolated(unsafe) weak var textView: MarkdownTextView?
         /// The projected offset of the task item's first leaf.
-        private var offset = 0
+        private nonisolated(unsafe) var offset = 0
 
         init(textView: MarkdownTextView) {
             self.textView = textView
@@ -430,11 +435,17 @@
         }
 
         override func accessibilityLabel() -> String? {
-            textView?.editingSession.taskCheckboxLabel(atProjectionUTF16Offset: offset)
+            let textView = textView, offset = offset
+            return MainActor.assumeIsolated {
+                textView?.editingSession.taskCheckboxLabel(atProjectionUTF16Offset: offset)
+            }
         }
 
         override func accessibilityPerformPress() -> Bool {
-            textView?.editingSession.toggleTask(atProjectionUTF16Offset: offset) ?? false
+            let textView = textView, offset = offset
+            return MainActor.assumeIsolated {
+                textView?.editingSession.toggleTask(atProjectionUTF16Offset: offset) ?? false
+            }
         }
     }
 

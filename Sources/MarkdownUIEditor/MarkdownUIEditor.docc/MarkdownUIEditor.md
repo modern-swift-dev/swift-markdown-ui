@@ -49,6 +49,7 @@ let view = MarkdownView(source)
 - <doc:Tables-images-and-HTML>
 - ``MarkdownEditorTheme``
 - ``MarkdownEditorImageProvider``
+- ``MarkdownEditorImageLoadingPolicy``
 
 ## Overview
 

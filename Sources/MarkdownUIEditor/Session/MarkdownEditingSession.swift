@@ -107,6 +107,8 @@ import Foundation
         var onCommandStateChange: (() -> Void)?
         /// Whether typing a Markdown block marker at the start of a paragraph converts it.
         var convertsMarkdownShortcuts = false
+        /// Whether the current edit comes from a paste, which never converts a Markdown block marker.
+        var isPasting = false
 
         private static let nonWhitespaceCharacters = CharacterSet.whitespacesAndNewlines.inverted
 
@@ -173,7 +175,7 @@ import Foundation
             ) else {
                 return true
             }
-            if convertsMarkdownShortcuts, range.length == 0,
+            if convertsMarkdownShortcuts, !isPasting, range.length == 0,
                convertMarkdownShortcut(typing: replacement, at: range.location) {
                 return false
             }
@@ -735,6 +737,9 @@ import Foundation
         ///
         /// A read-only session handles the paste by leaving its document unchanged.
         @discardableResult func paste(_ payload: MarkdownClipboardPayload) -> Bool {
+            let wasPasting = isPasting
+            isPasting = true
+            defer { isPasting = wasPasting }
             guard isEditable else {
                 return true
             }

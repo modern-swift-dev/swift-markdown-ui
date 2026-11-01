@@ -823,6 +823,19 @@ import XCTest
         }
     }
 
+    func testPastingAfterAMarkerDoesNotConvertTheParagraph() {
+        let document = MarkdownDocument(blocks: [.paragraph([.text("#")])])
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 1, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.convertsMarkdownShortcuts = true
+        session.attach(to: bridge)
+
+        XCTAssertTrue(session.paste(MarkdownClipboardPayload(plainText: " ")))
+
+        XCTAssertEqual(session.document.blocks, [.paragraph([.text("# ")])])
+        XCTAssertFalse(session.isPasting)
+    }
+
     func testTaskMarkerTurnsAnOrdinaryListItemIntoATask() {
         let document = MarkdownDocument(markdown: "- first\n- [x]rest")
         let caret = 9

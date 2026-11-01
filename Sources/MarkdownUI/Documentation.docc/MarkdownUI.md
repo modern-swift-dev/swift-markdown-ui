@@ -93,5 +93,6 @@ MarkdownUI supports the following deployment targets:
 - ``ImageProvider``
 - ``DefaultImageProvider``
 - ``AssetImageProvider``
+- ``ImageLoadingPolicy``
 - ``CodeSyntaxHighlighter``
 - ``PlainTextCodeSyntaxHighlighter``
