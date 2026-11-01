@@ -280,6 +280,9 @@ final class MarkdownEditingTests: XCTestCase {
         let cases: [(caret: Int, expected: MarkdownLogicalSelection)] = [
             (1, MarkdownLogicalSelection(path: .block(0), utf16Offset: 1)),
             (2, MarkdownLogicalSelection(path: .block(1), utf16Offset: 0)),
+            // In leading whitespace, the caret stays before the line's text.
+            (3, MarkdownLogicalSelection(path: .block(1), utf16Offset: 0)),
+            (4, MarkdownLogicalSelection(path: .block(1), utf16Offset: 0)),
             (6, MarkdownLogicalSelection(path: .block(1), utf16Offset: 1)),
             (9, MarkdownLogicalSelection(path: .block(1), utf16Offset: 4)),
             (11, MarkdownLogicalSelection(path: .block(1), utf16Offset: 4)),

@@ -728,9 +728,10 @@ private extension MarkdownEditingEngine {
     /// trailing whitespace, because a paragraph cannot keep either through save and
     /// reload. A block with only blank lines becomes one empty paragraph.
     ///
-    /// The caret moves to the paragraph made from its line, next to the same text, or
-    /// to the end of that paragraph if it was in whitespace that was dropped. A caret
-    /// on a blank line moves to the start of the next paragraph, or the end of the last.
+    /// The caret moves to the paragraph made from its line, next to the same text. In
+    /// dropped leading whitespace it goes before the line's text, and in dropped trailing
+    /// whitespace to the end of that paragraph. A caret on a blank line moves to the start
+    /// of the next paragraph, or the end of the last.
     static func convertLinesToParagraphs(
         _ content: String,
         _ document: MarkdownDocument,
@@ -764,7 +765,8 @@ private extension MarkdownEditingEngine {
                     caret = (index, 0)
                 } else if holdsCaret {
                     let leading = String(line.unicodeScalars.prefix { CharacterSet.whitespaces.contains($0) }).utf16.count
-                    let column = selection.utf16Offset - lineStart - leading
+                    // A caret in leading whitespace stays before the line's text.
+                    let column = max(0, selection.utf16Offset - lineStart - leading)
                     caret = (index, (0 ... trimmed.utf16.count).contains(column) ? lengths[index] + column : nil)
                 }
                 paragraphs[index].append(.text(trimmed))

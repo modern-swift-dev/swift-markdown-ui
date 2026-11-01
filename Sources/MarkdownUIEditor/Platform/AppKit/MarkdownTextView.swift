@@ -392,6 +392,15 @@
             notifyCompositionEndIfNeeded()
         }
 
+        /// Commits a composition still in progress when the view leaves its window, so it ends,
+        /// and the session records undo steps again.
+        override public func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow !== window, hasMarkedText() {
+                unmarkText()
+            }
+            super.viewWillMove(toWindow: newWindow)
+        }
+
         override public func copy(_ sender: Any?) {
             guard let payload = editingSession.clipboardPayload(),
                   let markdown = payload.markdown,

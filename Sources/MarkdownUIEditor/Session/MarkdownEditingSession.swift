@@ -1116,7 +1116,9 @@ import Foundation
             at path: EditorNodePath,
             selection: MarkdownTableCellSelection?
         ) {
-            guard !isUpdatingBridge else {
+            // Only the table holding the active selection can end it. Another one, such as a grid
+            // that a projection dropped, can still report its cell losing focus.
+            guard !isUpdatingBridge, selection != nil || activeTableSelection?.path == path else {
                 return
             }
             activeTableSelection = selection.map { ActiveTableSelection(path: path, cell: $0) }

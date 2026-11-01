@@ -268,6 +268,47 @@
             }
         }
 
+        func testCommittingACompositionWithUnmarkTextEndsItAtOnce() throws {
+            let editor = MarkdownTextView.editing("---\n\nafter", in: self)
+            #if os(macOS)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+                window.contentView = editor
+                window.makeFirstResponder(editor)
+                defer { window.contentView = nil }
+            #endif
+            let undoManager = try XCTUnwrap(editor.undoManager)
+            editor.selectedRange = NSRange(location: 1, length: 0)
+
+            editor.compose(["ni"])
+            editor.unmarkText()
+
+            XCTAssertNil(editor.composedRange)
+            XCTAssertTrue(undoManager.isUndoRegistrationEnabled)
+            XCTAssertEqual(editor.document.blocks[1], .paragraph([.text("ni")]))
+            undoManager.removeAllActions()
+        }
+
+        func testLeavingTheWindowMidCompositionRecordsUndoAgain() throws {
+            let editor = MarkdownTextView.editing("---\n\nafter", in: self)
+            #if os(macOS)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+                window.contentView = editor
+                window.makeFirstResponder(editor)
+            #endif
+            let undoManager = try XCTUnwrap(editor.undoManager)
+            editor.selectedRange = NSRange(location: 1, length: 0)
+
+            editor.compose(["ni"])
+            #if os(macOS)
+                window.contentView = nil
+            #else
+                editor.removeFromSuperview()
+            #endif
+
+            XCTAssertTrue(undoManager.isUndoRegistrationEnabled)
+            undoManager.removeAllActions()
+        }
+
         func testReturnAtEndOfDocumentEndingInAtomicBlockAddsParagraph() {
             for block in ["---", Self.html] {
                 let editor = MarkdownTextView.editing("before\n\n" + block, in: self)

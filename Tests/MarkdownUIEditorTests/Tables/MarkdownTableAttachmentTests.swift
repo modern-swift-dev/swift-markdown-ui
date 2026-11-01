@@ -687,6 +687,25 @@ import XCTest
         XCTAssertFalse(isFirstResponder(try XCTUnwrap(cellView("Table row 1, column 1", in: editor))), "Undo does not focus the cell")
     }
 
+    func testAnotherTableEndingItsSelectionKeepsTheFocusedCellSelection() throws {
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.document = MarkdownDocument(markdown: "| A |\n| - |\n| a |\n\nBetween\n\n| B |\n| - |\n| b |")
+        let window = show(editor)
+        defer { hide(window) }
+        layout(editor)
+        let tables = tableAttachments(in: editor)
+        XCTAssertEqual(tables.count, 2)
+        let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+        focus(cell, selecting: NSRange(location: 1, length: 0))
+        let unfocused = try XCTUnwrap(tables.first { $0.controller.activeSelection == nil })
+        XCTAssertTrue(editor.editingSession.hasActiveTableSelection)
+
+        // A grid that is no longer the focused one, such as one a projection dropped, ends its selection late.
+        unfocused.controller.onSelectionChange?(nil)
+
+        XCTAssertTrue(editor.editingSession.hasActiveTableSelection)
+    }
+
     func testTableCommandsAndUndoKeepTheFocusedCellSelection() throws {
         let editor = MarkdownTextView(usingTextLayoutManager: true)
         editor.document = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")

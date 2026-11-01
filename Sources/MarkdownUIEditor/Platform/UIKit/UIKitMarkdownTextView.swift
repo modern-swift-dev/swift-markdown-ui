@@ -242,6 +242,22 @@
             super.setMarkedText(markedText, selectedRange: selectedRange)
         }
 
+        /// Ends the composition when its marked text is committed, rather than at the next text or
+        /// selection change.
+        override public func unmarkText() {
+            super.unmarkText()
+            notifyCompositionEndIfNeeded()
+        }
+
+        /// Commits a composition still in progress when the view leaves its window, so it ends,
+        /// and the session records undo steps again.
+        override public func willMove(toWindow newWindow: UIWindow?) {
+            if newWindow !== window, markedTextRange != nil {
+                unmarkText()
+            }
+            super.willMove(toWindow: newWindow)
+        }
+
         override public func replace(_ range: UITextRange, withText text: String) {
             // UIKit applies this text input replacement even when the view is not editable.
             guard isEditable else {
