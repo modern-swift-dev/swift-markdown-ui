@@ -570,7 +570,7 @@ import XCTest
         XCTAssertFalse(undoManager.canRedo)
     }
 
-    func testImagesInCellsLoadThroughTheEditorProviderAndBaseURL() {
+    func testImagesInCellsLoadThroughTheEditorProviderAndBaseURL() throws {
         let provider = RecordingImageProvider()
         let editor = MarkdownTextView(usingTextLayoutManager: true)
         editor.imageProvider = provider
@@ -579,17 +579,60 @@ import XCTest
         let window = show(editor)
         defer { hide(window) }
         layout(editor)
-        let deadline = Date(timeIntervalSinceNow: 2)
-        while loadedImageCount(in: editor) == 0, Date() < deadline {
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
-            layout(editor)
-        }
-        XCTAssertFalse(provider.requests.isEmpty)
-        XCTAssertEqual(Set(provider.requests), [URL(string: "https://example.com/docs/images/chart.png")])
+        waitForLoadedImage(in: editor)
+        XCTAssertEqual(provider.requests, [try XCTUnwrap(URL(string: "https://example.com/docs/images/chart.png"))], "The image is requested once")
         XCTAssertEqual(loadedImageCount(in: editor), 1, "The cell shows the loaded image")
     }
 
-    func testBlockedImagesInCellsAreNeverRequested() {
+    func testCellImageIsRequestedOnceAfterAGridReloadAndEditingAnotherCell() throws {
+        let provider = RecordingImageProvider()
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.imageProvider = provider
+        editor.document = MarkdownDocument(markdown: "| Image | Text |\n| - | - |\n| ![chart](https://example.com/chart.png) | a |")
+        let window = show(editor)
+        defer { hide(window) }
+        waitForLoadedImage(in: editor)
+        let requests = [try XCTUnwrap(URL(string: "https://example.com/chart.png"))]
+        XCTAssertEqual(provider.requests, requests)
+
+        // A column alignment change renders every cell of the grid again.
+        focus(try XCTUnwrap(cellView("Table row 1, column 2", in: editor)), selecting: NSRange(location: 1, length: 0))
+        editor.perform(.setTableColumnAlignment(.center))
+        XCTAssertEqual(editor.document, MarkdownDocument(markdown: "| Image | Text |\n| - | :-: |\n| ![chart](https://example.com/chart.png) | a |"))
+        settle(editor)
+        XCTAssertEqual(provider.requests, requests, "Grid reload")
+        XCTAssertEqual(loadedImageCount(in: editor), 1)
+
+        let other = try XCTUnwrap(cellView("Table row 1, column 2", in: editor))
+        focus(other, selecting: NSRange(location: 1, length: 0))
+        typeText("b", into: other)
+        XCTAssertEqual(editor.document, MarkdownDocument(markdown: "| Image | Text |\n| - | :-: |\n| ![chart](https://example.com/chart.png) | ab |"))
+        settle(editor)
+        XCTAssertEqual(provider.requests, requests, "Editing another cell")
+        XCTAssertEqual(loadedImageCount(in: editor), 1)
+    }
+
+    func testCellImageIsRequestedOnceAfterTypingInItsCell() throws {
+        let provider = RecordingImageProvider()
+        let editor = MarkdownTextView(usingTextLayoutManager: true)
+        editor.imageProvider = provider
+        editor.document = MarkdownDocument(markdown: "| Image |\n| - |\n| ![chart](https://example.com/chart.png) |")
+        let window = show(editor)
+        defer { hide(window) }
+        waitForLoadedImage(in: editor)
+
+        let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+        focus(cell, selecting: NSRange(location: 1, length: 0))
+        for character in " big" {
+            typeText(String(character), into: cell)
+            settle(editor)
+        }
+        XCTAssertEqual(editor.document, MarkdownDocument(markdown: "| Image |\n| - |\n| ![chart](https://example.com/chart.png) big |"))
+        XCTAssertEqual(provider.requests, [try XCTUnwrap(URL(string: "https://example.com/chart.png"))])
+        XCTAssertEqual(loadedImageCount(in: editor), 1)
+    }
+
+    func testBlockedImagesInCellsAreNeverRequested() throws {
         let provider = RecordingImageProvider()
         let editor = MarkdownTextView(usingTextLayoutManager: true)
         editor.imageProvider = provider
@@ -602,14 +645,9 @@ import XCTest
         let window = show(editor)
         defer { hide(window) }
         layout(editor)
-        let deadline = Date(timeIntervalSinceNow: 2)
-        while loadedImageCount(in: editor) == 0, Date() < deadline {
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
-            layout(editor)
-        }
-        // Give a blocked request the same chance to start as the allowed one.
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(Set(provider.requests), [URL(string: "https://images.example.com/a.png")])
+        // Waiting gives a blocked request the same chance to start as the allowed one.
+        waitForLoadedImage(in: editor)
+        XCTAssertEqual(provider.requests, [try XCTUnwrap(URL(string: "https://images.example.com/a.png"))])
         XCTAssertEqual(loadedImageCount(in: editor), 1, "The blocked image keeps showing its alt text")
     }
 
@@ -1545,6 +1583,27 @@ import XCTest
             )
         }
     #endif
+
+    /// Waits for a cell image to load, then gives any further request time to start.
+    private func waitForLoadedImage(in editor: MarkdownTextView, file: StaticString = #filePath, line: UInt = #line) {
+        layout(editor)
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while loadedImageCount(in: editor) == 0, Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+            layout(editor)
+        }
+        XCTAssertEqual(loadedImageCount(in: editor), 1, "A cell shows the loaded image", file: file, line: line)
+        settle(editor)
+    }
+
+    /// Lays out the editor and gives any image request time to start.
+    private func settle(_ editor: MarkdownTextView) {
+        for _ in 0 ..< 5 {
+            layout(editor)
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        layout(editor)
+    }
 
     private func tableAttachments(in editor: MarkdownTextView) -> [MarkdownTableAttachment] {
         let storage: NSTextStorage? = editor.textStorage

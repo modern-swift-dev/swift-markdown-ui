@@ -19,15 +19,15 @@ import XCTest
         let second = MarkdownImageViewLoader(provider: provider, url: url)
         var firstImage: MarkdownEditorPlatformImage?
         var secondImage: MarkdownEditorPlatformImage?
-        first.start { firstImage = $0 }
-        second.start { secondImage = $0 }
+        first.start(for: self) { firstImage = $0 }
+        second.start(for: self) { secondImage = $0 }
         try await wait { probe.started == 1 }
         probe.suspended = false
         try await wait { firstImage != nil && secondImage != nil }
         XCTAssertTrue(firstImage === secondImage)
         let replacement = MarkdownImageViewLoader(provider: provider, url: url)
         var replacementImage: MarkdownEditorPlatformImage?
-        replacement.start { replacementImage = $0 }
+        replacement.start(for: self) { replacementImage = $0 }
         try await wait { replacementImage != nil }
         XCTAssertTrue(firstImage === replacementImage)
         XCTAssertEqual(probe.started, 1)
@@ -49,14 +49,14 @@ import XCTest
         let url = try imageURL()
         let first = MarkdownImageViewLoader(provider: provider, url: url)
         let second = MarkdownImageViewLoader(provider: provider, url: url)
-        first.start { _ in XCTFail("Cancelled view must not receive image") }
-        second.start { _ in XCTFail("Cancelled view must not receive image") }
+        first.start(for: self) { _ in XCTFail("Cancelled view must not receive image") }
+        second.start(for: self) { _ in XCTFail("Cancelled view must not receive image") }
         try await wait { probe.started == 1 }
         try await Task.sleep(for: .milliseconds(20))
-        first.cancel()
+        first.cancel(for: self)
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertEqual(probe.cancellations, 0)
-        second.cancel()
+        second.cancel(for: self)
         try await wait { probe.cancellations == 1 }
         XCTAssertEqual(probe.started, 1)
     }
@@ -82,7 +82,7 @@ import XCTest
     func testViewOwnerDeinitCancelsOutstandingRequest() async throws {
         let provider = SuspendedNativeProvider()
         var loader: MarkdownImageViewLoader? = MarkdownImageViewLoader(provider: provider, url: try imageURL())
-        loader?.start { _ in XCTFail("Released owner must not receive an image") }
+        loader?.start(for: self) { _ in XCTFail("Released owner must not receive an image") }
         try await wait { provider.started == 1 }
         loader = nil
         try await wait { provider.cancellations == 1 }
@@ -152,9 +152,9 @@ import XCTest
         let provider = UncooperativeNativeProvider()
         let loader = MarkdownImageViewLoader(provider: provider, url: try imageURL())
         var received = false
-        loader.start { _ in received = true }
+        loader.start(for: self) { _ in received = true }
         try await wait { provider.continuation != nil }
-        loader.cancel()
+        loader.cancel(for: self)
         provider.finish()
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertFalse(received)
@@ -166,10 +166,10 @@ import XCTest
         let provider = MarkdownURLSessionImageProvider(loader: MarkdownEditorImageLoader(maximumCacheCost: 0, load: probe.load))
         let loader = MarkdownImageViewLoader(provider: provider, url: try imageURL())
         var received = 0
-        loader.start { _ in received += 1 }
+        loader.start(for: self) { _ in received += 1 }
         try await wait { received == 1 }
-        loader.cancel()
-        loader.start { _ in received += 1 }
+        loader.cancel(for: self)
+        loader.start(for: self) { _ in received += 1 }
         XCTAssertEqual(received, 2)
         XCTAssertEqual(probe.started, 1)
     }

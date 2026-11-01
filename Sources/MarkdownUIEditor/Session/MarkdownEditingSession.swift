@@ -944,11 +944,11 @@ import Foundation
             )
         }
 
-        /// Replaces all native text with a full projection, keeping unchanged tables' attachments.
+        /// Replaces all native text with a full projection, keeping unchanged tables' and images' attachments.
         func installFullProjection(selectedRanges: @autoclosure () -> [NSRange]) {
-            let tables = bridge.map { bridge in
+            let attachments = bridge.map { bridge in
                 let text = bridge.markdownTextStorage
-                return MarkdownProjectionBuilder.ReusableTables(in: text, range: NSRange(location: 0, length: text.length))
+                return MarkdownProjectionBuilder.ReusableAttachments(in: text, range: NSRange(location: 0, length: text.length))
             }
             projection = MarkdownProjectionBuilder().build(
                 document: document,
@@ -957,7 +957,7 @@ import Foundation
                 imageProvider: imageProvider,
                 imageLoadingPolicy: imageLoadingPolicy,
                 callbacks: projectionCallbacks,
-                reusing: tables
+                reusing: attachments
             )
             installProjection(projection, selectedRanges: selectedRanges())
         }
@@ -1023,8 +1023,8 @@ import Foundation
                 if let edit, let editedBlock, change.old.contains(editedBlock) {
                     range.length += edit.projectionDelta
                 }
-                // Tables in the replaced text keep their attachments and grids.
-                let tables = MarkdownProjectionBuilder.ReusableTables(
+                // Tables and images in the replaced text keep their attachments, grids and image requests.
+                let attachments = MarkdownProjectionBuilder.ReusableAttachments(
                     in: textStorage,
                     range: NSRange(location: range.location - lengthDelta, length: range.length),
                     blockDelta: blockDelta
@@ -1039,7 +1039,7 @@ import Foundation
                     imageProvider: imageProvider,
                     imageLoadingPolicy: imageLoadingPolicy,
                     callbacks: projectionCallbacks,
-                    reusing: tables
+                    reusing: attachments
                 )
                 lengthDelta += fragment.attributedString.length - range.length
                 let changeDelta = change.new.count - change.old.count

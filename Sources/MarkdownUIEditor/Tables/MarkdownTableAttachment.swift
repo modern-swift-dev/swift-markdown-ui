@@ -662,18 +662,24 @@ private enum MarkdownTableCellSourceCodec {
 
     @MainActor private extension MarkdownTableController {
         /// Projects a cell with the editor's theme, or with `defaultTheme` for a table outside an editor.
-        func richText(at position: MarkdownTableCellPosition, defaultTheme: MarkdownEditorTheme) -> NSAttributedString {
+        ///
+        /// Images keep the attachments in `images` that show them unchanged, so they are not requested again.
+        func richText(
+            at position: MarkdownTableCellPosition,
+            defaultTheme: MarkdownEditorTheme,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments?
+        ) -> NSAttributedString {
             let content = cell(at: position)?.content ?? []
             let isHeader = position.section == .header
             let alignment = alignment(at: position)
             let configuration = cellConfiguration
             let theme = configuration.theme ?? defaultTheme
-            let project = {
-                Self.projectRichText(content, isHeader: isHeader, alignment: alignment, theme: theme, configuration: configuration)
+            let project = { (images: MarkdownProjectionBuilder.ReusableAttachments?) in
+                Self.projectRichText(content, isHeader: isHeader, alignment: alignment, theme: theme, configuration: configuration, reusing: images)
             }
             // Image attachments keep the image loading policy, which a cache key can't compare.
             guard !content.contains(where: \.containsImage) else {
-                return project()
+                return project(images)
             }
             return MarkdownTableCellTextCache.text(
                 for: content,
@@ -681,7 +687,7 @@ private enum MarkdownTableCellSourceCodec {
                 alignment: alignment,
                 theme: theme,
                 configuration: configuration,
-                project: project
+                project: { project(nil) }
             )
         }
 
@@ -702,7 +708,8 @@ private enum MarkdownTableCellSourceCodec {
             isHeader: Bool,
             alignment: NSTextAlignment,
             theme: MarkdownEditorTheme,
-            configuration: MarkdownTableCellConfiguration
+            configuration: MarkdownTableCellConfiguration,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments?
         ) -> NSAttributedString {
             let content = content.map(MarkdownTableCellSourceCodec.editableInline)
             let projection = MarkdownProjectionBuilder().build(
@@ -710,7 +717,9 @@ private enum MarkdownTableCellSourceCodec {
                 theme: theme,
                 baseURL: configuration.baseURL,
                 imageProvider: configuration.imageProvider,
-                imageLoadingPolicy: configuration.imageLoadingPolicy
+                imageLoadingPolicy: configuration.imageLoadingPolicy,
+                callbacks: .init(),
+                reusing: images
             )
             let result = NSMutableAttributedString(attributedString: projection.attributedString)
             if result.string.hasSuffix("\n") {
@@ -974,6 +983,13 @@ private enum MarkdownTableCellSourceCodec {
             return parentWidth
         }
         return nil
+    }
+
+    /// The image attachments in cell texts, which the cells' next projections take again.
+    @MainActor private func markdownTableReusableImages(in texts: [NSAttributedString]) -> MarkdownProjectionBuilder.ReusableAttachments {
+        let text = NSMutableAttributedString()
+        texts.forEach(text.append)
+        return MarkdownProjectionBuilder.ReusableAttachments(in: text, range: NSRange(location: 0, length: text.length))
     }
 
     private func markdownTableAccessibilityLabel(for position: MarkdownTableCellPosition) -> String {
@@ -1256,6 +1272,7 @@ private enum MarkdownTableCellSourceCodec {
             guard let controller else {
                 return
             }
+            let images = markdownTableReusableImages(in: fields.values.map(\.attributedText))
             stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
             fields.removeAll()
             columnWidthConstraints.removeAll()
@@ -1264,7 +1281,7 @@ private enum MarkdownTableCellSourceCodec {
             let count = max(controller.columnCount, 1)
             columnWidthConstraints = Array(repeating: [], count: count)
             for row in -1 ..< controller.table.rows.count {
-                let rowStack = makeRow(section: row < 0 ? .header : .body(row: row), columnCount: count)
+                let rowStack = makeRow(section: row < 0 ? .header : .body(row: row), columnCount: count, reusing: images)
                 stack.addArrangedSubview(rowStack)
                 rowStacks.append(rowStack)
             }
@@ -1289,7 +1306,7 @@ private enum MarkdownTableCellSourceCodec {
             switch change {
                 case let .cell(position) where rowDelta == 0 && columnDelta == 0 && fields[position] != nil:
                     if let field = fields[position] {
-                        configureText(of: field)
+                        configureText(of: field, reusing: markdownTableReusableImages(in: [field.attributedText]))
                     }
                     updateColumnWidths(changedCells: [position])
                 case let .insertedRow(row) where rowDelta == 1 && columnDelta == 0 && row >= 0 && row < rowCount:
@@ -1354,21 +1371,29 @@ private enum MarkdownTableCellSourceCodec {
             updateColumnWidths(changedCells: newCells, remeasuringAllRows: true)
         }
 
-        private func makeRow(section: MarkdownTableCellPosition.Section, columnCount: Int) -> MarkdownTableRowStackView {
+        /// Makes a row's cells, whose images keep the attachments in `images` that show them.
+        private func makeRow(
+            section: MarkdownTableCellPosition.Section,
+            columnCount: Int,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments? = nil
+        ) -> MarkdownTableRowStackView {
             let rowStack = MarkdownTableRowStackView()
             rowStack.axis = .horizontal
             rowStack.spacing = 0
             rowStack.distribution = .fill
             for column in 0 ..< columnCount {
-                rowStack.addArrangedSubview(makeField(at: MarkdownTableCellPosition(section: section, column: column)))
+                rowStack.addArrangedSubview(makeField(at: MarkdownTableCellPosition(section: section, column: column), reusing: images))
             }
             rowStack.heightConstraint.isActive = true
             return rowStack
         }
 
-        private func makeField(at position: MarkdownTableCellPosition) -> MarkdownTableCellTextView {
+        private func makeField(
+            at position: MarkdownTableCellPosition,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments? = nil
+        ) -> MarkdownTableCellTextView {
             let field = MarkdownTableCellTextView(position: position)
-            configureText(of: field)
+            configureText(of: field, reusing: images)
             field.delegate = self
             field.updateBorderColor()
             field.layer.borderWidth = 1 / UIScreen.main.scale
@@ -1400,7 +1425,7 @@ private enum MarkdownTableCellSourceCodec {
             cellTheme = MarkdownEditorTheme.basic.scaled(to: traitCollection.preferredContentSizeCategory)
             for field in fields.values {
                 let selection = field.selectedRange
-                configureText(of: field)
+                configureText(of: field, reusing: markdownTableReusableImages(in: [field.attributedText]))
                 field.selectedRange = clamped(selection, toUTF16Length: field.textStorage.length)
             }
             updateColumnWidths(remeasuringAllRows: true)
@@ -1408,11 +1433,11 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         /// Sets a cell's text the same way for new and updated cells.
-        private func configureText(of field: MarkdownTableCellTextView) {
+        private func configureText(of field: MarkdownTableCellTextView, reusing images: MarkdownProjectionBuilder.ReusableAttachments?) {
             guard let controller else {
                 return
             }
-            field.attributedText = controller.richText(at: field.position, defaultTheme: cellTheme)
+            field.attributedText = controller.richText(at: field.position, defaultTheme: cellTheme, reusing: images)
             field.textAlignment = controller.alignment(at: field.position)
             field.typingAttributes = controller.cellTypingAttributes(defaultTheme: cellTheme)
         }
@@ -1846,15 +1871,16 @@ private enum MarkdownTableCellSourceCodec {
             guard let controller else {
                 return
             }
+            let images = markdownTableReusableImages(in: fields.values.map { $0.attributedString() })
             gridView.removeFromSuperview()
             fields.removeAll()
             cellHeights.removeAll()
             rowHeights.removeAll()
             let count = max(controller.columnCount, 1)
             var rows: [[NSView]] = []
-            rows.append(makeRow(section: .header, columnCount: count))
+            rows.append(makeRow(section: .header, columnCount: count, reusing: images))
             for row in controller.table.rows.indices {
-                rows.append(makeRow(section: .body(row: row), columnCount: count))
+                rows.append(makeRow(section: .body(row: row), columnCount: count, reusing: images))
             }
             for case let field as AppKitMarkdownTableCellTextView in rows.joined() {
                 fields[field.position] = field
@@ -1890,7 +1916,7 @@ private enum MarkdownTableCellSourceCodec {
             switch change {
                 case let .cell(position) where rowDelta == 0 && columnDelta == 0 && fields[position] != nil:
                     if let field = fields[position] {
-                        configureText(of: field)
+                        configureText(of: field, reusing: markdownTableReusableImages(in: [field.attributedString()]))
                     }
                     updateColumnWidths(changedCells: [position])
                 case let .insertedRow(row) where rowDelta == 1 && columnDelta == 0 && row >= 0 && row < rowCount:
@@ -1960,13 +1986,21 @@ private enum MarkdownTableCellSourceCodec {
             invalidateIntrinsicContentSize()
         }
 
-        private func makeRow(section: MarkdownTableCellPosition.Section, columnCount: Int) -> [NSView] {
+        /// Makes a row's cells, whose images keep the attachments in `images` that show them.
+        private func makeRow(
+            section: MarkdownTableCellPosition.Section,
+            columnCount: Int,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments? = nil
+        ) -> [NSView] {
             (0 ..< columnCount).map { column in
-                makeField(at: MarkdownTableCellPosition(section: section, column: column))
+                makeField(at: MarkdownTableCellPosition(section: section, column: column), reusing: images)
             }
         }
 
-        private func makeField(at position: MarkdownTableCellPosition) -> AppKitMarkdownTableCellTextView {
+        private func makeField(
+            at position: MarkdownTableCellPosition,
+            reusing images: MarkdownProjectionBuilder.ReusableAttachments? = nil
+        ) -> AppKitMarkdownTableCellTextView {
             let field = AppKitMarkdownTableCellTextView(position: position)
             field.onContextSelection = { [weak controller, weak field] range in
                 guard let field else {
@@ -1974,7 +2008,7 @@ private enum MarkdownTableCellSourceCodec {
                 }
                 controller?.updateSelection(at: field.position, range: range)
             }
-            configureText(of: field)
+            configureText(of: field, reusing: images)
             field.delegate = self
             field.isEditable = controller?.isEditable ?? false
             field.backgroundColor = position.section == .header ? .controlBackgroundColor : .textBackgroundColor
@@ -1994,11 +2028,11 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         /// Sets a cell's text the same way for new and updated cells.
-        private func configureText(of field: AppKitMarkdownTableCellTextView) {
+        private func configureText(of field: AppKitMarkdownTableCellTextView, reusing images: MarkdownProjectionBuilder.ReusableAttachments?) {
             guard let controller else {
                 return
             }
-            field.textStorage?.setAttributedString(controller.richText(at: field.position, defaultTheme: .basic))
+            field.textStorage?.setAttributedString(controller.richText(at: field.position, defaultTheme: .basic, reusing: images))
             field.alignment = controller.alignment(at: field.position)
             field.typingAttributes = controller.cellTypingAttributes(defaultTheme: .basic)
         }

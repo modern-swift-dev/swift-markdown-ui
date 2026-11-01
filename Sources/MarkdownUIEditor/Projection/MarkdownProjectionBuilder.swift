@@ -206,15 +206,17 @@ struct ChangedBlocks: Equatable {
         var onImageChange: ((EditorNodePath, MarkdownImageMetadata) -> Void)?
     }
 
-    /// Table attachments in text being replaced, which tables render with again.
+    /// Table and image attachments in text being replaced, which tables and images render with again.
     ///
-    /// Keeping the attachment keeps its loaded grid, so an unchanged table inside
+    /// Keeping a table's attachment keeps its loaded grid, so an unchanged table inside
     /// rebuilt text is not measured and laid out from scratch, and a changed table
-    /// at the same path updates only the cells that differ.
-    @MainActor final class ReusableTables {
+    /// at the same path updates only the cells that differ. Keeping an image's
+    /// attachment keeps its image request, so the image is not requested again.
+    @MainActor final class ReusableAttachments {
         private var attachments: [MarkdownTable: [MarkdownTableAttachment]] = [:]
         private var attachmentsByPath: [EditorNodePath: MarkdownTableAttachment] = [:]
         private var paths: [ObjectIdentifier: EditorNodePath] = [:]
+        private var images: [MarkdownImageMetadata: [MarkdownImageAttachment]] = [:]
 
         /// `blockDelta` moves the paths of the replaced text's attachments to the
         /// paths their blocks have after earlier blocks were inserted or removed.
@@ -225,8 +227,26 @@ struct ChangedBlocks: Equatable {
                     attachments[attachment.table, default: []].append(attachment)
                     attachmentsByPath[path] = attachment
                     paths[ObjectIdentifier(attachment)] = path
+                } else if let attachment = value as? MarkdownImageAttachment {
+                    images[attachment.metadata, default: []].append(attachment)
                 }
             }
+        }
+
+        /// Removes and returns an attachment that shows the same image, with the same
+        /// alternative content, resolved and requested the same way.
+        func takeImage(
+            _ metadata: MarkdownImageMetadata,
+            altContent: [MarkdownInline],
+            baseURL: URL?,
+            imageProvider: (any MarkdownEditorImageProvider)?
+        ) -> MarkdownImageAttachment? {
+            guard let index = images[metadata]?.firstIndex(where: { attachment in
+                attachment.altContent == altContent && attachment.baseURL == baseURL && attachment.imageProvider === imageProvider
+            }) else {
+                return nil
+            }
+            return images[metadata]?.remove(at: index)
         }
 
         /// Removes and returns an attachment showing `table`, or else the attachment
@@ -285,7 +305,7 @@ struct ChangedBlocks: Equatable {
         imageProvider: (any MarkdownEditorImageProvider)?,
         imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
         callbacks: Callbacks,
-        reusing tables: ReusableTables? = nil
+        reusing attachments: ReusableAttachments? = nil
     ) -> DocumentProjection {
         let fragment = build(
             blocks: document.blocks.indices,
@@ -298,7 +318,7 @@ struct ChangedBlocks: Equatable {
             imageProvider: imageProvider,
             imageLoadingPolicy: imageLoadingPolicy,
             callbacks: callbacks,
-            reusing: tables
+            reusing: attachments
         )
         return DocumentProjection(
             attributedString: fragment.attributedString,
@@ -326,7 +346,7 @@ struct ChangedBlocks: Equatable {
         imageProvider: (any MarkdownEditorImageProvider)?,
         imageLoadingPolicy: MarkdownEditorImageLoadingPolicy = .allowAll,
         callbacks: Callbacks,
-        reusing tables: ReusableTables? = nil
+        reusing attachments: ReusableAttachments? = nil
     ) -> ProjectionFragment {
         let state = BuildState(
             output: output,
@@ -335,7 +355,7 @@ struct ChangedBlocks: Equatable {
             imageProvider: imageProvider,
             imageLoadingPolicy: imageLoadingPolicy,
             callbacks: callbacks,
-            reusableTables: tables,
+            reusableAttachments: attachments,
             projectionOrigin: projectionOrigin,
             sourceOrigin: sourceOrigin
         )
@@ -410,7 +430,7 @@ private struct BlockPresentation {
     private let imageProvider: (any MarkdownEditorImageProvider)?
     private let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
     private let callbacks: MarkdownProjectionBuilder.Callbacks
-    private let reusableTables: MarkdownProjectionBuilder.ReusableTables?
+    private let reusableAttachments: MarkdownProjectionBuilder.ReusableAttachments?
     private let identities = EditorIdentityTree()
     /// Inline attributes already resolved during this build, including converted fonts.
     private var attributesByStyle: [InlineStyle: [NSAttributedString.Key: Any]] = [:]
@@ -422,7 +442,7 @@ private struct BlockPresentation {
         imageProvider: (any MarkdownEditorImageProvider)?,
         imageLoadingPolicy: MarkdownEditorImageLoadingPolicy,
         callbacks: MarkdownProjectionBuilder.Callbacks,
-        reusableTables: MarkdownProjectionBuilder.ReusableTables?,
+        reusableAttachments: MarkdownProjectionBuilder.ReusableAttachments?,
         projectionOrigin: Int,
         sourceOrigin: Int
     ) {
@@ -432,7 +452,7 @@ private struct BlockPresentation {
         self.imageProvider = imageProvider
         self.imageLoadingPolicy = imageLoadingPolicy
         self.callbacks = callbacks
-        self.reusableTables = reusableTables
+        self.reusableAttachments = reusableAttachments
         self.projectionOrigin = projectionOrigin
         self.projectionLength = projectionOrigin
         self.sourceLength = sourceOrigin
@@ -511,7 +531,7 @@ private struct BlockPresentation {
                         appendObjectPlaceholder(source: markdown, kind: "table")
                         return
                     }
-                    let attachment = reusableTables?.take(table, at: path) ?? MarkdownTableAttachment(table: table)
+                    let attachment = reusableAttachments?.take(table, at: path) ?? MarkdownTableAttachment(table: table)
                     let reference = attachment.pathReference ?? EditorPathReference(path)
                     reference.path = path
                     attachment.pathReference = reference
@@ -759,12 +779,15 @@ private struct BlockPresentation {
                     return
                 }
                 let metadata = MarkdownImageMetadata(source: source, title: title, altText: MarkdownImageMetadata.altText(for: children))
-                let reference = EditorPathReference(path)
-                let attachment = MarkdownImageAttachment(
-                    metadata: metadata,
+                let attachment = reusableAttachments?.takeImage(
+                    metadata,
+                    altContent: children,
                     baseURL: baseURL,
                     imageProvider: imageProvider
-                ) { [onImageChange = callbacks.onImageChange] metadata in
+                ) ?? MarkdownImageAttachment(metadata: metadata, baseURL: baseURL, imageProvider: imageProvider)
+                let reference = attachment.pathReference ?? EditorPathReference(path)
+                reference.path = path
+                attachment.onChange = { [onImageChange = callbacks.onImageChange] metadata in
                     onImageChange?(reference.path, metadata)
                 }
                 attachment.pathReference = reference

@@ -86,12 +86,15 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         case invalidImageData
     }
 
-    /// Owns a native view's request, retaining a completed image across detach/reattach cycles.
+    /// Owns an image attachment's request for its native views, retaining a completed image
+    /// across detach/reattach cycles.
     @MainActor final class MarkdownImageViewLoader {
-        private let provider: (any MarkdownEditorImageProvider)?
-        private let url: URL?
+        let provider: (any MarkdownEditorImageProvider)?
+        let url: URL?
         private var task: Task<Void, Never>?
         private var image: MarkdownEditorPlatformImage?
+        /// The views waiting for the request in progress, by identity.
+        private var waiting: [ObjectIdentifier: @MainActor (MarkdownEditorPlatformImage) -> Void] = [:]
 
         init(provider: (any MarkdownEditorImageProvider)?, url: URL?) {
             self.provider = provider
@@ -100,32 +103,68 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
 
         deinit { task?.cancel() }
 
-        func start(onLoad: @escaping @MainActor (MarkdownEditorPlatformImage) -> Void) {
+        /// Calls `onLoad` with the image once it is loaded, starting the request unless one is in progress.
+        func start(for view: AnyObject, onLoad: @escaping @MainActor (MarkdownEditorPlatformImage) -> Void) {
             if let image {
                 onLoad(image); return
             }
-            guard task == nil, let provider, let url else {
+            guard let provider, let url else {
+                return
+            }
+            waiting[ObjectIdentifier(view)] = onLoad
+            guard task == nil else {
                 return
             }
             task = Task { @MainActor [weak self] in
                 do {
                     let image = try await provider.image(for: url)
                     try Task.checkCancellation()
-                    self?.image = image
-                    self?.task = nil
-                    onLoad(image)
+                    guard let self else {
+                        return
+                    }
+                    self.image = image
+                    self.task = nil
+                    let waiting = self.waiting.values
+                    self.waiting = [:]
+                    waiting.forEach { $0(image) }
                 } catch {
                     guard !Task.isCancelled else {
                         return
                     }
                     self?.task = nil
+                    self?.waiting = [:]
                 }
             }
         }
 
-        func cancel() {
-            task?.cancel()
-            task = nil
+        /// Stops waiting for `view`, and cancels the request if no view waits for it on the next turn
+        /// of the main actor. A view replacing this one, as when the attachment's text is replaced or
+        /// a table cell is rendered again, waits in the same turn and keeps the request.
+        func cancel(for view: AnyObject) {
+            waiting[ObjectIdentifier(view)] = nil
+            Task { @MainActor [weak self] in
+                guard let self, self.waiting.isEmpty else {
+                    return
+                }
+                self.task?.cancel()
+                self.task = nil
+            }
+        }
+    }
+
+    /// Keeps an image attachment's loader while the URL and provider it loads with are unchanged.
+    @MainActor final class MarkdownImageRequest {
+        private var loader: MarkdownImageViewLoader?
+
+        nonisolated init() {}
+
+        func loader(provider: (any MarkdownEditorImageProvider)?, url: URL?) -> MarkdownImageViewLoader {
+            if let loader, loader.provider === provider, loader.url == url {
+                return loader
+            }
+            let loader = MarkdownImageViewLoader(provider: provider, url: url)
+            self.loader = loader
+            return loader
         }
     }
 
@@ -156,6 +195,10 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
             }
             return nil
         }
+
+        /// The request of this attachment's image. Native views share it, since TextKit
+        /// creates a new view each time the attachment's text is replaced.
+        let imageRequest = MarkdownImageRequest()
 
         /// Absolute image URL after resolving `metadata.source` against `baseURL`.
         public var resolvedURL: URL? {
@@ -244,10 +287,11 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
                 return
             }
             let altText = attachment.metadata.altText
+            let request = attachment.imageRequest
             let provider = attachment.permittedImageProvider
             let url = attachment.resolvedURL
             let imageView = MainActor.assumeIsolated {
-                UIKitMarkdownImageView(altText: altText, provider: provider, url: url)
+                UIKitMarkdownImageView(altText: altText, loader: request.loader(provider: provider, url: url))
             }
             tracksTextAttachmentViewBounds = true
             view = imageView
@@ -259,8 +303,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         private let altLabel = UILabel()
         private let loader: MarkdownImageViewLoader
 
-        init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
-            loader = MarkdownImageViewLoader(provider: provider, url: url)
+        init(altText: String, loader: MarkdownImageViewLoader) {
+            self.loader = loader
             super.init(frame: CGRect(origin: .zero, size: MarkdownImageAttachment.imageViewSize))
             isAccessibilityElement = true
             accessibilityLabel = altText
@@ -296,14 +340,14 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil {
-                loader.cancel()
+                loader.cancel(for: self)
             } else {
                 loadImage()
             }
         }
 
         private func loadImage() {
-            loader.start { [weak self] image in self?.show(image) }
+            loader.start(for: self) { [weak self] image in self?.show(image) }
         }
 
         func show(_ image: UIImage) {
@@ -321,10 +365,11 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
                 return
             }
             let altText = attachment.metadata.altText
+            let request = attachment.imageRequest
             let provider = attachment.permittedImageProvider
             let url = attachment.resolvedURL
             let imageView = MainActor.assumeIsolated {
-                AppKitMarkdownImageView(altText: altText, provider: provider, url: url)
+                AppKitMarkdownImageView(altText: altText, loader: request.loader(provider: provider, url: url))
             }
             tracksTextAttachmentViewBounds = true
             view = imageView
@@ -336,8 +381,8 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         private let altLabel = NSTextField(labelWithString: "")
         private let loader: MarkdownImageViewLoader
 
-        init(altText: String, provider: (any MarkdownEditorImageProvider)?, url: URL?) {
-            loader = MarkdownImageViewLoader(provider: provider, url: url)
+        init(altText: String, loader: MarkdownImageViewLoader) {
+            self.loader = loader
             super.init(frame: NSRect(origin: .zero, size: MarkdownImageAttachment.imageViewSize))
             setAccessibilityElement(true)
             setAccessibilityRole(.image)
@@ -373,14 +418,14 @@ public struct MarkdownImageMetadata: Hashable, Sendable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
-                loader.cancel()
+                loader.cancel(for: self)
             } else {
                 loadImage()
             }
         }
 
         private func loadImage() {
-            loader.start { [weak self] image in self?.show(image) }
+            loader.start(for: self) { [weak self] image in self?.show(image) }
         }
 
         func show(_ image: NSImage) {
