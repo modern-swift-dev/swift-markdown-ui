@@ -222,7 +222,10 @@ final class MarkdownEditingTests: XCTestCase {
         let selection = MarkdownLogicalSelection(path: .block(0))
 
         let paragraph = MarkdownEditingEngine.apply(.convertBlock(.paragraph), to: code, selection: selection)
-        XCTAssertEqual(paragraph.document.blocks, [.paragraph([.text("first line"), .lineBreak, .text("second *line*"), .lineBreak, .text("last")])])
+        XCTAssertEqual(paragraph.document.blocks, [
+            .paragraph([.text("first line"), .lineBreak, .text("second *line*")]),
+            .paragraph([.text("last")])
+        ])
         XCTAssertEqual(MarkdownDocument(markdown: paragraph.document.markdown), paragraph.document)
 
         let heading = MarkdownEditingEngine.apply(.convertBlock(.heading(.two)), to: code, selection: selection)
@@ -233,6 +236,73 @@ final class MarkdownEditingTests: XCTestCase {
         let joined = MarkdownEditingEngine.apply(.convertBlock(.heading(.one)), to: softBreaks, selection: selection)
         XCTAssertEqual(joined.document, MarkdownDocument(markdown: "# a *b c* d"))
         XCTAssertEqual(MarkdownDocument(markdown: joined.document.markdown), joined.document)
+    }
+
+    func testCodeAndHTMLBlocksConvertToOneParagraphPerRunOfLines() {
+        let cases: [(name: String, block: MarkdownBlock, expected: [MarkdownBlock])] = [
+            ("indented line", .codeBlock(info: nil, content: "a\n\n    b\n"), [
+                .paragraph([.text("a")]),
+                .paragraph([.text("b")])
+            ]),
+            ("several blank lines", .codeBlock(info: nil, content: "a\nb\n\n\nc\n"), [
+                .paragraph([.text("a"), .lineBreak, .text("b")]),
+                .paragraph([.text("c")])
+            ]),
+            ("edge blank lines", .codeBlock(info: nil, content: "\n\na\n\n"), [.paragraph([.text("a")])]),
+            ("only blank lines", .codeBlock(info: nil, content: "\n \n"), [.paragraph([])]),
+            ("HTML block", .html("<pre>\na\n\nb\n</pre>\n"), [
+                .paragraph([.text("<pre>"), .lineBreak, .text("a")]),
+                .paragraph([.text("b"), .lineBreak, .text("</pre>")])
+            ])
+        ]
+        for (name, block, expected) in cases {
+            let document = MarkdownDocument(blocks: [.paragraph([.text("before")]), block, .paragraph([.text("after")])])
+            let result = MarkdownEditingEngine.apply(
+                .convertBlock(.paragraph),
+                to: document,
+                selection: MarkdownLogicalSelection(path: .block(1))
+            )
+            XCTAssertEqual(result.document.blocks, [.paragraph([.text("before")])] + expected + [.paragraph([.text("after")])], name)
+            // An empty paragraph writes no Markdown, so it is the one result a reload drops.
+            if expected != [.paragraph([])] {
+                XCTAssertEqual(MarkdownDocument(markdown: result.document.markdown), result.document, name)
+            }
+        }
+    }
+
+    func testCodeBlockConvertedToParagraphsKeepsTheCaretOnItsLine() {
+        // Lines: "a" at 0, "" at 2, "  bc  " at 3, "d" at 10, then the empty line after the final newline at 12.
+        let document = MarkdownDocument(blocks: [.codeBlock(info: nil, content: "a\n\n  bc  \nd\n")])
+        let expectedBlocks: [MarkdownBlock] = [
+            .paragraph([.text("a")]),
+            .paragraph([.text("bc"), .lineBreak, .text("d")])
+        ]
+        let cases: [(caret: Int, expected: MarkdownLogicalSelection)] = [
+            (1, MarkdownLogicalSelection(path: .block(0), utf16Offset: 1)),
+            (2, MarkdownLogicalSelection(path: .block(1), utf16Offset: 0)),
+            (6, MarkdownLogicalSelection(path: .block(1), utf16Offset: 1)),
+            (9, MarkdownLogicalSelection(path: .block(1), utf16Offset: 4)),
+            (11, MarkdownLogicalSelection(path: .block(1), utf16Offset: 4)),
+            (12, MarkdownLogicalSelection(path: .block(1), utf16Offset: 4))
+        ]
+        for (caret, expected) in cases {
+            let result = MarkdownEditingEngine.apply(
+                .convertBlock(.paragraph),
+                to: document,
+                selection: MarkdownLogicalSelection(path: .block(0), utf16Offset: caret)
+            )
+            XCTAssertEqual(result.document.blocks, expectedBlocks, "caret \(caret)")
+            XCTAssertEqual(result.selection, expected, "caret \(caret)")
+        }
+
+        let nested = MarkdownDocument(blocks: [.blockquote([.paragraph([.text("q")]), .codeBlock(info: nil, content: "a\n\nb\n")])])
+        let result = MarkdownEditingEngine.apply(
+            .convertBlock(.paragraph),
+            to: nested,
+            selection: MarkdownLogicalSelection(path: .blockquote(parent: .block(0), child: 1), utf16Offset: 4)
+        )
+        XCTAssertEqual(result.document.blocks, [.blockquote([.paragraph([.text("q")]), .paragraph([.text("a")]), .paragraph([.text("b")])])])
+        XCTAssertEqual(result.selection, MarkdownLogicalSelection(path: .blockquote(parent: .block(0), child: 2), utf16Offset: 1))
     }
 
     func testParagraphNeverSavesWithTrailingHardBreak() {

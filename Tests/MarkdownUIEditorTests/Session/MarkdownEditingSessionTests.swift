@@ -1143,6 +1143,24 @@ import XCTest
         XCTAssertEqual(bridge.replacementCount, replacementsAfterCommand)
     }
 
+    func testConvertingACodeBlockToParagraphsUndoesInOneStep() {
+        let original = MarkdownDocument(blocks: [.codeBlock(info: nil, content: "a\n\nb\n")])
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 3, length: 0)])
+        let session = MarkdownEditingSession(document: original)
+        session.attach(to: bridge)
+        session.selectionDidChange()
+
+        session.perform(.convertBlock(.paragraph))
+
+        XCTAssertEqual(session.document.blocks, [.paragraph([.text("a")]), .paragraph([.text("b")])])
+        XCTAssertEqual(bridge.markdownTextStorage.string, "a\nb\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 2, length: 0)])
+
+        bridge.undoManager?.undo()
+
+        XCTAssertEqual(session.document, original)
+    }
+
     func testExplicitReplacementRestoresPreviouslyPublishedDocument() {
         let bridge = FakeTextViewBridge()
         let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "original"))

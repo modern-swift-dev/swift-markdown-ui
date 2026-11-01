@@ -681,6 +681,15 @@ private extension MarkdownEditingEngine {
             }
             return convertBlock(.paragraph, document, selection)
         }
+        if case .paragraph = style {
+            switch block(at: selection.path, in: document.blocks) {
+                case let .codeBlock(_, content)?,
+                     let .html(content)?:
+                    return convertLinesToParagraphs(content, document, selection)
+                default:
+                    break
+            }
+        }
         var copy = document
         var changed = false
         let reached = updateBlock(at: selection.path, in: &copy.blocks) { block in
@@ -710,6 +719,75 @@ private extension MarkdownEditingEngine {
             restored.path = .blockquote(parent: selection.path, child: 0)
         }
         return MarkdownEditingResult(document: copy, selection: restored)
+    }
+
+    /// Replaces a code or HTML block with one paragraph per run of non-blank lines,
+    /// joining the lines of a run with hard breaks.
+    ///
+    /// Blank lines only separate paragraphs, and each line loses its leading and
+    /// trailing whitespace, because a paragraph cannot keep either through save and
+    /// reload. A block with only blank lines becomes one empty paragraph.
+    ///
+    /// The caret moves to the paragraph made from its line, next to the same text, or
+    /// to the end of that paragraph if it was in whitespace that was dropped. A caret
+    /// on a blank line moves to the start of the next paragraph, or the end of the last.
+    static func convertLinesToParagraphs(
+        _ content: String,
+        _ document: MarkdownDocument,
+        _ selection: MarkdownLogicalSelection
+    ) -> MarkdownEditingResult {
+        var paragraphs: [[MarkdownInline]] = []
+        var lengths: [Int] = []
+        var isInRun = false
+        var lineStart = 0
+        var caretIsOnBlankLine = false
+        // The caret's paragraph, and its offset there, or nil for the paragraph's end.
+        var caret: (paragraph: Int, offset: Int?)?
+        for line in content.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let holdsCaret = caret == nil && !caretIsOnBlankLine
+                && (lineStart ... lineStart + line.utf16.count).contains(selection.utf16Offset)
+            if trimmed.isEmpty {
+                isInRun = false
+                caretIsOnBlankLine = caretIsOnBlankLine || holdsCaret
+            } else {
+                if isInRun {
+                    paragraphs[paragraphs.count - 1].append(.lineBreak)
+                    lengths[lengths.count - 1] += 1
+                } else {
+                    paragraphs.append([])
+                    lengths.append(0)
+                    isInRun = true
+                }
+                let index = paragraphs.count - 1
+                if caretIsOnBlankLine, caret == nil {
+                    caret = (index, 0)
+                } else if holdsCaret {
+                    let leading = String(line.unicodeScalars.prefix { CharacterSet.whitespaces.contains($0) }).utf16.count
+                    let column = selection.utf16Offset - lineStart - leading
+                    caret = (index, (0 ... trimmed.utf16.count).contains(column) ? lengths[index] + column : nil)
+                }
+                paragraphs[index].append(.text(trimmed))
+                lengths[index] += trimmed.utf16.count
+            }
+            lineStart += line.utf16.count + 1
+        }
+        if paragraphs.isEmpty {
+            paragraphs = [[]]
+            lengths = [0]
+        }
+        let target = caret ?? (paragraphs.count - 1, nil)
+        var copy = document
+        guard replaceBlock(at: selection.path, with: paragraphs.map(MarkdownBlock.paragraph), in: &copy.blocks) else {
+            return unchanged(document, selection)
+        }
+        return MarkdownEditingResult(
+            document: copy,
+            selection: MarkdownLogicalSelection(
+                path: offsetting(selection.path, by: target.paragraph),
+                utf16Offset: target.offset ?? lengths[target.paragraph]
+            )
+        )
     }
 
     static func inlineContent(of block: MarkdownBlock) -> [MarkdownInline]? {
