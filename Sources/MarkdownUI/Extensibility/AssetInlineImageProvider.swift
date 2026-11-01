@@ -39,8 +39,21 @@ public struct AssetInlineImageProvider: InlineImageProvider {
         self.id = .lastPathComponent(bundle)
     }
 
+    /// Throws when the bundle has no image with the resource name, so the image's alt text is shown.
     public func image(with url: URL, label: String) async throws -> Image {
-        .init(self.name(url), bundle: self.bundle, label: Text(label))
+        let name = self.name(url)
+        guard Self.hasImage(named: name, in: self.bundle) else {
+            throw URLError(.fileDoesNotExist)
+        }
+        return .init(name, bundle: self.bundle, label: Text(label))
+    }
+
+    private static func hasImage(named name: String, in bundle: Bundle?) -> Bool {
+        #if canImport(UIKit)
+            UIImage(named: name, in: bundle, with: nil) != nil
+        #elseif canImport(AppKit)
+            (bundle ?? .main).image(forResource: name) != nil
+        #endif
     }
 }
 
