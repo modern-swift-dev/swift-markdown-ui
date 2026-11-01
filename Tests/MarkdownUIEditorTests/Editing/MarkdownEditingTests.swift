@@ -272,6 +272,31 @@ final class MarkdownEditingTests: XCTestCase {
         XCTAssertEqual(outdented.selection.utf16Offset, 3)
     }
 
+    func testOutdentingNestedItemAdoptsFollowingSiblingsAsChildren() {
+        let cases: [(source: String, expected: String)] = [
+            ("- A\n  - B\n  - C\n", "- A\n- B\n  - C\n"),
+            ("1. A\n   1. B\n   2. C\n   3. D\n", "1. A\n2. B\n   1. C\n   2. D\n"),
+            ("- A\n  - B\n    - B1\n  - C\n", "- A\n- B\n  - B1\n  - C\n"),
+            ("- A\n  - X\n  - B\n  - C\n", "- A\n  - X\n- B\n  - C\n")
+        ]
+        for (source, expected) in cases {
+            let document = MarkdownDocument(markdown: source)
+            let nestedList = MarkdownLogicalPath.listItemBlock(list: .block(0), item: 0, block: 1)
+            let movedIndex = source.contains("X") ? 1 : 0
+            let selection = MarkdownLogicalSelection(
+                path: .listItemBlock(list: nestedList, item: movedIndex, block: 0),
+                utf16Offset: 1
+            )
+            let result = MarkdownEditingEngine.apply(.outdent, to: document, selection: selection)
+            XCTAssertEqual(result.document, MarkdownDocument(markdown: expected), source)
+            XCTAssertEqual(
+                result.selection,
+                MarkdownLogicalSelection(path: .listItemBlock(list: .block(0), item: 1, block: 0), utf16Offset: 1),
+                source
+            )
+        }
+    }
+
     func testIndentAndOutdentPreserveDescendantSelectionAndAllowFurtherEditing() {
         let itemPath = MarkdownLogicalPath.listItemBlock(list: .block(0), item: 1, block: 0)
         let nestedListPath = MarkdownLogicalPath.listItemBlock(list: .block(0), item: 0, block: 1)

@@ -720,7 +720,24 @@ private extension MarkdownEditingEngine {
             guard case var .list(list) = block, list.items.indices.contains(inner.item) else {
                 return
             }
-            movedItem = list.items.remove(at: inner.item)
+            // Siblings after the moved item become its children, so reading order is kept.
+            var following = list
+            following.items = Array(list.items[(inner.item + 1)...])
+            list.items.removeSubrange((inner.item + 1)...)
+            var moved = list.items.remove(at: inner.item)
+            if !following.items.isEmpty {
+                if let last = moved.blocks.indices.last,
+                   case var .list(children) = moved.blocks[last], children.kind == list.kind {
+                    children.items += following.items
+                    moved.blocks[last] = .list(children)
+                } else {
+                    if case .ordered = following.kind {
+                        following.kind = .ordered(start: 1)
+                    }
+                    moved.blocks.append(.list(following))
+                }
+            }
+            movedItem = moved
             block = .list(list)
         }
         guard let movedItem else {

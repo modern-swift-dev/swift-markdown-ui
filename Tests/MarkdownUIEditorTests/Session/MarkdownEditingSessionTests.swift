@@ -437,6 +437,34 @@ import XCTest
         XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 7, length: 0)])
     }
 
+    func testReturnOnEmptyMiddleNestedItemOutdentsWithoutReordering() {
+        func nested(_ items: [MarkdownListItem]) -> MarkdownBlock {
+            .list(MarkdownList(kind: .unordered, isTight: true, items: items))
+        }
+        let document = MarkdownDocument(blocks: [nested([
+            MarkdownListItem(blocks: [.paragraph([.text("A")]), nested([
+                MarkdownListItem(blocks: [.paragraph([.text("B")])]),
+                MarkdownListItem(blocks: [.paragraph([])]),
+                MarkdownListItem(blocks: [.paragraph([.text("C")])])
+            ])])
+        ])])
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 4, length: 0)])
+        let session = MarkdownEditingSession(document: document)
+        session.attach(to: bridge)
+
+        XCTAssertFalse(session.shouldReplaceCharacters(in: NSRange(location: 4, length: 0), with: "\n"))
+
+        XCTAssertEqual(session.document, MarkdownDocument(blocks: [nested([
+            MarkdownListItem(blocks: [.paragraph([.text("A")]), nested([MarkdownListItem(blocks: [.paragraph([.text("B")])])])]),
+            MarkdownListItem(blocks: [.paragraph([]), nested([MarkdownListItem(blocks: [.paragraph([.text("C")])])])])
+        ])]))
+        XCTAssertEqual(bridge.markdownTextStorage.string, "A\nB\n\nC\n")
+        XCTAssertEqual(bridge.markdownSelectedRanges, [NSRange(location: 4, length: 0)])
+
+        bridge.undoManager?.undo()
+        XCTAssertEqual(session.document, document)
+    }
+
     func testReturnOnNewEmptyMiddleTaskItemSplitsChecklistAroundParagraph() {
         let document = MarkdownDocument(blocks: [
             .list(MarkdownList(
