@@ -250,6 +250,7 @@ public struct MarkdownView: View {
         let headings = self.headingIdentifierCache.headings(in: self.blocks)
         let isInScrollView = self.isInScrollView
         let openURL = self.openURL
+        let baseURL = self.baseURL
         return ScrollViewReader { proxy in
             TextStyleAttributesReader { attributes in
                 BlockSequence(headings.blocks, renderingMode: self.blockRenderingMode)
@@ -264,7 +265,7 @@ public struct MarkdownView: View {
             .environment(\.imageBaseURL, self.imageBaseURL)
             .environment(\.openURL, OpenURLAction { url in
                 // Same-document links scroll to their heading when a scroll view can show it.
-                if isInScrollView, let fragment = url.headingFragment, headings.identifiers.contains(fragment) {
+                if isInScrollView, let fragment = url.headingFragment(baseURL: baseURL), headings.identifiers.contains(fragment) {
                     proxy.scrollTo(fragment, anchor: .top)
                 } else {
                     openURL(url)
@@ -423,11 +424,19 @@ private struct ScaledFontSizeModifier: ViewModifier {
 }
 
 private extension URL {
-    /// The heading identifier that a same-document link, such as `#hello-world`, points to.
-    var headingFragment: String? {
-        guard self.relativeString.hasPrefix("#") else {
+    /// The heading identifier that a same-document link points to: a `#hello-world` link, or a link to
+    /// `baseURL` itself with a fragment.
+    func headingFragment(baseURL: URL?) -> String? {
+        guard let fragment = self.fragment(percentEncoded: false) else {
             return nil
         }
-        return self.fragment(percentEncoded: false)
+        if self.relativeString.hasPrefix("#") {
+            return fragment
+        }
+        guard let baseURL, var components = URLComponents(url: self, resolvingAgainstBaseURL: true) else {
+            return nil
+        }
+        components.fragment = nil
+        return components.url == baseURL.absoluteURL ? fragment : nil
     }
 }

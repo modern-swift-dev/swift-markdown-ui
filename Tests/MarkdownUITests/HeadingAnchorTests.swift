@@ -110,6 +110,61 @@ private extension [BlockNode] {
             XCTAssertEqual(opened.urls, [])
         }
 
+        func testSameDocumentLinksScrollWhenTheViewHasABaseURL() async throws {
+            let docs = try XCTUnwrap(URL(string: "https://example.com/docs/"))
+            let readme = try XCTUnwrap(URL(string: "https://example.com/docs/readme.md"))
+            for (baseURL, link) in [
+                (docs, "#hello-world"),
+                (docs, "https://example.com/docs/#hello-world"),
+                (readme, "https://example.com/docs/readme.md#hello-world")
+            ] {
+                let opened = OpenedURLs()
+                let probe = OpenURLProbe()
+                let host = self.host(ScrollView { self.markdown(probe, baseURL: baseURL) }, opened: opened)
+                defer { host.window?.close() }
+                try await Task.sleep(for: .milliseconds(50))
+                let scrollView = try XCTUnwrap(host.firstSubview(of: NSScrollView.self))
+
+                try XCTUnwrap(probe.action)(try XCTUnwrap(URL(string: link)))
+                try await Task.sleep(for: .milliseconds(50))
+
+                XCTAssertGreaterThan(scrollView.contentView.bounds.minY, 0, "\(baseURL) \(link)")
+                XCTAssertEqual(opened.urls, [], "\(baseURL) \(link)")
+            }
+        }
+
+        func testLinksToOtherDocumentsGoToTheOpenURLAction() async throws {
+            let baseURL = try XCTUnwrap(URL(string: "https://example.com/docs/"))
+            for link in ["https://other.site/#hello-world", "https://example.com/other/#hello-world", "other.md#hello-world", "#missing", "https://example.com/docs/#missing"] {
+                let opened = OpenedURLs()
+                let probe = OpenURLProbe()
+                let host = self.host(ScrollView { self.markdown(probe, baseURL: baseURL) }, opened: opened)
+                defer { host.window?.close() }
+                try await Task.sleep(for: .milliseconds(50))
+                let scrollView = try XCTUnwrap(host.firstSubview(of: NSScrollView.self))
+                let url = try XCTUnwrap(URL(string: link))
+
+                try XCTUnwrap(probe.action)(url)
+                try await Task.sleep(for: .milliseconds(50))
+
+                XCTAssertEqual(scrollView.contentView.bounds.minY, 0, link)
+                XCTAssertEqual(opened.urls, [url], link)
+            }
+        }
+
+        func testAbsoluteLinkToTheCurrentPageGoesToTheOpenURLActionWithoutABaseURL() async throws {
+            let opened = OpenedURLs()
+            let probe = OpenURLProbe()
+            let host = self.host(ScrollView { self.markdown(probe) }, opened: opened)
+            defer { host.window?.close() }
+            try await Task.sleep(for: .milliseconds(50))
+            let url = try XCTUnwrap(URL(string: "https://example.com/docs/#hello-world"))
+
+            try XCTUnwrap(probe.action)(url)
+
+            XCTAssertEqual(opened.urls, [url])
+        }
+
         func testUnmatchedFragmentLinkGoesToTheOpenURLAction() async throws {
             let opened = OpenedURLs()
             let probe = OpenURLProbe()
@@ -134,8 +189,8 @@ private extension [BlockNode] {
             XCTAssertEqual(opened.urls, [URL(string: "#hello-world")])
         }
 
-        private func markdown(_ probe: OpenURLProbe) -> some View {
-            MarkdownView(Self.document)
+        private func markdown(_ probe: OpenURLProbe, baseURL: URL? = nil) -> some View {
+            MarkdownView(Self.document, baseURL: baseURL)
                 .markdownBlockStyle(\.paragraph) { configuration in
                     configuration.label.frame(height: 40).background(OpenURLProbeView(probe: probe))
                 }
