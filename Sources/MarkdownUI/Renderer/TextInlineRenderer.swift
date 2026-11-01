@@ -20,6 +20,12 @@ extension Sequence<InlineNode> {
     }
 }
 
+/// Marks a loaded inline image that is the content of a link, so `InlineText` can make it tappable.
+struct InlineImageLink: TextAttribute {
+    let url: URL
+    let label: String
+}
+
 struct TextInlineRenderer {
     private var result = Text("")
     private var pendingText = AttributedString()
@@ -156,7 +162,12 @@ struct TextInlineRenderer {
         if let image = self.images[data] {
             self.shouldSkipNextWhitespace = false
             self.flushText()
-            self.result = self.result.appending(Text(image))
+            // Text drops link attributes from images, so the link is drawn over them instead.
+            if let url = self.attributes.link {
+                self.result = self.result.appending(Text(image).customAttribute(InlineImageLink(url: url, label: data.alt)))
+            } else {
+                self.result = self.result.appending(Text(image))
+            }
         } else {
             self.renderText(data.alt)
         }

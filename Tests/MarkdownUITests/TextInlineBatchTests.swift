@@ -262,6 +262,27 @@
             XCTAssertEqual(renderer.textChunkCount, 3)
         }
 
+        func testLoadedImageInsideLinkKeepsItsLink() throws {
+            let image = Image(systemName: "star.fill")
+            let data = RawImageData(source: "star", alt: "badge")
+            let nodes: [InlineNode] = [
+                .text("See "), .link(destination: "ci", children: [.image(source: "star", children: [.text("badge")])]),
+                .text(" and "), .image(source: "star", children: [.text("badge")])
+            ]
+            var renderer = makeRenderer(images: [data: image])
+            renderer.render(nodes)
+            let actual = renderer.finish()
+            let link = try XCTUnwrap(URL(string: "ci", relativeTo: baseURL))
+            func chunk(_ string: String) -> Text {
+                Text(AttributedString(string, attributes: attributes).resolvingFonts())
+            }
+            let expected = Text("") + chunk("See ") + Text(image).customAttribute(InlineImageLink(url: link, label: "badge"))
+                + chunk(" and ") + Text(image)
+            XCTAssertEqual(actual, expected, "Only the image inside the link carries the link")
+            let unlinked = Text("") + chunk("See ") + Text(image) + chunk(" and ") + Text(image)
+            XCTAssertNotEqual(actual, unlinked)
+        }
+
         private func makeRenderer(
             images: [RawImageData: Image] = [:],
             softBreakMode: SoftBreak.Mode = .space

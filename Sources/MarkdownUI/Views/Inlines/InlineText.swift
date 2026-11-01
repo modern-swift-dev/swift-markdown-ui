@@ -12,6 +12,7 @@ struct InlineText: View {
 
     private let inlines: [InlineNode]
     private let imageData: Set<RawImageData>
+    private let hasLinkedImages: Bool
 
     private struct ImageLoadID: Equatable {
         let images: Set<RawImageData>
@@ -22,6 +23,7 @@ struct InlineText: View {
     init(_ inlines: [InlineNode]) {
         self.inlines = inlines
         self.imageData = inlines.inlineImageDataSet()
+        self.hasLinkedImages = Self.containsLinkedImage(inlines)
     }
 
     var body: some View {
@@ -40,6 +42,7 @@ struct InlineText: View {
                 attributes: attributes
             )
         }
+        .modifier(InlineImageLinksOverlay(isEnabled: self.hasLinkedImages))
         .task(id: ImageLoadID(
             images: self.imageData,
             baseURL: self.imageBaseURL,
@@ -74,6 +77,19 @@ struct InlineText: View {
             }
             if !images.isEmpty {
                 self.inlineImages.merge(images) { _, new in new }
+            }
+        }
+    }
+
+    private static func containsLinkedImage(_ inlines: [InlineNode], insideLink: Bool = false) -> Bool {
+        inlines.contains { inline in
+            switch inline {
+                case .image:
+                    insideLink
+                case let .link(_, children):
+                    containsLinkedImage(children, insideLink: true)
+                default:
+                    containsLinkedImage(inline.children, insideLink: insideLink)
             }
         }
     }
@@ -131,6 +147,64 @@ struct InlineText: View {
             }
 
             return inlineImages
+        }
+    }
+}
+
+/// Text drops link attributes from images, so loaded images inside links get a link button on top.
+private struct InlineImageLinksOverlay: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if self.isEnabled {
+            content.overlayPreferenceValue(Text.LayoutKey.self) { layouts in
+                InlineImageLinks(layouts: layouts)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct InlineImageLinks: View {
+    private struct Placement {
+        let link: InlineImageLink
+        let frame: CGRect
+    }
+
+    @Environment(\.openURL) private var openURL
+
+    let layouts: Text.LayoutKey.Value
+
+    var body: some View {
+        GeometryReader { proxy in
+            let placements = self.placements(in: proxy)
+            ForEach(placements.indices, id: \.self) { index in
+                let placement = placements[index]
+                Button {
+                    self.openURL(placement.link.url)
+                } label: {
+                    Color.clear.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(placement.link.label)
+                .accessibilityAddTraits(.isLink)
+                .frame(width: placement.frame.width, height: placement.frame.height)
+                .position(x: placement.frame.midX, y: placement.frame.midY)
+            }
+        }
+    }
+
+    private func placements(in proxy: GeometryProxy) -> [Placement] {
+        self.layouts.flatMap { anchoredLayout in
+            let origin = proxy[anchoredLayout.origin]
+            return anchoredLayout.layout.flatMap { line in
+                line.compactMap { run in
+                    run[InlineImageLink.self].map {
+                        Placement(link: $0, frame: run.typographicBounds.rect.offsetBy(dx: origin.x, dy: origin.y))
+                    }
+                }
+            }
         }
     }
 }
