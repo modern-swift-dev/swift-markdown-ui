@@ -75,7 +75,7 @@ var body: some View {
 ```
 
 A `Markdown` view parses its string while it renders, which can block the user interface for a
-large document. To parse in a background task instead, pass ``ParsingMode/background`` to the
+large document. To parse in a background task instead, pass ``MarkdownView/ParsingMode/background`` to the
 ``MarkdownView/init(_:parsing:baseURL:imageBaseURL:)`` initializer. The view keeps showing the
 previous content until the new string is parsed.
 

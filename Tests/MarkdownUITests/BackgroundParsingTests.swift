@@ -79,7 +79,8 @@ import XCTest
 
         func testSynchronousParsingShowsTheContentOnTheFirstLayout() {
             let recorder = ParagraphRecorder()
-            let host = NSHostingView(rootView: view(MarkdownView("**first**", parsing: .synchronous), recorder: recorder))
+            let mode = MarkdownView.ParsingMode.synchronous
+            let host = NSHostingView(rootView: view(MarkdownView("**first**", parsing: mode), recorder: recorder))
             let window = Self.window(containing: host)
             defer { window.contentView = nil }
             host.layoutSubtreeIfNeeded()

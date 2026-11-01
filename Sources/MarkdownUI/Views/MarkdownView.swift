@@ -72,7 +72,7 @@ import SwiftUI
 /// ```
 ///
 /// A `Markdown` view parses its string while it renders, which can block the user interface for a
-/// large document. To parse in a background task instead, pass ``ParsingMode/background`` to the
+/// large document. To parse in a background task instead, pass ``MarkdownView/ParsingMode/background`` to the
 /// ``MarkdownView/init(_:parsing:baseURL:imageBaseURL:)`` initializer. The view keeps showing the
 /// previous content until the new string is parsed.
 ///
@@ -332,7 +332,7 @@ public extension MarkdownView {
 
     /// Creates a Markdown view from a Markdown-formatted string, parsing it in the specified mode.
     ///
-    /// Use ``ParsingMode/background`` to display large documents without blocking the user interface.
+    /// Use ``MarkdownView/ParsingMode/background`` to display large documents without blocking the user interface.
     /// The view keeps showing the previous content, or nothing before the first parse finishes, until
     /// the new string is parsed.
     ///
@@ -342,7 +342,7 @@ public extension MarkdownView {
     /// }
     /// ```
     ///
-    /// With ``ParsingMode/synchronous``, this initializer behaves like
+    /// With ``MarkdownView/ParsingMode/synchronous``, this initializer behaves like
     /// ``MarkdownView/init(_:baseURL:imageBaseURL:)-(String,_,_)``.
     /// - Parameters:
     ///   - markdown: The string that contains the Markdown formatting.
