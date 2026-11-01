@@ -2189,7 +2189,12 @@ private enum MarkdownTableCellSourceCodec {
             markdownEditor?.perform(command)
         }
 
+        /// AppKit offers key equivalents to every view in the window, so only the
+        /// focused cell turns them into formatting commands.
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard window?.firstResponder === self else {
+                return super.performKeyEquivalent(with: event)
+            }
             let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let style: MarkdownInlineStyle? = switch (event.charactersIgnoringModifiers?.lowercased(), modifiers) {
                 case ("b", .command): .strong

@@ -807,6 +807,51 @@ import XCTest
             }.first))
         }
 
+        func testAppKitCellHandlesKeyEquivalentsOnlyWhenFocused() throws {
+            let editor = MarkdownTextView(usingTextLayoutManager: true)
+            editor.frame = NSRect(x: 0, y: 100, width: 600, height: 300)
+            let original = MarkdownDocument(markdown: "| A | B |\n| - | - |\n| a | b |")
+            editor.document = original
+            let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+            other.string = "other"
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+            content.addSubview(other)
+            content.addSubview(editor)
+            let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = content
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            layout(editor)
+            let cell = try XCTUnwrap(cellView("Table row 1, column 1", in: editor))
+            focus(cell, selecting: NSRange(location: 0, length: 1))
+            func keyEquivalent(_ characters: String, _ modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: modifiers,
+                    timestamp: 0,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: characters,
+                    charactersIgnoringModifiers: characters,
+                    isARepeat: false,
+                    keyCode: 0
+                ))
+            }
+
+            window.makeFirstResponder(other)
+            other.setSelectedRange(NSRange(location: 0, length: 5))
+            for event in try [keyEquivalent("b", .command), keyEquivalent("i", .command), keyEquivalent("X", [.command, .shift])] {
+                _ = content.performKeyEquivalent(with: event)
+                XCTAssertEqual(editor.document, original, "\(event.charactersIgnoringModifiers ?? "")")
+                XCTAssertTrue(window.firstResponder === other, "Focus stays in the other view")
+            }
+
+            focus(cell, selecting: NSRange(location: 0, length: 1))
+            XCTAssertTrue(content.performKeyEquivalent(with: try keyEquivalent("b", .command)))
+            XCTAssertEqual(editor.document, MarkdownDocument(markdown: "| A | B |\n| - | - |\n| **a** | b |"))
+        }
+
         func testRichCellEditsPreserveStylesAndUseVisibleOffsets() throws {
             let attachment = MarkdownTableAttachment(table: MarkdownTable(
                 alignments: [.right],
