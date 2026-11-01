@@ -38,6 +38,9 @@ test-macos:
 test-ios:
 	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk iphonesimulator$(SDK_VERSION) -destination "$(IOS_SIMULATOR)" 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
 
+test-maccatalyst:
+	set -o pipefail && xcodebuild test -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'platform=macOS,variant=Mac Catalyst' 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+
 build-macos:
 	set -o pipefail && xcodebuild build -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
 
@@ -56,13 +59,19 @@ build-visionos:
 build-maccatalyst:
 	set -o pipefail && xcodebuild build -scheme $(SCHEME) -sdk macosx$(SDK_VERSION) -destination 'generic/platform=macOS,variant=Mac Catalyst' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
 
+build-example-ios: examples
+	set -o pipefail && xcodebuild build -project Examples/Editor/Editor.xcodeproj -scheme Editor-iOS -sdk iphoneos$(SDK_VERSION) -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+
+build-example-macos: examples
+	set -o pipefail && xcodebuild build -project Examples/Editor/Editor.xcodeproj -scheme Editor-macOS -sdk macosx$(SDK_VERSION) -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO 2>&1 | mint run --no-install cpisciotta/xcbeautify -q
+
 test: test-all
 
-test-all: test-macos test-ios
+test-all: test-macos test-ios test-maccatalyst
 
 build-all: build-macos build-ios build-tvos build-watchos build-visionos build-maccatalyst
 
-.PHONY: setup lint format format-check examples test test-macos test-ios build-macos build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all
+.PHONY: setup lint format format-check examples test test-macos test-ios test-maccatalyst build-example-ios build-example-macos build-macos build-ios build-tvos build-watchos build-visionos build-maccatalyst test-all build-all
 
 .PHONY: lint-workflows
 

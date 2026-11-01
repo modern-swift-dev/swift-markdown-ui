@@ -341,6 +341,8 @@ supported platforms. To build the editor, use `make build-ios SCHEME=MarkdownUIE
 `make build-macos SCHEME=MarkdownUIEditor`, or
 `make build-maccatalyst SCHEME=MarkdownUIEditor`.
 
-CI runs on pull requests and pushes to `main`, using Xcode 27.0 and explicit 27.0
-SDKs. It builds both libraries on their supported platforms and runs macOS and
-iOS tests, demo checks, documentation builds, formatting checks, and lint checks.
+CI runs on pull requests and manual dispatch, using Xcode 27.0 and explicit 27.0
+SDKs. It builds both libraries on their supported platforms, runs the test suite
+on macOS, iOS, and Mac Catalyst, builds the Editor example app for iOS and macOS,
+builds and tests the Demo app, and runs formatting and lint checks. CI does not
+build the documentation.

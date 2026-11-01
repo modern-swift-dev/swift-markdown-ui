@@ -39,7 +39,7 @@ import SwiftUI
         NavigationStack {
             MarkdownEditor(markdown: $markdown)
                 .markdownEditorTheme(editorTheme)
-                .onChange(of: theme) { editorTheme = $0.value }
+                .onChange(of: theme) { _, newTheme in editorTheme = newTheme.value }
                 .markdownEditorShowsFormattingToolbar(true)
                 .navigationTitle("Markdown editor")
                 .toolbar {

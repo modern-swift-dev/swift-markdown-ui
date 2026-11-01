@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos, ios]
+        platform: [macos, ios, maccatalyst]
     steps:
       - uses: actions/checkout@v4
       - name: Verify Swift 6.4
@@ -80,6 +80,24 @@ jobs:
       - name: Run tests
         # The shared MarkdownUI scheme includes both libraries' test targets.
         run: make test-${{ matrix.platform }} SCHEME=MarkdownUI
+
+  examples:
+    name: Build Editor example (${{ matrix.platform }})
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, macos]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift 6.4
+        run: swift --version | grep -F 'Swift version 6.4'
+      - name: Install tools
+        run: |
+          brew install mint xcodegen
+          mint install cpisciotta/xcbeautify
+      - name: Build Editor example
+        run: make build-example-${{ matrix.platform }}
 
   demo:
     runs-on: macos-26
