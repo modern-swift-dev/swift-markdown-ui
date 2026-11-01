@@ -344,6 +344,51 @@
             )
         }
 
+        func testMarkedTextCompositionKeepsSurroundingText() {
+            enum Commit {
+                case unmark
+                case insert(String)
+            }
+            let cases: [(name: String, steps: [String], commit: Commit, expected: String)] = [
+                ("grows", ["n", "ni", "nih"], .unmark, "abnihc\n\ndef\n"),
+                ("shrinks", ["n", "ni", "nih", "niha", "nihao"], .insert("你好"), "ab你好c\n\ndef\n"),
+                ("is replaced", ["に", "にほ", "にほん"], .insert("日本"), "ab日本c\n\ndef\n"),
+                ("is cancelled", ["n", "ni", ""], .unmark, "abc\n\ndef\n")
+            ]
+            for testCase in cases {
+                let textView = MarkdownTextView(usingTextLayoutManager: true)
+                let window = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+                    styleMask: [.titled],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.contentView = textView
+                window.makeFirstResponder(textView)
+                textView.document = MarkdownDocument(markdown: "abc\n\ndef")
+                textView.selectedRange = NSRange(location: 2, length: 0)
+                let notFound = NSRange(location: NSNotFound, length: 0)
+
+                for step in testCase.steps {
+                    textView.setMarkedText(
+                        step,
+                        selectedRange: NSRange(location: step.utf16.count, length: 0),
+                        replacementRange: notFound
+                    )
+                }
+                switch testCase.commit {
+                    case .unmark:
+                        textView.unmarkText()
+                    case let .insert(text):
+                        textView.insertText(text, replacementRange: notFound)
+                }
+
+                XCTAssertFalse(textView.hasMarkedText(), testCase.name)
+                XCTAssertEqual(textView.document.markdown, testCase.expected, testCase.name)
+                assertMatchesFreshProjection(textView, testCase.name)
+            }
+        }
+
         func testSourceDoesNotReferenceTextKit1LayoutManager() throws {
             let fileURL = URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
@@ -370,6 +415,26 @@
 
             XCTAssertTrue(source.contains("shouldChangeTextInRanges"))
             XCTAssertTrue(source.contains("replacementStrings"))
+        }
+
+        private func assertMatchesFreshProjection(
+            _ textView: MarkdownTextView,
+            _ message: String,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            let session = textView.editingSession
+            let expected = MarkdownProjectionBuilder().build(document: session.document, theme: session.theme)
+            XCTAssertEqual(textView.string, expected.string, message, file: file, line: line)
+            XCTAssertEqual(session.projection.string, textView.string, message, file: file, line: line)
+            // Native typing defers source mappings, so only projection ranges are compared.
+            XCTAssertEqual(
+                session.projection.index.units.map { "\($0.path) \($0.projectionRange)" },
+                expected.index.units.map { "\($0.path) \($0.projectionRange)" },
+                message,
+                file: file,
+                line: line
+            )
         }
     }
 

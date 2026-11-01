@@ -402,6 +402,48 @@
             XCTAssertEqual(textView.selectedRange, NSRange(location: 1, length: 0))
         }
 
+        func testMarkedTextCompositionKeepsSurroundingText() {
+            enum Commit {
+                case unmark
+                case insert(String)
+            }
+            let cases: [(name: String, steps: [String], commit: Commit, expected: String)] = [
+                ("grows", ["n", "ni", "nih"], .unmark, "abnihc\n\ndef\n"),
+                ("shrinks", ["n", "ni", "nih", "niha", "nihao"], .insert("你好"), "ab你好c\n\ndef\n"),
+                ("is replaced", ["に", "にほ", "にほん"], .insert("日本"), "ab日本c\n\ndef\n"),
+                ("is cancelled", ["n", "ni", ""], .unmark, "abc\n\ndef\n")
+            ]
+            for testCase in cases {
+                let textView = makeTextView()
+                textView.document = MarkdownDocument(markdown: "abc\n\ndef")
+                XCTAssertTrue(textView.becomeFirstResponder())
+                textView.selectedRange = NSRange(location: 2, length: 0)
+
+                for step in testCase.steps {
+                    textView.setMarkedText(step, selectedRange: NSRange(location: step.utf16.count, length: 0))
+                }
+                switch testCase.commit {
+                    case .unmark:
+                        textView.unmarkText()
+                    case let .insert(text):
+                        textView.insertText(text)
+                }
+
+                XCTAssertNil(textView.markedTextRange, testCase.name)
+                XCTAssertEqual(textView.document.markdown, testCase.expected, testCase.name)
+                let session = textView.editingSession
+                let expected = MarkdownProjectionBuilder().build(document: session.document, theme: session.theme)
+                XCTAssertEqual(textView.text, expected.string, testCase.name)
+                XCTAssertEqual(session.projection.string, textView.text, testCase.name)
+                // Native typing defers source mappings, so only projection ranges are compared.
+                XCTAssertEqual(
+                    session.projection.index.units.map { "\($0.path) \($0.projectionRange)" },
+                    expected.index.units.map { "\($0.path) \($0.projectionRange)" },
+                    testCase.name
+                )
+            }
+        }
+
         func testUIKitImplementationDoesNotReferenceTheForbiddenTextKit1Symbol() throws {
             let testFileURL = URL(fileURLWithPath: #filePath)
             let sourceURL = testFileURL

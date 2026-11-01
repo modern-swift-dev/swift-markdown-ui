@@ -838,6 +838,36 @@ import XCTest
         XCTAssertEqual(session.document.blocks, [.paragraph([.text("new")])])
     }
 
+    func testCompositionWhoseFirstStepWasRecordedReconcilesTheCommittedLength() {
+        let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 2, length: 0)])
+        var published: [MarkdownDocument] = []
+        let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "abc\n\ndef")) { published.append($0) }
+        session.attach(to: bridge)
+        let attributes = bridge.markdownTextStorage.attributes(at: 0, effectiveRange: nil)
+        var marked = NSRange(location: 2, length: 0)
+        func step(_ text: String, isMarked: Bool) {
+            bridge.markdownHasMarkedText = isMarked
+            bridge.replaceAttributedCharacters(in: marked, with: NSAttributedString(string: text, attributes: attributes))
+            marked.length = text.utf16.count
+            bridge.markdownSelectedRanges = [NSRange(location: NSMaxRange(marked), length: 0)]
+            session.storageDidChange()
+        }
+
+        // A platform may report the first step as an ordinary edit before marking it.
+        XCTAssertTrue(session.shouldReplaceCharacters(in: marked, with: "n"))
+        for text in ["n", "ni", "nih", "niha", "nihao"] {
+            step(text, isMarked: true)
+        }
+        step("你好", isMarked: false)
+        session.compositionDidEnd()
+
+        let expected = MarkdownDocument(markdown: "ab你好c\n\ndef")
+        XCTAssertEqual(session.document, expected)
+        XCTAssertEqual(published, [expected])
+        XCTAssertEqual(bridge.markdownTextStorage.string, "ab你好c\ndef\n")
+        XCTAssertEqual(session.projection.index.projectionUTF16Length, bridge.markdownTextStorage.length)
+    }
+
     func testExternalReplacementWinsAndCancelsDraft() {
         let bridge = FakeTextViewBridge(selectedRanges: [NSRange(location: 0, length: 0)])
         let session = MarkdownEditingSession(document: MarkdownDocument(markdown: "old"))

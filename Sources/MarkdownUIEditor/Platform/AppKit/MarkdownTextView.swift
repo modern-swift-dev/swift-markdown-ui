@@ -232,6 +232,12 @@
             super.mouseDown(with: event)
         }
 
+        /// AppKit commits marked text here without posting a text change.
+        override public func unmarkText() {
+            super.unmarkText()
+            notifyCompositionEndIfNeeded()
+        }
+
         override public func copy(_ sender: Any?) {
             guard let payload = editingSession.clipboardPayload(),
                   let markdown = payload.markdown,

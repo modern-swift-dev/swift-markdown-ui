@@ -113,10 +113,18 @@ import Foundation
         /// Structural edits are intercepted here. Ordinary text edits proceed and
         /// are reconciled from the attributed leaf in `storageDidChange()`.
         func shouldReplaceCharacters(in range: NSRange, with replacement: String) -> Bool {
-            guard !isUpdatingBridge,
-                  let downstreamUnit = projection.index.unit(
-                      atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)
-                  ) else {
+            guard !isUpdatingBridge else {
+                return true
+            }
+            // AppKit reports each marked-text step here, but the index is not updated
+            // until the composition ends, so its units cannot locate structural edits.
+            if needsCompositionFlush || bridge?.markdownHasMarkedText == true {
+                compositionWillChangeCharacters(in: range)
+                return true
+            }
+            guard let downstreamUnit = projection.index.unit(
+                atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)
+            ) else {
                 return true
             }
             let unit: ProjectionUnit = if replacement == "\n",
@@ -167,6 +175,20 @@ import Foundation
                 projectionDelta: replacement.utf16.count - range.length
             )]
             return true
+        }
+
+        /// Records the leaf a marked-text composition edits before its first step changes storage.
+        ///
+        /// Platforms report each composition step's own length change, or none at
+        /// all, so the edit is reconciled from the storage length when it ends.
+        func compositionWillChangeCharacters(in range: NSRange) {
+            guard !isUpdatingBridge, !needsCompositionFlush else {
+                return
+            }
+            needsCompositionFlush = true
+            pendingNativeEdits = projection.index.unit(
+                atProjectionUTF16Offset: min(range.location, projection.index.projectionUTF16Length)
+            ).map { [PendingNativeEdit(path: $0.path, unitRange: $0.projectionRange.nsRange, projectionDelta: 0)] } ?? []
         }
 
         /// Records an AppKit multi-selection edit without collapsing its ranges.
@@ -340,7 +362,6 @@ import Foundation
             guard needsCompositionFlush else {
                 return
             }
-            needsCompositionFlush = false
             reconcileRichStorageChange()
         }
 
@@ -903,8 +924,16 @@ import Foundation
                 return
             }
 
-            let edits = pendingNativeEdits
+            var edits = pendingNativeEdits
             pendingNativeEdits = []
+            if needsCompositionFlush {
+                needsCompositionFlush = false
+                // The index is unchanged since the composition began, so the storage
+                // length holds the committed text's total length change.
+                if edits.count == 1 {
+                    edits[0].projectionDelta = bridge.markdownTextStorage.length - projection.index.projectionUTF16Length
+                }
+            }
             if !edits.isEmpty {
                 for edit in edits {
                     reconcileRichEdit(edit, bridge: bridge, isOnlyEdit: edits.count == 1)

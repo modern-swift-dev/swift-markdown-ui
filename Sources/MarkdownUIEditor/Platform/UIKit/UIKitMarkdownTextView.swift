@@ -179,6 +179,13 @@
             super.insertText(text)
         }
 
+        /// UIKit does not ask the delegate before marked text changes storage.
+        override public func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+            attachEditingSessionIfNeeded()
+            editingSession.compositionWillChangeCharacters(in: self.selectedRange)
+            super.setMarkedText(markedText, selectedRange: selectedRange)
+        }
+
         override public func deleteBackward() {
             attachEditingSessionIfNeeded()
             guard !isHandlingNativeInput, markedTextRange == nil,
