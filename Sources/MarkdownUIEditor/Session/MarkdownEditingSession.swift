@@ -149,6 +149,9 @@ import Foundation
             if handleAtomicBlockEdit(in: range, with: replacement, startingIn: unit) {
                 return false
             }
+            if handleCodeBlockEdgeEdit(in: range, with: replacement, startingIn: unit) {
+                return false
+            }
             if replacement == "\n", unit.kind != .codeBlock, handleReturn(in: unit, replacing: range) {
                 return false
             }
@@ -498,7 +501,12 @@ import Foundation
                 return false
             }
             let insertion: NSAttributedString
-            if let markdown = payload.markdown {
+            if let unit = projection.index.unit(atProjectionUTF16Offset: range.location), unit.kind == .codeBlock,
+               NSMaxRange(range) < unit.projectionRange.upperBound,
+               let text = payload.plainText ?? payload.markdown {
+                // Code block content is plain text, so a paste inside one stays in it.
+                insertion = attributedInsertion(text)
+            } else if let markdown = payload.markdown {
                 let parsed = MarkdownDocument(markdown: markdown)
                 if parsed.blocks.count != 1 || !isParagraph(parsed.blocks[0]) {
                     return pasteBlockFragment(parsed, replacing: range)
@@ -1574,6 +1582,57 @@ import Foundation
             return unit.kind != .htmlBlock
         }
 
+        /// Applies the code-block rule to an edit at a code block's edge.
+        ///
+        /// A code block is a text container: its content is plain text, and edits at its
+        /// edges never change its kind. Deleting the line break between a code block and
+        /// an empty paragraph or heading removes that block; with any other neighbour the
+        /// caret moves across the edge. Return on an empty last line leaves the block and
+        /// starts a paragraph after it. Returns whether the edit was handled.
+        func handleCodeBlockEdgeEdit(in range: NSRange, with replacement: String, startingIn unit: ProjectionUnit) -> Bool {
+            guard let bridge else {
+                return false
+            }
+            let contentEnd = unit.projectionRange.upperBound - 1
+            if replacement == "\n", range.length == 0, unit.kind == .codeBlock,
+               range.location >= unit.projectionRange.location, range.location <= contentEnd,
+               case let .codeBlock(info, content)? = leafBlock(at: unit.path) {
+                let text = bridge.markdownTextStorage.string as NSString
+                let before = text.substring(with: NSRange(
+                    location: unit.projectionRange.location,
+                    length: range.location - unit.projectionRange.location
+                ))
+                let after = text.substring(with: NSRange(location: range.location, length: contentEnd - range.location))
+                guard before.hasSuffix("\n"), after.isEmpty || after == "\n" else {
+                    return false
+                }
+                let kept = MarkdownBlock.codeBlock(info: info, content: content.isEmpty ? content : before)
+                guard let logical = logicalPath(for: unit.path) else {
+                    return false
+                }
+                applyStructuralReplacement(
+                    rewritingDocument([unit.path: [kept, .paragraph([])]]),
+                    selection: MarkdownLogicalSelection(path: siblingPath(logical, offset: 1))
+                )
+                return true
+            }
+            guard replacement.isEmpty, range.length == 1, range.location == contentEnd,
+                  let next = projection.index.unit(after: unit.path),
+                  unit.kind == .codeBlock || next.kind == .codeBlock else {
+                return false
+            }
+            if let empty = [unit, next].first(where: { $0.kind != .codeBlock && $0.projectionRange.length == 1 }) {
+                let caret = empty.path == unit.path ? unit.projectionRange.location : range.location
+                applyStructuralReplacement(rewritingDocument([empty.path: []])) {
+                    NSRange(location: caret, length: 0)
+                }
+                return true
+            }
+            let deletesForward = bridge.markdownSelectedRanges == [NSRange(location: range.location, length: 0)]
+            bridge.markdownSelectedRanges = [NSRange(location: deletesForward ? NSMaxRange(range) : range.location, length: 0)]
+            return true
+        }
+
         /// Whether a range includes all of a leaf's content, so an edit replaces the leaf as a whole.
         func covers(_ range: NSRange, _ unit: ProjectionUnit) -> Bool {
             range.location <= unit.projectionRange.location
@@ -2366,6 +2425,30 @@ import Foundation
             let joined = NSMutableAttributedString(attributedString: before)
             joined.append(insertion)
             joined.append(after)
+            if first.path != last.path, first.kind == .codeBlock || last.kind == .codeBlock,
+               let lastBlock = leafBlock(at: last.path), let logical = logicalPath(for: first.path) {
+                // A code block's text never merges with a neighbouring block's text.
+                let leading = NSMutableAttributedString(attributedString: before)
+                leading.append(insertion)
+                var blocks: [MarkdownBlock] = []
+                if first.kind.isAtomic {
+                    if leading.length > 0 {
+                        blocks.append(.paragraph(MarkdownAttributedInlineDecoder.decode(leading)))
+                    }
+                } else if let block = replacingRichContent(in: firstBlock, with: leading) {
+                    blocks.append(block)
+                }
+                if !last.kind.isAtomic, let block = replacingRichContent(in: lastBlock, with: after) {
+                    blocks.append(block)
+                }
+                var replacements = Dictionary(uniqueKeysWithValues: units.map { ($0.path, [MarkdownBlock]()) })
+                replacements[first.path] = blocks
+                applyStructuralReplacement(
+                    rewritingDocument(replacements),
+                    selection: MarkdownLogicalSelection(path: logical, utf16Offset: leading.length)
+                )
+                return true
+            }
             if insertion.string == "\n", first.kind != .codeBlock {
                 let leading = MarkdownAttributedInlineDecoder.decode(before)
                 let trailing = MarkdownAttributedInlineDecoder.decode(after)
