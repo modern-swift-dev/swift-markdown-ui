@@ -9,6 +9,10 @@
         static let defaultValue = true
     }
 
+    private struct MarkdownEditorIsEditableKey: EnvironmentKey {
+        static let defaultValue = true
+    }
+
     private struct MarkdownEditorImageProviderKey: EnvironmentKey {
         static let defaultValue: (any MarkdownEditorImageProvider)? = nil
     }
@@ -28,6 +32,12 @@
         var markdownEditorShowsFormattingToolbar: Bool {
             get { self[MarkdownEditorShowsFormattingToolbarKey.self] }
             set { self[MarkdownEditorShowsFormattingToolbarKey.self] = newValue }
+        }
+
+        /// Whether `MarkdownEditor` descendants accept edits.
+        var markdownEditorIsEditable: Bool {
+            get { self[MarkdownEditorIsEditableKey.self] }
+            set { self[MarkdownEditorIsEditableKey.self] = newValue }
         }
 
         /// The image provider inherited by `MarkdownEditor` descendants.
@@ -52,6 +62,13 @@
         /// Shows or hides the editor's standard SwiftUI formatting controls.
         func markdownEditorShowsFormattingToolbar(_ shows: Bool) -> some View {
             environment(\.markdownEditorShowsFormattingToolbar, shows)
+        }
+
+        /// Makes descendant Markdown editors editable or read-only.
+        ///
+        /// A read-only editor still lets people select and copy text and open links.
+        func markdownEditorIsEditable(_ isEditable: Bool) -> some View {
+            environment(\.markdownEditorIsEditable, isEditable)
         }
 
         /// Sets the URL image provider used by descendant Markdown editors.

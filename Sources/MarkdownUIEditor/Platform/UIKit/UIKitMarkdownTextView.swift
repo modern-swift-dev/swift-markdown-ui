@@ -44,6 +44,20 @@
             }
         }
 
+        /// Whether people can change the document.
+        ///
+        /// When `false`, typing, pasting, dropping, table cells, task checkboxes,
+        /// and editing commands leave the document unchanged. People can still
+        /// select and copy text and open links.
+        override public var isEditable: Bool {
+            didSet {
+                guard isEditable != oldValue, hasAttachedEditingSession else {
+                    return
+                }
+                editingSession.editabilityDidChange()
+            }
+        }
+
         /// The document displayed by the editor.
         public var document: MarkdownDocument {
             get {
@@ -187,6 +201,14 @@
             attachEditingSessionIfNeeded()
             editingSession.compositionWillChangeCharacters(in: self.selectedRange)
             super.setMarkedText(markedText, selectedRange: selectedRange)
+        }
+
+        override public func replace(_ range: UITextRange, withText text: String) {
+            // UIKit applies this text input replacement even when the view is not editable.
+            guard isEditable else {
+                return
+            }
+            super.replace(range, withText: text)
         }
 
         override public func deleteBackward() {
@@ -363,6 +385,10 @@
         var markdownTypingAttributes: [NSAttributedString.Key: Any] {
             get { typingAttributes }
             set { typingAttributes = newValue }
+        }
+
+        var markdownIsEditable: Bool {
+            isEditable
         }
 
         var markdownIsFirstResponder: Bool {

@@ -52,6 +52,20 @@
             }
         }
 
+        /// Whether people can change the document.
+        ///
+        /// When `false`, typing, pasting, dropping, table cells, task checkboxes,
+        /// and editing commands leave the document unchanged. People can still
+        /// select and copy text and open links.
+        override public var isEditable: Bool {
+            didSet {
+                guard isEditable != oldValue, hasAttachedEditingSession else {
+                    return
+                }
+                editingSession.editabilityDidChange()
+            }
+        }
+
         /// The empty document used before the lazy editing session attaches.
         private let initialDocument = MarkdownDocument()
         /// Prevents installing the session and native delegate more than once.
@@ -428,6 +442,10 @@
         var markdownTypingAttributes: [NSAttributedString.Key: Any] {
             get { typingAttributes }
             set { typingAttributes = newValue }
+        }
+
+        var markdownIsEditable: Bool {
+            isEditable
         }
 
         var markdownIsFirstResponder: Bool {

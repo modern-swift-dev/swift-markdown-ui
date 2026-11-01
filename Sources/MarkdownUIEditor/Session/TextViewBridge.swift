@@ -19,6 +19,8 @@ import Foundation
         var markdownTypingAttributes: [NSAttributedString.Key: Any] { get set }
         /// Whether the platform currently owns an IME composition.
         var markdownHasMarkedText: Bool { get }
+        /// Whether the text view accepts edits.
+        var markdownIsEditable: Bool { get }
         /// Whether the outer editor currently owns keyboard focus.
         var markdownIsFirstResponder: Bool { get }
         /// Native undo manager used to group document changes.
@@ -29,6 +31,10 @@ import Foundation
     }
 
     extension TextViewBridge {
+        var markdownIsEditable: Bool {
+            true
+        }
+
         var markdownIsFirstResponder: Bool {
             false
         }

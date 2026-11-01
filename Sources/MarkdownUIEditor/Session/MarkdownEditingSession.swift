@@ -95,6 +95,11 @@ import Foundation
             activeTableSelection != nil
         }
 
+        /// Whether the text view accepts edits. A read-only session keeps its document.
+        var isEditable: Bool {
+            bridge?.markdownIsEditable ?? true
+        }
+
         private static func editableDocument(_ document: MarkdownDocument) -> MarkdownDocument {
             document.blocks.isEmpty ? MarkdownDocument(blocks: [.paragraph([])]) : document
         }
@@ -134,6 +139,9 @@ import Foundation
         func shouldReplaceCharacters(in range: NSRange, with replacement: String) -> Bool {
             guard !isUpdatingBridge else {
                 return true
+            }
+            guard isEditable else {
+                return false
             }
             // AppKit reports each marked-text step here, but the index is not updated
             // until the composition ends, so its units cannot locate structural edits.
@@ -211,6 +219,9 @@ import Foundation
 
         /// Records an AppKit multi-selection edit without collapsing its ranges.
         func shouldReplaceCharacters(in ranges: [NSRange], with replacements: [String]) -> Bool {
+            guard isEditable else {
+                return false
+            }
             guard ranges.count == replacements.count, ranges.count > 1 else {
                 return true
             }
@@ -314,6 +325,12 @@ import Foundation
             installFullProjection(selectedRanges: bridge?.markdownSelectedRanges ?? [])
         }
 
+        /// Applies the text view's editability to table cells and command state.
+        func editabilityDidChange() {
+            updateTableEditability()
+            onCommandStateChange?()
+        }
+
         /// Rebuilds the projection with a new attribute theme.
         func replaceTheme(_ replacement: MarkdownEditorTheme) {
             guard configuredTheme !== replacement,
@@ -415,7 +432,7 @@ import Foundation
         /// Applies a structural command and registers the result as one undo operation.
         func perform(_ command: MarkdownEditorCommand) {
             defer { onCommandStateChange?() }
-            guard let bridge, let nativeSelection = bridge.markdownSelectedRanges.first else {
+            guard isEditable, let bridge, let nativeSelection = bridge.markdownSelectedRanges.first else {
                 return
             }
             if let active = activeTableSelection, active.cell.range.length == 0,
@@ -484,7 +501,7 @@ import Foundation
         /// document mutation belong here so taps and clicks use normal undo and
         /// change publication.
         @discardableResult func toggleTask(atProjectionUTF16Offset offset: Int) -> Bool {
-            guard let bridge,
+            guard isEditable, let bridge,
                   offset >= 0,
                   offset <= projection.index.projectionUTF16Length,
                   let selection = logicalSelection(for: NSRange(location: offset, length: 0)) else {
@@ -544,7 +561,12 @@ import Foundation
         }
 
         /// Inserts a parsed Markdown inline fragment or literal plain text.
+        ///
+        /// A read-only session handles the paste by leaving its document unchanged.
         @discardableResult func paste(_ payload: MarkdownClipboardPayload) -> Bool {
+            guard isEditable else {
+                return true
+            }
             guard let bridge, let range = bridge.markdownSelectedRanges.first else {
                 return false
             }
@@ -773,6 +795,9 @@ import Foundation
             }
             projection.didRenderChangedBlocks(of: document, in: textStorage)
             restoreTableSelections(in: textStorage)
+            if !isEditable {
+                updateTableEditability()
+            }
             bridge.markdownSelectedRanges = ranges
             isUpdatingBridge = false
             if activeTableSelection == nil {
@@ -800,6 +825,17 @@ import Foundation
                     return
                 }
                 attachment.controller.restoreSelection(activeTableSelection?.path == path ? activeTableSelection?.cell : nil)
+            }
+        }
+
+        /// Gives table cells the text view's editability. New table attachments start editable.
+        func updateTableEditability() {
+            guard let textStorage = bridge?.markdownTextStorage else {
+                return
+            }
+            let isEditable = isEditable
+            textStorage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage.length)) { value, _, _ in
+                (value as? MarkdownTableAttachment)?.controller.isEditable = isEditable
             }
         }
 
@@ -885,7 +921,7 @@ import Foundation
         }
 
         func replaceTable(at path: EditorNodePath, with table: MarkdownTable) {
-            guard let replacement = replacingBlock(at: path, with: .table(table)) else {
+            guard isEditable, let replacement = replacingBlock(at: path, with: .table(table)) else {
                 return
             }
             applyTableReplacement(replacement, at: path)
@@ -2004,6 +2040,9 @@ import Foundation
                 in: NSRange(location: 0, length: bridge.markdownTextStorage.length),
                 with: projection.attributedString
             )
+            if !isEditable {
+                updateTableEditability()
+            }
             bridge.markdownSelectedRanges = restoredRanges(selectedRanges, in: projection)
             isUpdatingBridge = false
             if activeTableSelection == nil {
@@ -2154,7 +2193,7 @@ import Foundation
 #if canImport(UIKit) || canImport(AppKit)
     @MainActor extension MarkdownEditingSession {
         func canPerform(_ command: MarkdownEditorCommand) -> Bool {
-            guard let bridge, let range = bridge.markdownSelectedRanges.first else {
+            guard isEditable, let bridge, let range = bridge.markdownSelectedRanges.first else {
                 return false
             }
             if case .toggleInline = command {

@@ -147,6 +147,16 @@ private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
     var onTypingAttributesChange: (([NSAttributedString.Key: Any]) -> Void)?
     /// Focuses the active selection's cell in a grid that stayed on screen.
     var onFocusRequest: (() -> Void)?
+    /// Whether the grid's cells accept edits, following the enclosing text view.
+    var isEditable = true {
+        didSet {
+            if isEditable != oldValue {
+                onEditabilityChange?()
+            }
+        }
+    }
+
+    var onEditabilityChange: (() -> Void)?
     /// Whether a presented table still needs its owner's cell selection focused.
     private var needsFocusAfterPresentation = false
     /// Cells whose text is replaced move their carets, which is not a user selection.
@@ -1025,6 +1035,14 @@ private enum MarkdownTableCellSourceCodec {
             controller.onFocusRequest = { [weak self] in
                 self?.focusActiveSelection()
             }
+            controller.onEditabilityChange = { [weak self] in
+                guard let self else {
+                    return
+                }
+                for field in self.fields.values {
+                    field.isEditable = self.controller.isEditable
+                }
+            }
             controller.onTypingAttributesChange = { [weak self] attributes in
                 guard let self, let selection = self.controller.activeSelection else {
                     return
@@ -1224,8 +1242,10 @@ private enum MarkdownTableCellSourceCodec {
             field.textContainer.lineFragmentPadding = 0
             field.setContentHuggingPriority(.required, for: .vertical)
             field.accessibilityLabel = markdownTableAccessibilityLabel(for: position)
+            field.isEditable = controller.isEditable
             field.onTab = { [weak self, weak field] backwards in
-                guard let self, let field else {
+                // Tabbing from the last cell appends a row.
+                guard let self, let field, field.isEditable else {
                     return
                 }
                 let destination = backwards
@@ -1441,6 +1461,25 @@ private enum MarkdownTableCellSourceCodec {
             }
         }
 
+        /// UIKit applies text input to a text view that is not editable.
+        override func insertText(_ text: String) {
+            if isEditable {
+                super.insertText(text)
+            }
+        }
+
+        override func deleteBackward() {
+            if isEditable {
+                super.deleteBackward()
+            }
+        }
+
+        override func replace(_ range: UITextRange, withText text: String) {
+            if isEditable {
+                super.replace(range, withText: text)
+            }
+        }
+
         override var undoManager: UndoManager? {
             var ancestor = superview
             while let view = ancestor {
@@ -1572,6 +1611,14 @@ private enum MarkdownTableCellSourceCodec {
             controller.onFocusRequest = { [weak self] in
                 self?.focusActiveSelection()
             }
+            controller.onEditabilityChange = { [weak self] in
+                guard let self else {
+                    return
+                }
+                for field in self.fields.values {
+                    field.isEditable = self.controller.isEditable
+                }
+            }
             controller.onTypingAttributesChange = { [weak self] attributes in
                 guard let self, let selection = self.controller.activeSelection else {
                     return
@@ -1627,7 +1674,8 @@ private enum MarkdownTableCellSourceCodec {
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard let field = textView as? AppKitMarkdownTableCellTextView else {
+            // Tabbing from the last cell appends a row.
+            guard let field = textView as? AppKitMarkdownTableCellTextView, field.isEditable else {
                 return false
             }
             let destination: MarkdownTableCellPosition?
@@ -1778,6 +1826,7 @@ private enum MarkdownTableCellSourceCodec {
             }
             configureText(of: field)
             field.delegate = self
+            field.isEditable = controller.isEditable
             field.backgroundColor = position.section == .header ? .controlBackgroundColor : .textBackgroundColor
             field.drawsBackground = true
             field.isRichText = true

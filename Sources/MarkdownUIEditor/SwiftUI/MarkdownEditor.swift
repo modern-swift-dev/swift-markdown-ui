@@ -17,6 +17,7 @@
         @StateObject private var editorContext = MarkdownEditorContext()
         @Environment(\.markdownEditorTheme) private var theme
         @Environment(\.markdownEditorShowsFormattingToolbar) private var showsFormattingToolbar
+        @Environment(\.markdownEditorIsEditable) private var isEditable
         @Environment(\.markdownEditorImageProvider) private var imageProvider
         @Environment(\.markdownEditorImageLoadingPolicy) private var imageLoadingPolicy
 
@@ -49,6 +50,7 @@
                     baseURL: baseURL,
                     imageProvider: imageProvider,
                     imageLoadingPolicy: imageLoadingPolicy,
+                    isEditable: isEditable,
                     editorContext: editorContext
                 )
 
@@ -243,6 +245,8 @@
             let imageProvider: (any MarkdownEditorImageProvider)?
             /// Decides which URLs image attachments may request.
             let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
+            /// Whether the native text view accepts edits.
+            let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
 
@@ -260,6 +264,7 @@
                 )
                 // Attach only after the session has its complete initial configuration.
                 textView.document = initialDocument
+                textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
                 return textView
             }
@@ -269,6 +274,9 @@
                 context.coordinator.update(
                     document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
                 )
+                if textView.isEditable != isEditable {
+                    textView.isEditable = isEditable
+                }
                 context.coordinator.context.setTextView(textView)
             }
 
@@ -332,6 +340,8 @@
             let imageProvider: (any MarkdownEditorImageProvider)?
             /// Decides which URLs image attachments may request.
             let imageLoadingPolicy: MarkdownEditorImageLoadingPolicy
+            /// Whether the native text view accepts edits.
+            let isEditable: Bool
             /// Command target installed for the focused editor.
             let editorContext: MarkdownEditorContext
 
@@ -367,6 +377,7 @@
                 )
                 // Attach only after the session has its complete initial configuration.
                 textView.document = initialDocument
+                textView.isEditable = isEditable
                 context.coordinator.context.setTextView(textView)
                 return scrollView
             }
@@ -379,6 +390,9 @@
                 context.coordinator.update(
                     document, theme: theme, baseURL: baseURL, imageProvider: imageProvider, in: textView
                 )
+                if textView.isEditable != isEditable {
+                    textView.isEditable = isEditable
+                }
                 context.coordinator.context.setTextView(textView)
             }
 
